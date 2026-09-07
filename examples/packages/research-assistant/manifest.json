@@ -1,0 +1,27 @@
+{
+  "id": "research-assistant",
+  "name": "Research Assistant",
+  "version": "1.0.0",
+  "description": "Read-only workspace context workflow for research missions.",
+  "author": "QUACK OS",
+  "trustLevel": "community",
+  "requiredCapabilities": ["permission.workspace.read"],
+  "allowedTools": ["core.workspace.list-files"],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "topic": { "type": "string" }
+    }
+  },
+  "outputSchema": {
+    "type": "object"
+  },
+  "executionLimits": {
+    "timeoutMs": 5000,
+    "maxIterations": 1,
+    "maxToolCalls": 1,
+    "maxRetriesPerStep": 0
+  },
+  "category": "research",
+  "tags": ["research", "workspace", "readonly"]
+}

@@ -1,0 +1,81 @@
+{
+  "version": "1.1.0",
+  "capabilities": [
+    {
+      "id": "cap-001",
+      "name": "AST-Based Multi-File Refactoring",
+      "subsystem": "SEA (Software Engineering Agent)",
+      "description": "Code patching and validation through the SWE patch engine; language support and safety depend on the operation.",
+      "implementation": "src/intelligence/patch/patch-engine.ts",
+      "status": "Implemented",
+      "productionReady": false,
+      "referenceInspiration": "OpenCode, Aider",
+      "adr": "docs/adr/0012-sea-editing-workflow.md",
+      "owner": "Core Team",
+      "dependencies": [
+        "WorkspaceManager",
+        "PluginSandbox"
+      ]
+    },
+    {
+      "id": "cap-002",
+      "name": "Durable DAG Workflow Engine",
+      "subsystem": "WorkflowEngine",
+      "description": "Workflow execution with checkpoint and recovery components. Durability and timeout behavior require execution-path-specific validation.",
+      "implementation": "src/engine/workflow-engine.ts",
+      "status": "Implemented",
+      "productionReady": false,
+      "referenceInspiration": "Temporal, n8n",
+      "adr": "docs/adr/0006-engine-workflow-runtime.md",
+      "owner": "Core Team",
+      "dependencies": [
+        "JsonFileCheckpointStore",
+        "SessionRuntime"
+      ]
+    },
+    {
+      "id": "cap-003",
+      "name": "Dynamic LLM Routing",
+      "subsystem": "AiRuntimeManager (AIRM)",
+      "description": "Capability-based model and provider selection in AIRM; not every production model call is routed through AIRM.",
+      "implementation": "src/airm/airm.ts",
+      "status": "Implemented",
+      "productionReady": false,
+      "referenceInspiration": "LiteLLM, vLLM",
+      "adr": "docs/adr/0022-ai-runtime-manager.md",
+      "owner": "Core Team",
+      "dependencies": [
+        "ProviderRegistry"
+      ]
+    },
+    {
+      "id": "cap-004",
+      "name": "Structured Audit Logging",
+      "subsystem": "Telemetry",
+      "description": "JSONL event persistence without cryptographic integrity protection or general payload redaction.",
+      "implementation": "src/telemetry/audit-log.ts",
+      "status": "Implemented",
+      "productionReady": false,
+      "referenceInspiration": "Langfuse",
+      "adr": "docs/adr/0002-persistent-runtime-state.md",
+      "owner": "Core Team",
+      "dependencies": [
+        "EventBus"
+      ]
+    },
+    {
+      "id": "cap-005",
+      "name": "Native Vector Similarity Search",
+      "subsystem": "KnowledgeGraphStore",
+      "description": "A future dense-vector retrieval integration. The proposed vector-engine implementation and RFC do not exist in this checkout.",
+      "implementation": null,
+      "status": "Planned",
+      "productionReady": false,
+      "referenceInspiration": "Chroma, Qdrant",
+      "owner": "Community",
+      "dependencies": [
+        "KnowledgeGraphStore"
+      ]
+    }
+  ]
+}

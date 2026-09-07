@@ -1,0 +1,27 @@
+{
+  "id": "document-assistant",
+  "name": "Document Assistant",
+  "version": "1.0.0",
+  "description": "Read-only workspace context workflow for document generation.",
+  "author": "QUACK OS",
+  "trustLevel": "community",
+  "requiredCapabilities": ["permission.workspace.read"],
+  "allowedTools": ["core.workspace.list-files"],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "documentType": { "type": "string" }
+    }
+  },
+  "outputSchema": {
+    "type": "object"
+  },
+  "executionLimits": {
+    "timeoutMs": 5000,
+    "maxIterations": 1,
+    "maxToolCalls": 1,
+    "maxRetriesPerStep": 0
+  },
+  "category": "documentation",
+  "tags": ["documentation", "workspace", "readonly"]
+}

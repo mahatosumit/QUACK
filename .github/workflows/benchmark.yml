@@ -1,0 +1,38 @@
+name: Scheduled Test Coverage
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "0 4 * * 1" # Every Monday
+
+jobs:
+  scheduled-coverage:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Capture test coverage (not a performance benchmark)
+        run: |
+          set -o pipefail
+          echo "Collecting test coverage; no competitive performance claim."
+          node --test --experimental-test-coverage "dist/**/*.test.js" 2>&1 | tee test-coverage-results.txt
+
+      - name: Store test coverage results
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-coverage-results
+          path: test-coverage-results.txt

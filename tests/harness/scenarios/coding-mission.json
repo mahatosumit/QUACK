@@ -1,0 +1,13 @@
+{
+  "id": "coding-mission",
+  "name": "Coding mission",
+  "missionInput": {
+    "missionId": "scenario-coding",
+    "goal": "inspect the repository and make a focused TypeScript change",
+    "actor": "benchmark"
+  },
+  "expectedTools": ["core.workspace.code-search", "core.workspace.read-file", "core.workspace.write-file"],
+  "expectedCapabilities": ["permission.workspace.read", "permission.workspace.write"],
+  "expectedOutcome": "success",
+  "tags": ["coding", "repository", "tool-chain"]
+}

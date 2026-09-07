@@ -1,0 +1,19 @@
+name: robotics
+description: Robotics planning and verification workflow.
+stages:
+  - id: model
+    agent: robotics-engineer
+    description: "Model the environment, constraints, and actuator capabilities"
+    depends_on: []
+  - id: plan
+    agent: planner
+    description: "Generate a bounded execution plan with safety checks"
+    depends_on: [model]
+  - id: validate
+    agent: tester
+    description: "Validate the plan against failure and recovery scenarios"
+    depends_on: [plan]
+outputs:
+  - robotics-plan.md
+  - safety-checklist.md
+risk_policy: high

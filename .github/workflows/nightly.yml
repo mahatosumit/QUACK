@@ -1,0 +1,33 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: "0 2 * * *" # Every day at 2 AM UTC
+
+jobs:
+  nightly:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Build
+        run: npm run build
+
+      - name: Full test suite
+        run: node --test "dist/**/*.test.js"
+
+      - name: Type check
+        run: npm run typecheck
+
+      - name: Check dependency status
+        run: npm audit --omit=dev

@@ -1,0 +1,10 @@
+{
+  "name": "hello-world-plugin",
+  "version": "1.0.0",
+  "description": "A simple greeting plugin",
+  "quack": {
+    "type": "plugin",
+    "api": "1.0",
+    "hooks": ["onReady"]
+  }
+}

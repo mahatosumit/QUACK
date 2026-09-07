@@ -1,0 +1,41 @@
+{
+  "id": "filesystem-assistant",
+  "name": "Filesystem Assistant",
+  "version": "1.0.0",
+  "description": "Lists files and reads a requested workspace file through declarative workspace tools.",
+  "author": "QUACK",
+  "trustLevel": "builtin",
+  "requiredCapabilities": ["permission.workspace.read"],
+  "allowedTools": ["core.workspace.list-files", "core.workspace.read-file"],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": { "type": "string" }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "executionLimits": {
+    "timeoutMs": 5000,
+    "maxIterations": 2,
+    "maxToolCalls": 2,
+    "maxRetriesPerStep": 0
+  },
+  "category": "file",
+  "tags": ["filesystem", "workspace", "read"],
+  "workflow": {
+    "steps": [
+      {
+        "id": "list",
+        "description": "List workspace files.",
+        "requiredTools": ["core.workspace.list-files"],
+        "toolInvocations": [
+          {
+            "toolId": "core.workspace.list-files",
+            "input": { "path": ".", "depth": 2 },
+            "reason": "Discover available workspace files."
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -1,0 +1,22 @@
+{
+  "timestamp": "2026-09-04T02:58:01.940Z",
+  "os": "win32",
+  "arch": "x64",
+  "nodeVersion": "v24.19.0",
+  "sampleCountPerOperation": 1,
+  "workspace": "isolated temporary fixture",
+  "routingStatus": "unsupported: no eligible model registered",
+  "limitations": [
+    "Single-process local observations, not production certification or a comparative baseline.",
+    "No model inference, workspace indexing, or workflow scheduling was measured.",
+    "Unavailable routing is reported as null rather than a successful latency measurement."
+  ],
+  "metrics": {
+    "firstInitializationMs": 8.858299999999986,
+    "repeatedInitializationMs": 2.2819000000000074,
+    "workspaceRegistrationMs": 0.031799999999975626,
+    "intelligenceRoutingMs": null,
+    "emptyMemoryRetrievalMs": 157.11529999999993,
+    "dagConstructionMs": 0.2635999999999967
+  }
+}

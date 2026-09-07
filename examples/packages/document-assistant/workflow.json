@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "id": "inspect-document-context",
+      "description": "List workspace files before document generation.",
+      "requiredTools": ["core.workspace.list-files"],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": { "path": ".", "depth": 1 },
+          "reason": "Find local source files that can inform generated documentation."
+        }
+      ],
+      "timeoutMs": 5000
+    }
+  ]
+}

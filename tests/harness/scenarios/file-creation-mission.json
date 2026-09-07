@@ -1,0 +1,13 @@
+{
+  "id": "file-creation-mission",
+  "name": "File creation mission",
+  "missionInput": {
+    "missionId": "scenario-file-create",
+    "goal": "create a workspace file with specified content",
+    "actor": "benchmark"
+  },
+  "expectedTools": ["core.workspace.write-file"],
+  "expectedCapabilities": ["permission.workspace.write"],
+  "expectedOutcome": "success",
+  "tags": ["workspace", "write", "happy-path"]
+}

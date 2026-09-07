@@ -1,0 +1,13 @@
+{
+  "id": "failed-tool-recovery",
+  "name": "Failed tool recovery",
+  "missionInput": {
+    "missionId": "scenario-recovery",
+    "goal": "recover from a transient workspace tool failure",
+    "actor": "benchmark"
+  },
+  "expectedTools": ["core.workspace.list-files"],
+  "expectedCapabilities": ["permission.workspace.read"],
+  "expectedOutcome": "success",
+  "tags": ["recovery", "tool-failure"]
+}

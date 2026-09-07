@@ -1,0 +1,20 @@
+name: software-development
+description: Autonomous software development workflow.
+stages:
+  - id: plan
+    agent: planner
+    description: "Analyze the goal, repository context, risks, and affected files"
+    depends_on: []
+  - id: implement
+    agent: software-engineer
+    description: "Apply the smallest compatible code change"
+    depends_on: [plan]
+  - id: verify
+    agent: tester
+    description: "Run targeted validation and report regressions"
+    depends_on: [implement]
+outputs:
+  - plan.md
+  - patch
+  - verification-report.md
+risk_policy: medium

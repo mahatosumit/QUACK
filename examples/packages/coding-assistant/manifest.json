@@ -1,0 +1,27 @@
+{
+  "id": "coding-assistant",
+  "name": "Coding Assistant",
+  "version": "1.0.0",
+  "description": "Read-only workspace inspection workflow for coding missions.",
+  "author": "QUACK OS",
+  "trustLevel": "community",
+  "requiredCapabilities": ["permission.workspace.read"],
+  "allowedTools": ["core.workspace.list-files"],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": { "type": "string" }
+    }
+  },
+  "outputSchema": {
+    "type": "object"
+  },
+  "executionLimits": {
+    "timeoutMs": 5000,
+    "maxIterations": 1,
+    "maxToolCalls": 1,
+    "maxRetriesPerStep": 0
+  },
+  "category": "coding",
+  "tags": ["coding", "workspace", "readonly"]
+}

@@ -1,0 +1,103 @@
+name: CI
+
+on:
+  push:
+    branches: [master]
+  pull_request:
+    branches: [master]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        # Node 24 = current LTS; node:sqlite (storage/coordination)
+        # requires >= 22.5. Node 20 is EOL and not covered.
+        node-version: [22, 24]
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Static quality and type checks (includes platform process-policy guard)
+        run: npm run lint
+
+      - name: Build
+        run: npm run build
+
+      - name: SDK typecheck
+        run: npm run typecheck:sdk
+
+      - name: Public documentation and packaging checks
+        run: |
+          node scripts/check-public-docs.mjs
+          node --test scripts/public-release.test.mjs
+
+      - name: Runtime and contract test suites
+        run: npm test
+
+      # Focused security/platform gates — run separately so a failure is
+      # attributable to a specific security surface, not lost in the full suite.
+      - name: Focused platform and process security tests
+        run: npm run build && node --test "dist/platform/platform.test.js" "dist/tools/terminal.test.js" "dist/tools/git-status.test.js"
+
+      - name: Focused skill discovery, privacy, and sandbox tests
+        run: node --test "dist/skills/discovery/discovery.test.js" "dist/skills/discovery/search.test.js" "dist/skills/execution-profile.test.js" "dist/skills/sandbox-runtime.test.js"
+
+      - name: Focused isolation and recovery tests
+        run: node --test "dist/isolation/isolation.test.js" "dist/storage/coordination.test.js" "dist/runtime/interrupted-recovery.test.js"
+
+      - name: SDK checks
+        run: npm --prefix sdk test
+
+  # Linux/macOS arm64 verification: the canonical architecture for ARM
+  # servers and Apple Silicon. x64 emulation for arm64 is too slow for the
+  # full suite; run the focused platform/coordination gates that encode
+  # OS-specific behavior.
+  arm64-focused:
+    strategy:
+      matrix:
+        include:
+          - os: ubuntu-24.04-arm
+            label: linux-arm64
+          - os: macos-14
+            label: macos-arm64
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Node.js 24
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Lint and build
+        run: npm run lint && npm run build
+
+      - name: Focused platform, path-security, and process tests
+        run: node --test "dist/platform/platform.test.js" "dist/tools/terminal.test.js" "dist/tools/git-status.test.js"
+
+      - name: Focused multi-process coordination tests
+        run: node --test "dist/storage/coordination.test.js"

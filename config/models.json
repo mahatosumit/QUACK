@@ -1,0 +1,15 @@
+{
+  "provider": "ollama",
+  "model": "qwen3.6:27b",
+  "providers": [
+    {
+      "provider": "ollama",
+      "id": "ollama",
+      "model": "qwen3.6:27b",
+      "baseUrl": "http://localhost:11434",
+      "fallback": true,
+      "capabilities": ["balanced", "reasoning", "coding"]
+    }
+  ],
+  "fallbackProviderId": "ollama"
+}

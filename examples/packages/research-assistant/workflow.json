@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "id": "inspect-research-context",
+      "description": "List available workspace context for a research task.",
+      "requiredTools": ["core.workspace.list-files"],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": { "path": ".", "depth": 1 },
+          "reason": "Discover local source material before research synthesis."
+        }
+      ],
+      "timeoutMs": 5000
+    }
+  ]
+}

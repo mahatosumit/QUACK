@@ -1,0 +1,17 @@
+{
+  "steps": [
+    {
+      "id": "inspect-workspace",
+      "description": "List top-level workspace files before coding analysis.",
+      "requiredTools": ["core.workspace.list-files"],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": { "path": ".", "depth": 1 },
+          "reason": "Understand workspace layout before selecting code files."
+        }
+      ],
+      "timeoutMs": 5000
+    }
+  ]
+}

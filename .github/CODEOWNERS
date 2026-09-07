@@ -1,0 +1,23 @@
+# Each line is a file pattern followed by one or more owners.
+# Order matters: the last matching pattern takes precedence.
+
+# Default owner for everything
+* @mahatosumit
+
+# Architecture and core design
+/src/core/ @mahatosumit
+/src/system/ @mahatosumit
+/docs/adr/ @mahatosumit
+
+# Security-sensitive files
+/SECURITY.md @mahatosumit
+/src/security/ @mahatosumit
+
+# Release and CI
+/CHANGELOG.md @mahatosumit
+/VERSION @mahatosumit
+/.github/workflows/release.yml @mahatosumit
+
+# Documentation
+/docs/ @mahatosumit
+/README.md @mahatosumit

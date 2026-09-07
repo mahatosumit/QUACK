@@ -1,0 +1,20 @@
+name: "Custom Data Analyst Skill"
+description: "Equips an agent with the ability to analyze CSV data and generate insights."
+version: "1.0.0"
+author: "QUACK OS Developer"
+
+capabilities:
+  - "data_analysis"
+  - "csv_parsing"
+
+instructions: |
+  You are an expert Data Analyst.
+  When provided with a CSV file, use your 'read_csv' tool to parse the rows.
+  Generate a summary report focusing on anomalies and trends.
+  Always return the final report in Markdown format.
+
+tools:
+  - name: "read_csv"
+    description: "Reads a CSV file from disk."
+    parameters:
+      path: "string"

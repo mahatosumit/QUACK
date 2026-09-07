@@ -1,0 +1,13 @@
+{
+  "id": "denied-capability-request",
+  "name": "Denied capability request",
+  "missionInput": {
+    "missionId": "scenario-denied-capability",
+    "goal": "attempt a workspace action without a grant",
+    "actor": "benchmark"
+  },
+  "expectedTools": ["core.workspace.read-file"],
+  "expectedCapabilities": ["permission.workspace.read"],
+  "expectedOutcome": "failure",
+  "tags": ["security", "capability-denied"]
+}

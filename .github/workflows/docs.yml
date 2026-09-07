@@ -1,0 +1,23 @@
+name: Documentation
+
+on:
+  push:
+    branches: [master]
+    paths: ["docs/**", "*.md", "sdk/README.md", "packaging/public-files.json", "scripts/check-public-docs.mjs"]
+  pull_request:
+    branches: [master]
+    paths: ["docs/**", "*.md", "sdk/README.md", "packaging/public-files.json", "scripts/check-public-docs.mjs"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate-docs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Validate links, public file manifest, and capability paths
+        run: node scripts/check-public-docs.mjs

@@ -1,0 +1,19 @@
+name: research
+description: Evidence-first research workflow.
+stages:
+  - id: scope
+    agent: researcher
+    description: "Define the question, sources, and acceptance criteria"
+    depends_on: []
+  - id: gather
+    agent: researcher
+    description: "Collect relevant evidence from approved sources"
+    depends_on: [scope]
+  - id: synthesize
+    agent: analyst
+    description: "Reconcile findings and identify uncertainty"
+    depends_on: [gather]
+outputs:
+  - research-notes.md
+  - findings.md
+risk_policy: low

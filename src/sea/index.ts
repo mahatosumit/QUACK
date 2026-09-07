@@ -1,0 +1,18 @@
+export { Sea } from "./sea.js";
+export type { SeaConfig, SeaEventType } from "./types.js";
+export { RepositoryUnderstanding } from "./understanding/repository-understanding.js";
+export { ArchitectureAnalyzer } from "./understanding/architecture-analyzer.js";
+export { WorkspaceAwareness } from "./understanding/workspace-awareness.js";
+export { SemanticNavigator } from "./navigation/semantic-navigator.js";
+export { CrossFileAnalyzer } from "./navigation/cross-file-analyzer.js";
+export { DependencyAnalyzer } from "./navigation/dependency-analyzer.js";
+export { EditingWorkflow } from "./editing/editing-workflow.js";
+export { IncrementalEditor } from "./editing/incremental-editor.js";
+export { RefactoringEngine } from "./editing/refactoring-engine.js";
+export { ReviewSystem } from "./review/review-system.js";
+export { TestIntelligence } from "./testing/test-intelligence.js";
+export { TestAnalyzer } from "./testing/test-analyzer.js";
+export { EngineeringReporter } from "./reporting/engineering-reporter.js";
+export { SeaMemory } from "./memory/sea-memory.js";
+export { LearningStore } from "./memory/learning-store.js";
+export * from "./types.js";

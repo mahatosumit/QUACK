@@ -1,0 +1,41 @@
+{
+  "id": "research",
+  "name": "Research Skill",
+  "version": "1.0.0",
+  "description": "Reads local research notes from the workspace. Network access is intentionally excluded in Skill Runtime v1.",
+  "author": "QUACK",
+  "trustLevel": "verified",
+  "requiredCapabilities": ["permission.workspace.read"],
+  "allowedTools": ["core.workspace.list-files", "core.workspace.read-file"],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "path": { "type": "string" }
+    }
+  },
+  "outputSchema": { "type": "object" },
+  "executionLimits": {
+    "timeoutMs": 5000,
+    "maxIterations": 1,
+    "maxToolCalls": 1,
+    "maxRetriesPerStep": 0
+  },
+  "category": "research",
+  "tags": ["research", "notes", "workspace"],
+  "workflow": {
+    "steps": [
+      {
+        "id": "list-notes",
+        "description": "List local workspace notes for research.",
+        "requiredTools": ["core.workspace.list-files"],
+        "toolInvocations": [
+          {
+            "toolId": "core.workspace.list-files",
+            "input": { "path": ".", "depth": 2 },
+            "reason": "Find local research material."
+          }
+        ]
+      }
+    ]
+  }
+}
