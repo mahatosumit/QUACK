@@ -81,6 +81,13 @@ export interface QuackRuntimeDependencies {
   readonly ownershipLeaseMs?: number;
   /** Explicitly disable multi-process ownership (single-process mode). */
   readonly disableOwnership?: boolean;
+  /**
+   * Standing-consent grant provisioner: supplies default capability grants
+   * for a freshly created mission from the operator's configured permission
+   * set. Called once per new mission BEFORE execution; grants flow through
+   * the normal grant registry (auditable, revocable) — never a broker bypass.
+   */
+  readonly missionGrantProvisioner?: (missionId: string, actor: string) => void;
 }
 
 function companyIdentityError(message: string): QuackError {
@@ -249,6 +256,19 @@ export class QuackRuntime {
 
     this.executionOwners.add(task.id);
     try {
+      // Standing consent: provision default mission grants (from the
+      // operator's configured permission set) before execution begins.
+      // No provisioner -> missions rely on explicitly configured grants.
+      try {
+        this.deps.missionGrantProvisioner?.(missionId, actor);
+      } catch (error) {
+        return fail({
+          code: "runtime.grant_provisioning_failed",
+          message: `Default mission grants could not be provisioned: ${error instanceof Error ? error.message : String(error)}`,
+          category: "permission",
+          recoverable: false,
+        });
+      }
       await this.deps.eventBus.emit("task.created", { goal }, { taskId: task.id, actor });
       const result = await this.runTask(task, actor, options, undefined, freshOwnership);
       return result;

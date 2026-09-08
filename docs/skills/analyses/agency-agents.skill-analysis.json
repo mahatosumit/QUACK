@@ -1,0 +1,282 @@
+{
+  "purpose": "Analysis of agency-agents — adaptation not recommended.",
+  "dependencies": [],
+  "permissionsRequired": [],
+  "filesystemAccess": [
+    "write"
+  ],
+  "networkRequirements": [
+    "http-client",
+    "external-http"
+  ],
+  "executionModel": "native-code",
+  "securityRisk": {
+    "riskClass": "HIGH",
+    "blockers": [
+      {
+        "severity": "BLOCKER",
+        "kind": "prompt-injection",
+        "detail": "engineering/engineering-prompt-engineer.md matches prompt-injection pattern."
+      }
+    ],
+    "warnings": [
+      {
+        "severity": "WARNING",
+        "kind": "obfuscated-execution",
+        "detail": "engineering/engineering-ai-data-remediation-engineer.md matches obfuscated-execution pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-ai-data-remediation-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-autonomous-optimization-architect.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-backend-architect.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "obfuscated-execution",
+        "detail": "engineering/engineering-cms-developer.md matches obfuscated-execution pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-cms-developer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-developer-tooling-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-drupal-shopping-cart.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-email-intelligence-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-feishu-integration-developer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-identity-access-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-iot-fleet-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-llm-post-training-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-payments-billing-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-privacy-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-solidity-smart-contract-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-technical-writer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-voice-ai-integration-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-wechat-mini-program-developer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "engineering/engineering-wordpress-shopping-cart.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "examples/workflow-startup-mvp.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "examples/workflow-with-memory.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "game-development/economy-designer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "game-development/narrative-designer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "integrations/mcp-memory/backend-architect-with-memory.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "marketing/marketing-bilibili-content-strategist.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "marketing/marketing-carousel-growth-engine.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "project-management/project-management-jira-workflow-steward.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "README.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/convert.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/install.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/test-convert-frontmatter.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/test-convert-outputs.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/test-install.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "security/security-ai-generated-code-auditor.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "security/security-compliance-auditor.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "security/security-incident-responder.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "security/security-incident-responder.md matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "security/security-penetration-tester.md matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "obfuscated-execution",
+        "detail": "security/security-senior-secops.md matches obfuscated-execution pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "security/security-senior-secops.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "security/security-threat-detection-engineer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "security/security-threat-intelligence-analyst.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "specialized/customer-service.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "specialized/healthcare-customer-service.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "specialized/specialized-codebase-archaeologist.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "specialized/specialized-workflow-architect.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "support/support-infrastructure-maintainer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "secret-requirements",
+        "detail": "Repository reads credential-shaped environment variables."
+      }
+    ],
+    "verdict": "REJECT",
+    "summary": "Rejected: prompt-injection."
+  },
+  "adaptationRecommendation": "Blockers present: prompt-injection. | REJECTED — no adaptation plan.",
+  "analyzedAt": "2026-09-08T13:41:59.172Z",
+  "sourceRepository": "agency-agents",
+  "languages": [
+    "Shell",
+    "Python",
+    "PowerShell"
+  ],
+  "capabilities": [],
+  "fileCount": 351
+}

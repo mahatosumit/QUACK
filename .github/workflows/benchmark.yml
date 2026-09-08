@@ -2,7 +2,7 @@ name: Scheduled Test Coverage
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
   schedule:
     - cron: "0 4 * * 1" # Every Monday
 

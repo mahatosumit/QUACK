@@ -28,6 +28,16 @@ export interface QuackConfig {
   readonly research?: {
     readonly agentReach?: AgentReachToolAdapterConfig;
   };
+  /**
+   * Mission completion certification mode. Default "evidence" wires the
+   * deterministic workflow-evidence validator (contract v1): missions
+   * complete only with a bound VerificationRecordV1 over governed workflow
+   * evidence. "brain" defers certification to the configured brain's
+   * verifyExecution (fresh machines without a real provider then fail
+   * closed, as before). "none" is not a bypass — completion then requires
+   * an explicit verifyExecution dependency and is otherwise refused.
+   */
+  readonly workflowVerification?: "evidence" | "brain" | "none";
 }
 
 /** Creates a default {@link QuackConfig}, merging any user-supplied overrides. */
@@ -49,6 +59,7 @@ export function createDefaultConfig(options: Partial<QuackConfig> = {}): QuackCo
       cooldownMs: options.improvement?.cooldownMs ?? 5 * 60 * 1000, // 5 minutes
     },
     research: options.research,
+    workflowVerification: options.workflowVerification ?? "evidence",
   };
 }
 

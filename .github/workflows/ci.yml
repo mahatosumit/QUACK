@@ -2,9 +2,9 @@ name: CI
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
   pull_request:
-    branches: [master]
+    branches: [main, master]
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -101,3 +101,57 @@ jobs:
 
       - name: Focused multi-process coordination tests
         run: node --test "dist/storage/coordination.test.js"
+
+  # Installer smoke test: builds the real tarball, installs it into a clean
+  # directory, and exercises the production CLI surface on every supported
+  # OS/arch combination. This is the closest CI proxy to the fresh-machine
+  # test (real npm publish happens only in the release workflow).
+  installer-smoke:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: [22, 24]
+      fail-fast: false
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: npm
+
+      - name: Build and pack distribution tarball
+        run: |
+          npm ci
+          npm run build
+          npm pack --pack-destination "$PWD/release"
+      - name: Install into clean directory
+        shell: bash
+        run: |
+          mkdir "$RUNNER_TEMP/smoke" && cd "$RUNNER_TEMP/smoke"
+          npm init -y >/dev/null
+          npm install "$GITHUB_WORKSPACE/release/"*.tgz --no-audit --no-fund
+      - name: CLI smoke test (fresh home)
+        shell: bash
+        env:
+          QUACK_HOME: ${{ runner.temp }}/smoke/quack-home
+        run: |
+          CLI="node_modules/@quack/os/dist/cli.js"
+          node "$CLI" --version
+          node "$CLI" init
+          node "$CLI" doctor --json | grep -q '"ready": true'
+          node "$CLI" status
+          node "$CLI" config
+      - name: bash installer fail-closed syntax check
+        if: runner.os != 'Windows'
+        run: bash -n installers/install.sh && echo "install.sh syntax OK"
+
+      # The Pages-served installer copies (website/) are what users actually
+      # pipe to a shell — they must never drift from installers/.
+      - name: Installer copy drift check
+        if: runner.os == 'Linux'
+        run: |
+          diff installers/install.sh website/install.sh
+          diff installers/install.ps1 website/install.ps1

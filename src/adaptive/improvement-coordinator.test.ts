@@ -66,7 +66,17 @@ test("cycle failure is recorded without throwing from the completion hook", asyn
 });
 
 test("a mission without an executor cannot trigger the verified-completion hook", async t => {
-  const { system, events } = await fixture(t, { minimumEvidence: 0 });
+  // workflowVerification: "none" keeps this fixture in the no-verifier
+  // state: without a certification path the mission must fail closed and
+  // the improvement loop must never observe a completion.
+  const dataDir = await mkdtemp(join(tmpdir(), "quack-improvement-none-"));
+  t.after(async () => { await system.events.drain(); await rm(dataDir, { recursive: true, force: true }); });
+  const system = createQuackSystem({ dataDir, workflowVerification: "none", improvement: {
+    enabled: true, autoEvaluate: true, minimumEvidence: 0, cooldownMs: 0,
+  } });
+  const events: string[] = [];
+  const detach = system.events.onAny(event => { events.push(event.type); });
+  t.after(detach);
   const result = await system.runtime.submitGoal("Unimplemented arbitrary work", "test");
   assert.equal(result.ok, true);
   assert.equal(result.data.status, "failed");

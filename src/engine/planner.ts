@@ -123,25 +123,35 @@ export class Planner {
       return this.buildWorkspaceListingGraph(goal);
     }
 
-    // Analyze phase
+    // Analyze phase: list workspace files (bounded, read-only, safe static input).
     const analyzeId = createId("node");
     nodes.push(this.makeNode(analyzeId, `Analyze: ${goal}`, {
       dependencies: [],
       priority: "high",
-      tools: ["core.workspace.list-files", "core.workspace.read-file"],
+      tools: ["core.workspace.list-files"],
+      toolInvocations: [{
+        toolId: "core.workspace.list-files",
+        input: { path: ".", depth: 2 },
+        reason: "Gather a bounded file listing from the configured workspace root.",
+      }],
       description: `Analyze the goal "${goal}" and gather initial context.`,
     }));
 
-    // Context gathering phase
+    // Context gathering phase: search for goal-relevant text (plain-string pattern).
     const contextId = createId("node");
     nodes.push(this.makeNode(contextId, "Gather context", {
       dependencies: [analyzeId],
       priority: "high",
-      tools: ["core.workspace.code-search", "core.workspace.read-file"],
+      tools: ["core.workspace.code-search"],
+      toolInvocations: [{
+        toolId: "core.workspace.code-search",
+        input: { pattern: this.searchPatternFor(goal), maxResults: 50 },
+        reason: "Search the workspace for text related to the goal.",
+      }],
       description: "Search for relevant code, symbols, and documentation.",
     }));
 
-    // Planning phase
+    // Planning phase (no tools — reasoning step)
     const planId = createId("node");
     nodes.push(this.makeNode(planId, "Develop execution plan", {
       dependencies: [contextId],
@@ -150,7 +160,12 @@ export class Planner {
       description: "Develop detailed execution plan based on context.",
     }));
 
-    // Main execution phase — decompose based on complexity indicators
+    // Main execution phase — decompose based on complexity indicators.
+    // Tools with context-dependent inputs (read/write/terminal) are NOT
+    // declared here: a static planner cannot derive their inputs, and the
+    // workflow engine fails nodes that declare tools without invocations.
+    // These steps run as reasoning steps; deeper execution requires an
+    // LLM-backed planner or an explicit precompiled graph.
     const hasMultipleParts = ["and", "then", "also", "additionally", "refactor", "implement", "create", "build", "add", "fix", "update"].some((w) => lower.includes(w));
     const executionDeps: string[] = [];
 
@@ -158,7 +173,7 @@ export class Planner {
     nodes.push(this.makeNode(mainId, `Execute: ${goal}`, {
       dependencies: [planId],
       priority: "high",
-      tools: ["core.workspace.read-file", "core.workspace.write-file", "core.terminal.execute"],
+      tools: [],
       timeoutMs: Math.max(this.config.defaultTimeoutMs, 120_000),
       description: `Carry out the primary task: ${goal}.`,
     }));
@@ -169,38 +184,38 @@ export class Planner {
       nodes.push(this.makeNode(secondaryId, "Execute secondary tasks", {
         dependencies: [mainId],
         priority: "medium",
-        tools: ["core.workspace.read-file", "core.workspace.write-file"],
+        tools: [],
         description: "Complete additional tasks identified during planning.",
       }));
       executionDeps.push(secondaryId);
     }
 
-    // Validation phase
+    // Validation phase (reasoning step)
     const validateId = createId("node");
     nodes.push(this.makeNode(validateId, "Validate changes", {
       dependencies: executionDeps,
       priority: "critical",
-      tools: ["core.terminal.execute"],
+      tools: [],
       description: "Run typecheck, lint, and build to validate changes.",
       timeoutMs: 60_000,
     }));
 
-    // Test phase
+    // Test phase (reasoning step)
     const testId = createId("node");
     nodes.push(this.makeNode(testId, "Run tests", {
       dependencies: [validateId],
       priority: "high",
-      tools: ["core.terminal.execute"],
+      tools: [],
       description: "Execute test suite and verify all tests pass.",
       timeoutMs: 120_000,
     }));
 
-    // Final verification
+    // Final verification (reasoning step)
     const verifyId = createId("node");
     nodes.push(this.makeNode(verifyId, "Final verification", {
       dependencies: [testId],
       priority: "high",
-      tools: ["core.workspace.list-files", "core.git.status"],
+      tools: [],
       description: "Review changes, check git status, and produce summary.",
     }));
 
@@ -258,6 +273,20 @@ export class Planner {
 
   private isWorkspaceListingGoal(goal: string): boolean {
     return /\b(list|show|inspect)\b/.test(goal) && /\b(workspace|files?|repo|repository)\b/.test(goal);
+  }
+
+  /**
+   * Plain-string search pattern derived from the goal: strip planning verbs,
+   * keep the first few meaningful words, and cap the length. Used as the
+   * default code-search input; regex is never enabled for it.
+   */
+  private searchPatternFor(goal: string): string {
+    const meaningful = goal
+      .replace(/\b(please|analyze|implement|create|build|fix|update|improve|refactor|the|a|an|and|then|also|additionally)\b/gi, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+    const pattern = meaningful.split(" ").slice(0, 4).join(" ");
+    return (pattern || goal).slice(0, 80);
   }
 
   private buildWorkspaceListingGraph(goal: string): TaskGraph {

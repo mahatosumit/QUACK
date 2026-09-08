@@ -64,6 +64,7 @@ import { IdentityMemoryStore } from "../memory/identity-memory.js";
 import { DecisionMemoryStore } from "../memory/decision-memory.js";
 import { RiskAwareApprovalPolicy } from "../security/approval-controller.js";
 import { JsonFileCapabilityGrantRegistry, PermissionBackedCapabilityBroker, buildToolCapabilityRequest, type CapabilityBroker, type CapabilityGrantRegistry } from "../security/capability-broker.js";
+import { readProviderCredentialForBoot } from "../security/secret-provider.js";
 import { EvaluatorAgent, type QualityReport } from "../evaluation/evaluator-agent.js";
 import { KnowledgeIngestionPipeline } from "../intelligence/ingestion-pipeline.js";
 import { WorkflowLoader, type WorkflowDefinition } from "../engine/workflow-loader.js";
@@ -79,6 +80,7 @@ import { InMemoryActionExecutionLedger } from "../actions/ledger.js";
 import { SkillRuntime } from "../skills/runtime/index.js";
 import { JsonFileSkillPackageStore, SkillPackageManager } from "../skills/packages/index.js";
 import { createWorkforce, type Workforce } from "../agents/index.js";
+import { buildPersonaWorkforce, PERSONAS, type PersonaDefinition } from "../agents/personas/personas.js";
 import { QuackApi } from "../api/index.js";
 import { DeveloperDashboard } from "../dashboard/index.js";
 import { createId } from "../core/types.js";
@@ -87,7 +89,67 @@ import { NetworkPolicyEngine } from "../security/network-policy.js";
 import { PlaywrightBrowserActionProvider } from "../browser/index.js";
 import { MissionCompanyRuntime, resolveCompanyExecutionPrincipal } from "../company/index.js";
 import { McpServerRegistry } from "../actions/mcp.js";
+import { validateWorkflow } from "../system/validation.js";
+import { QUACK_CONTRACT_VERSION } from "../contracts/v1/contracts.js";
+import type { ValidationProvider, ValidationRequest } from "../extensions/types.js";
 import { ExperienceStore, createExperienceStore, ExperienceBroker, createExperienceBroker, DailyLearningRoutine, createDailyLearningRoutine } from "../learning/index.js";
+
+/**
+ * Deterministic workflow-evidence validator (contract v1). Certifies a
+ * mission only when the bound workflow evidence record shows every node
+ * completed with no failures or skips and at least one governed tool call —
+ * the same completion contract the loop result enforces, issued as a bound
+ * VerificationRecordV1 rather than a structural self-assertion.
+ */
+const workflowEvidenceValidator: ValidationProvider = {
+  id: "quack.workflow-evidence",
+  version: "1.0.0",
+  validate(request: ValidationRequest) {
+    const evidenceData = request.evidence[0]?.data as {
+      readonly status?: string;
+      readonly completedNodes?: readonly string[];
+      readonly failedNodes?: readonly string[];
+      readonly skippedNodes?: readonly string[];
+      readonly nodeResults?: Record<string, { readonly toolCalls?: readonly unknown[] }>;
+    } | undefined;
+    const completed = evidenceData?.completedNodes ?? [];
+    const failed = evidenceData?.failedNodes ?? [];
+    const skipped = evidenceData?.skippedNodes ?? [];
+    const callCount = completed.flatMap((id) => evidenceData?.nodeResults?.[id]?.toolCalls ?? []).length;
+    const passed = Boolean(evidenceData)
+      && evidenceData!.status === "completed"
+      && completed.length > 0
+      && failed.length === 0
+      && skipped.length === 0
+      && callCount > 0;
+    return {
+      contractVersion: QUACK_CONTRACT_VERSION,
+      id: `verification-${request.execution.executionId}`,
+      missionId: request.execution.missionId,
+      executionId: request.execution.executionId,
+      verifier: "quack.workflow-evidence",
+      checkedAt: new Date().toISOString(),
+      evidenceIds: request.evidence.map((record) => record.id),
+      message: passed
+        ? "Workflow evidence verified: all nodes completed with governed tool evidence."
+        : `Workflow evidence rejected: status=${evidenceData?.status ?? "none"}, completed=${completed.length}, failed=${failed.length}, skipped=${skipped.length}, toolCalls=${callCount}.`,
+      status: passed ? "PASSED" : "FAILED",
+    };
+  },
+};
+
+/**
+ * Auto-approvable standing-consent permissions: safe to grant to fresh
+ * missions by default because they are read-only or memory-local. Anything
+ * else (terminal.execute, git.write, workspace.write, ...) requires an
+ * explicit capability grant or an approver — never granted implicitly.
+ */
+const STANDING_CONSENT_PERMISSIONS: ReadonlySet<string> = new Set([
+  "memory.read",
+  "memory.write",
+  "workspace.read",
+]);
+
 export interface QuackSystem {
   readonly runtime: QuackRuntime;
   readonly events: EventBus;
@@ -120,6 +182,9 @@ export interface QuackSystem {
   readonly skillRuntime: SkillRuntime;
   readonly skillPackages: SkillPackageManager;
   readonly workforce: Workforce;
+  /** Phase 7E: style-only persona workforce over the same base agents. */
+  readonly personaWorkforce: Workforce;
+  readonly personas: readonly PersonaDefinition[];
   readonly api: QuackApi;
   readonly dashboard: DeveloperDashboard;
   readonly skillOrchestrator: SkillOrchestrator;
@@ -234,7 +299,10 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
     runtime: "in-process",
     boundary: "local",
   });
-  const openAiKey = process.env["QUACK_OPENAI_API_KEY"];
+  // Provider credential resolution flows through the SecretProvider boundary
+  // (Phase 7A contract): allowlist + consumer binding enforced at boot; raw
+  // process.env credential reads live ONLY in the security layer.
+  const openAiKey = readProviderCredentialForBoot("QUACK_OPENAI_API_KEY", "provider.openai-compatible");
   if (openAiKey) {
     const baseUrl = process.env["QUACK_OPENAI_BASE_URL"] ?? "https://api.openai.com/v1";
     registerProvider(
@@ -252,7 +320,7 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
       },
     );
   }
-  const nvidiaKey = process.env["NVIDIA_API_KEY"];
+  const nvidiaKey = readProviderCredentialForBoot("NVIDIA_API_KEY", "provider.nvidia-nim");
   if (nvidiaKey) {
     const baseUrl = process.env["QUACK_NVIDIA_BASE_URL"] ?? "https://integrate.api.nvidia.com/v1";
     registerProvider(
@@ -605,6 +673,23 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   });
 
 runtime = new QuackRuntime({
+    // Standing consent: each fresh mission receives default capability grants
+    // derived from the operator's configured permission set (swe-config
+    // defaults: memory.read/write, workspace.read). Auto-approvable only —
+    // elevated permissions (terminal, git.write, ...) still require explicit
+    // grants or an approver. Grants are persisted, auditable, revocable.
+    missionGrantProvisioner: (missionId, actor) => {
+      for (const permission of config.permissions) {
+        if (STANDING_CONSENT_PERMISSIONS.has(permission)) {
+          capabilityGrants.ensureGrant({
+            missionId,
+            capabilities: [`permission.${permission}`],
+            approval: { approvedBy: "standing-consent", reason: `Default grant from configured permission set (${permission}).`, approvedAt: new Date().toISOString() },
+          });
+        }
+      }
+      void actor;
+    },
     prepareGraph: async (graph, task, selection) => compileSkillContributions(graph,
       (selection?.selected ?? []).flatMap((selected) => {
         const definition = skillRegistry.get(selected.skillId, selected.version);
@@ -624,6 +709,27 @@ runtime = new QuackRuntime({
     skillFitness,
     skillExecutor,
     skills: skillRegistry,
+    // Mission completion certification (see QuackConfig.workflowVerification):
+    // "evidence" (default) wires the deterministic workflow-evidence
+    // validator — a bound VerificationRecordV1 over governed workflow
+    // evidence (all nodes completed, none failed/skipped, tool evidence
+    // present) is required to complete a mission. The runtime-supplied
+    // recoveryEvidence is passed through as the bound evidence record so the
+    // durable checkpoint's recovery.evidence.id and the record's evidenceIds
+    // agree (execution-recovery binding contract). "brain"/"none" leave
+    // certification to the brain's verifyExecution or an explicit
+    // verifyExecution dependency — without one, missions fail closed.
+    ...(config.workflowVerification === "evidence" ? {
+      verifyExecution: (task: import("../runtime/task.js").Task, state: import("../engine/types.js").WorkflowState, context: import("../brain/brain.js").BrainContext) => validateWorkflow(workflowEvidenceValidator, {
+        contractVersion: QUACK_CONTRACT_VERSION,
+        missionId: context.missionId ?? task.id,
+        taskId: task.id,
+        executionId: task.id,
+        actor: context.actor,
+        signal: context.signal,
+        deadline: context.deadline,
+      }, task.goal, state, context.recoveryEvidence),
+    } : {}),
     workspaceRoot: config.workspaceRoot,
     dataDir: config.dataDir,
     missionId: config.missionId,
@@ -681,6 +787,12 @@ const agentLoop = new AgentLoop({
     store: new JsonFileSkillPackageStore(join(config.dataDir, "skills", "packages.json")),
   });
   const workforce = createWorkforce(skillRuntime, gatedModelRuntime, { definitions: defaultSpecialistAgents() });
+  // Phase 7E: persona workforce — style-only decorated variants of the same
+  // base agents; they carry identical capabilities/skills/trust and never
+  // widen authority (enforced by src/agents/personas tests).
+  const personaWorkforce = createWorkforce(skillRuntime, gatedModelRuntime, {
+    definitions: buildPersonaWorkforce(defaultSpecialistAgents()),
+  });
 
     // --- Wire the controlled self-modification gate (never auto-merges) ---
   const selfModification = new CodeImprovementController({
@@ -745,6 +857,8 @@ const agentLoop = new AgentLoop({
       skillRuntime,
       skillPackages,
       workforce,
+      personaWorkforce,
+      personas: PERSONAS,
       api,
       dashboard: undefined as unknown as DeveloperDashboard,
       skillOrchestrator,

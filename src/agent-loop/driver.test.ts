@@ -13,15 +13,15 @@ import { AllowListPermissionPolicy } from "../security/permissions.js";
 import { ok, type JsonObject } from "../core/types.js";
 import type { LoopDependencies } from "./contract.js";
 
-function makeDriver(harness: QuackNativeHarness, verifyExecution?: LoopDependencies["verifyExecution"]) {
+function makeDriver(harness: QuackNativeHarness, verifyExecution?: LoopDependencies["verifyExecution"], planOverride?: LoopDependencies["plan"]) {
   const sessions = SessionRuntime.create({ maxActiveSessions: 10, snapshotRetentionCount: 1, autoSnapshotIntervalMs: 0,
     schedulerConfig: { maxParallelNodes: 2, defaultTimeoutMs: 2000, queuePollIntervalMs: 1 },
     defaultRetryPolicy: { maxRetries: 0, backoff: "fixed", baseDelayMs: 0, maxDelayMs: 0 }, checkpointInterval: 0 });
   const planner = new Planner({ defaultRetryPolicy: { maxRetries: 0, backoff: "fixed", baseDelayMs: 0, maxDelayMs: 0 }, defaultTimeoutMs: 2000, maxNodesPerGraph: 10 });
   return new DefaultLoopDriver({ harness, verifyExecution, capabilityBroker: new PermissionBackedCapabilityBroker(new AllowListPermissionPolicy([])),
     eventBus: new EventBus(), memory: new InMemoryMemoryStore(),
-    plan: (goal) => { const plan = planner.createPlan(goal, ""); return { planId: plan.id, strategy: plan.strategy, taskGraph: plan.taskGraph,
-      nodes: plan.taskGraph.nodes.map((node) => ({ ...node, toolInvocations: node.toolInvocations ?? [] })), requiredCapabilities: plan.requiresPermissions }; },
+    plan: planOverride ?? ((goal: string) => { const plan = planner.createPlan(goal, ""); return { planId: plan.id, strategy: plan.strategy, taskGraph: plan.taskGraph,
+      nodes: plan.taskGraph.nodes.map((node) => ({ ...node, toolInvocations: node.toolInvocations ?? [] })), requiredCapabilities: plan.requiresPermissions }; }),
     executeGraph: async (plan, context) => {
       const sessionId = await sessions.createSession();
       const calls: LoopToolCall[] = [];
@@ -75,7 +75,18 @@ test("driver rejects unsupported planning without dispatch and honours pre-cance
   let calls = 0;
   const harness = new QuackNativeHarness({ runtime: { executeTool: async () => { calls++; return ok({}); } } }, { harnessId: "QUACK_NATIVE" });
   await harness.start({ harnessId: "QUACK_NATIVE" });
-  const driver = makeDriver(harness);
+  // A planner that produces no dispatchable invocations must fail the run
+  // without executing anything. (Since the static Planner now materializes
+  // safe default invocations for every goal, this is injected directly to
+  // exercise the driver's rejection path.)
+  const emptyPlan: LoopDependencies["plan"] = async () => ({
+    planId: "plan-empty", strategy: "unsupported", taskGraph: {
+      id: "graph-empty", description: "", nodes: [], edges: [],
+      createdAt: new Date().toISOString(), updatedAt: new Date().toISOString(), metadata: {},
+    },
+    nodes: [], requiredCapabilities: [],
+  });
+  const driver = makeDriver(harness, undefined, emptyPlan);
   assert.equal((await driver.start({ goal: "invent and deliver a new product" })).state, "FAILED");
   assert.equal((await driver.start({ goal: "inspect workspace", signal: AbortSignal.abort() })).state, "CANCELLED");
   assert.equal(calls, 0);

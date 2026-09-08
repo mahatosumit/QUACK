@@ -1,15 +1,62 @@
 # QUACK OS
 
 
-**QUACK OS** (Quantum Unified Autonomous Cognitive Kernel) is a local-first AI runtime for orchestrated workflows, policy-gated actions, durable state, and vendor-neutral model providers. The current solo Windows candidate is **not production-certified**; see the [readiness report](docs/production/PRODUCTION_READINESS_REPORT.md) for blocking evidence.
+**QUACK OS** (Quantum Unified Autonomous Cognitive Kernel) is a local-first AI runtime for orchestrated workflows, policy-gated actions, durable state, and vendor-neutral model providers.
+
+**Production status: v1.0 release candidate.** Core runtime, planner, CapabilityBroker governance, durable recovery, evidence/verification/receipt chain, CLI, skill ecosystem, and provider validation are tested (1516/1516 tests). Verified on Windows (Node 22+) in this release cycle; cross-platform CI validation is pending — see [readiness report](docs/production/PRODUCTION_READINESS_REPORT.md). Missions execute deterministic governed workflows; provider model generation is exercised by provider health checks and the model runtime, not by in-mission reasoning nodes.
+
+## Providers & credentials
+
+QUACK is provider-optional at boot. Providers auto-register when their credential env vars are present (values are read only through the security layer, never logged or exposed):
+
+| Provider | Env var |
+| :--- | :--- |
+| NVIDIA NIM | `NVIDIA_API_KEY` |
+| OpenAI-compatible | `QUACK_OPENAI_API_KEY` (+ `QUACK_OPENAI_BASE_URL`) |
+| vLLM | `QUACK_VLLM_BASE_URL` + `QUACK_VLLM_MODEL` |
+| Ollama (local) | `QUACK_OLLAMA_BASE_URL` |
+| Anthropic | `ANTHROPIC_API_KEY` |
+
+Validate with `quack provider list`, `quack provider doctor`, `quack provider test <id>` — see [provider setup](docs/providers/setup.md).
+
+## Skill security model
+
+Every capability flows through one governed path: `CLI → QuackRuntime → Planner → CapabilityBroker → governed tool execution → evidence → verification → receipt`. External repositories are analyzed statically (never executed), quarantined, and installed only through explicit human approval (`quack skills install` / `enable`). Risk classes are derived from declared requirements, not claims. See [skill ecosystem](docs/skills/ecosystem.md) and [external skill security](docs/security/external-skills.md).
 
 Built on POSIX-inspired operating system design patterns, QUACK OS abstracts prompt engineering, multi-agent state coordination, durable workflow execution, and model divergence behind a unified, resilient system kernel.
 
 ---
 
-## ⚡ Zero-Friction Universal Startup
+## ⚡ Install QUACK
 
-QUACK OS features an automated, cross-platform bootstrap system. A single launcher automatically validates Node.js versions, installs dependencies, compiles TypeScript assets, executes health diagnostics, and boots the system server across **Windows**, **Linux**, and **macOS**.
+Requires Node.js >= 22.5 (npm included). No repository clone, no build step.
+
+```bash
+npm install -g @quack/os
+```
+
+or the official installer:
+
+| Platform | Command |
+| :--- | :--- |
+| **Linux / macOS** | `curl -fsSL https://quack.os/install.sh \| bash` |
+| **Windows (PowerShell)** | `irm https://quack.os/install.ps1 \| iex` |
+
+Then:
+
+```bash
+quack init      # first-run: creates ~/.quack (config/data/logs/skills)
+quack doctor    # health check: runtime, storage, recovery, security, skills
+quack run "<goal>"   # governed mission execution
+```
+
+Full reference: [CLI docs](docs/cli/CLI.md) · [Install guide](docs/install/INSTALL.md)
+
+---
+
+## 🚀 From a repository clone
+
+QUACK OS features an automated bootstrap system. A single launcher validates Node.js versions, installs dependencies, compiles TypeScript assets, executes health diagnostics, and boots the system server. Verified end-to-end on **Windows** this release cycle; **Linux** and **macOS** launchers exist and are exercised in CI (see RELEASE_PROCESS.md) — cross-platform production claims await CI evidence.
 
 ### Quick Start (One Command)
 

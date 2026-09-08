@@ -1,0 +1,30 @@
+{
+  "skillId": "reasoning.blind-spots",
+  "checks": [
+    {
+      "id": "policy-1",
+      "rule": "Enumerate failure modes: what breaks under load, edge input, or partial failure.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-2",
+      "rule": "Check security boundaries: input validation, authorization, secrets, injection.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-3",
+      "rule": "Check data integrity: loss, duplication, corruption, leak paths.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-4",
+      "rule": "Check the quiet paths: error states, empty states, denied states.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-5",
+      "rule": "Name at least one risk the current plan does not handle.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    }
+  ]
+}

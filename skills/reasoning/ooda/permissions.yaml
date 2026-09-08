@@ -1,0 +1,12 @@
+# reasoning.ooda permission declaration
+risk-class: LOW
+category: reasoning-policy
+permissions:
+  - workspace.read        # grounding only
+network: none
+secrets: none
+filesystem: read-only (workspace listing)
+execution: governed-declarative (no arbitrary code)
+# This skill NEVER grants permissions and NEVER bypasses the CapabilityBroker.
+# Elevated permissions requested by this skill's content must be denied:
+deny-escalation: true

@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "id": "ground",
+      "description": "Ground the reasoning discipline in the actual workspace before applying it.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Ground OODA policy in real files."
+        }
+      ],
+      "timeoutMs": 5000
+    },
+    {
+      "id": "apply-policy",
+      "description": "Apply OODA policy: Observe: gather only facts relevant to the current decision. Orient: relate observations to the goal and known constraints. Decide: choose one action with an explicit reason and a reversibility check. Act: execute the decision, then observe the result before the next loop. If the observation contradicts the orientation, restart the loop instead of forcing the action.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Read-only policy application anchor; no state is mutated."
+        }
+      ],
+      "timeoutMs": 5000
+    }
+  ]
+}

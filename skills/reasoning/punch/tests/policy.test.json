@@ -1,0 +1,25 @@
+{
+  "skillId": "reasoning.punch",
+  "checks": [
+    {
+      "id": "policy-1",
+      "rule": "Identify the single action that directly satisfies the goal.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-2",
+      "rule": "Execute it without preamble, scaffolding, or unrequested elaboration.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-3",
+      "rule": "Report result and evidence in the fewest words that remain unambiguous.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-4",
+      "rule": "Skip anything that does not change the outcome.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    }
+  ]
+}

@@ -181,7 +181,10 @@ test("SkillRuntime handles workflow timeout limits", async () => {
     try {
       const result = await system.skillRuntime.executeSkill("timeout-skill", { goal: "wait", parameters: {} });
       assert.equal(result.ok, false);
-      assert.match(result.error ?? "", /timed out/i);
+      // Both timeout abort paths are valid outcomes: the step timer
+      // ("Node timed out after Xms.") and the deadline check
+      // ("Node execution deadline expired.") fire in a race at timeoutMs: 1.
+      assert.match(result.error ?? "", /timed out|deadline expired/i);
     } finally {
       await slowTool.waitForCompletion();
     }

@@ -1,0 +1,46 @@
+{
+  "id": "reasoning.no-yap",
+  "name": "No Yap",
+  "version": "1.0.0",
+  "description": "Verbosity control: strip filler from reasoning and output. Governed reasoning policy: no yap, less verbose, terse.",
+  "author": "QUACK",
+  "trustLevel": "verified",
+  "requiredCapabilities": [
+    "permission.workspace.read"
+  ],
+  "allowedTools": [
+    "core.workspace.list-files"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "discipline": {
+        "type": "string"
+      }
+    }
+  },
+  "executionLimits": {
+    "timeoutMs": 30000,
+    "maxIterations": 2,
+    "maxToolCalls": 2,
+    "maxRetriesPerStep": 0
+  },
+  "category": "reasoning",
+  "tags": [
+    "no-yap",
+    "verbosity",
+    "concise",
+    "terse",
+    "short",
+    "filler",
+    "reasoning-policy"
+  ]
+}

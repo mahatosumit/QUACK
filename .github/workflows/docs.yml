@@ -2,10 +2,10 @@ name: Documentation
 
 on:
   push:
-    branches: [master]
+    branches: [main, master]
     paths: ["docs/**", "*.md", "sdk/README.md", "packaging/public-files.json", "scripts/check-public-docs.mjs"]
   pull_request:
-    branches: [master]
+    branches: [main, master]
     paths: ["docs/**", "*.md", "sdk/README.md", "packaging/public-files.json", "scripts/check-public-docs.mjs"]
 
 permissions:

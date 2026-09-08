@@ -1,5 +1,6 @@
 import { type JsonObject } from "../core/types.js";
 import { type ProviderAdapter, type ProviderCapabilities, type GenerateRequest, type GenerateResult } from "./provider.js";
+import { readProviderCredentialForBoot } from "../security/secret-provider.js";
 
 /** Configuration for NVIDIA NIM (Inference Microservices) API Provider. */
 export interface NvidiaProviderConfig {
@@ -24,7 +25,9 @@ export class NvidiaNimProvider implements ProviderAdapter {
   private readonly fetcher: typeof fetch;
 
   constructor(config: NvidiaProviderConfig = {}) {
-    this.apiKey = config.apiKey ?? process.env.NVIDIA_API_KEY;
+    // Credential fallback stays inside the security layer's sanctioned
+    // boot-time boundary (allowlist + consumer binding enforced there).
+    this.apiKey = config.apiKey ?? readProviderCredentialForBoot("NVIDIA_API_KEY", "provider.nvidia-nim");
     this.baseUrl = config.baseUrl ?? process.env.QUACK_NVIDIA_BASE_URL ?? "https://integrate.api.nvidia.com/v1";
     this.defaultModel = config.defaultModel ?? process.env.QUACK_NVIDIA_MODEL ?? "";
     this.timeoutMs = config.timeoutMs ?? 60_000;

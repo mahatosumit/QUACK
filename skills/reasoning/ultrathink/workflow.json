@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "id": "ground",
+      "description": "Ground the reasoning discipline in the actual workspace before applying it.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Ground Ultrathink policy in real files."
+        }
+      ],
+      "timeoutMs": 5000
+    },
+    {
+      "id": "apply-policy",
+      "description": "Apply Ultrathink policy: Restate the goal and success criteria in one sentence before any work. Decompose the problem into independently verifiable parts. For each part, list what is known, what is assumed, and what must be discovered. Choose the approach that satisfies the success criteria with the least irreversible change. Only begin execution after the decomposition covers every requested behavior.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Read-only policy application anchor; no state is mutated."
+        }
+      ],
+      "timeoutMs": 5000
+    }
+  ]
+}

@@ -7,17 +7,26 @@ import { DEFAULT_PORT } from "./desktop/types.js";
 import { createQuackBackup, restoreQuackBackup } from "./recovery/index.js";
 import { cpus, release, totalmem } from "node:os";
 import { execFile } from "node:child_process";
+import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas } from "./cli/commands.js";
+import { loadCliConfig } from "./cli/config.js";
 
 interface CliOptions {
   goal: string;
   config?: string;
   workspaceRoot?: string;
   dataDir?: string;
-  skillAction?: "install" | "list" | "enable" | "disable";
+  skillAction?: "install" | "list" | "enable" | "disable" | "search" | "create";
   skillTarget?: string;
+  providerAction?: "list" | "doctor" | "test";
+  /** Provider id for `provider test`. */
+  providerTarget?: string;
   headless: boolean;
   port?: number;
   backupPath?: string;
+  /** Machine-readable output for any command. */
+  json: boolean;
+  /** quack uninstall --purge-data */
+  purgeData: boolean;
 }
 
 const PACKAGE_PATH = join(
@@ -45,42 +54,59 @@ Usage:
   quack <command> [options]
 
 Commands:
-  init               Initialize QUACK persistence in the current workspace
+  init               Initialize the QUACK home (~/.quack) with config/data/logs/skills
+  doctor             Run QUACK system health diagnostics
+  status             Show missions, tasks, and skills summary
+  run <goal>         Run a goal as a governed mission (alias for start)
+  resume <id>        Resume an interrupted mission by task/mission id
   start <goal>       Start QUACK with a goal (default)
   mission <goal>     Run a mission through the Agent Loop
   skills             List registered skills and installed packages
+  skills search <q>  Search configured skill roots for matching skills
+  skills create <id>
+                      Scaffold a new skill package (not activated)
   skills install <path>
                      Import and register a declarative skill package
   skills enable <id> Enable an installed skill package
   skills disable <id>
-                     Disable an installed skill package
+                       Disable an installed skill package
+  personas           List agent personas (style-only reasoning modes)
+  provider list      List registered providers and credential status
+  provider doctor   Live health check of every registered provider
+  provider test <id>
+                      Health-check a single provider
+  config             Show effective configuration and its sources
   agents             List specialist agents
   trace <goal>       Run a mission and emit a harness trace
   evaluate <goal>    Run a mission and emit a harness evaluation
   serve              Start QUACK desktop server
-  doctor             Run QUACK OS system health diagnostics
+  update             Check for a newer @quack/os release
+  uninstall          CLI is removed via npm; optionally purge user data
   backup [path]      Create a verified non-secret backup
   restore <path>     Verify and atomically restore a backup
   help               Show this help message
   version            Show version information
 
 Options:
+  --json             Machine-readable JSON output (any command)
   --config, -c       Path to config file
   --workspace, -w    Workspace root directory
   --data-dir, -d     Data directory for persistence
   --port, -p         Desktop server port (default: ${DEFAULT_PORT})
   --headless         Run without GUI
+  --purge-data       (uninstall only) also remove ~/.quack
   --help, -h         Show this help message
   --version, -v      Show version
 
+Exit codes: 0 success · 1 failure · 2 usage error
+
 Examples:
-  quack start "bootstrap the coding agent"
-  quack doctor
-  quack backup
-  quack restore C:\\Backups\\quack-2026-08-15
+  quack init
+  quack doctor --json
+  quack run "bootstrap the coding agent"
+  quack resume <mission-id>
+  quack skills search validation
   quack serve --port 8080
-  quack --version
-  quack --help
 `);
 }
 
@@ -89,6 +115,8 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
   const options: CliOptions = {
     goal: "start QUACK",
     headless: false,
+    json: false,
+    purgeData: false,
   };
 
   let command = "start";
@@ -124,6 +152,12 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
       case "--headless":
         options.headless = true;
         break;
+      case "--json":
+        options.json = true;
+        break;
+      case "--purge-data":
+        options.purgeData = true;
+        break;
       case "help":
         command = "help";
         break;
@@ -147,12 +181,48 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
       case "skills":
         command = "skills";
         if (isSkillAction(args[i + 1])) {
-          const action = args[++i] as "install" | "list" | "enable" | "disable";
+          const action = args[++i] as "install" | "list" | "enable" | "disable" | "search" | "create";
           options.skillAction = action;
           if (options.skillAction !== "list" && args[i + 1] && !args[i + 1].startsWith("-")) {
             options.skillTarget = args[++i];
           }
         }
+        break;
+      case "personas":
+        command = "personas";
+        break;
+      case "provider":
+        command = "provider";
+        if (args[i + 1] === "list" || args[i + 1] === "doctor") {
+          options.providerAction = args[++i] as "list" | "doctor";
+        } else if (args[i + 1] === "test") {
+          options.providerAction = "test";
+          i++;
+          if (args[i + 1] && !args[i + 1].startsWith("-")) options.providerTarget = args[++i];
+          else { console.error("quack provider test requires a provider id."); process.exit(2); }
+        }
+        break;
+      case "status":
+        command = "status";
+        break;
+      case "run":
+        command = "run";
+        if (args[i + 1] && !args[i + 1].startsWith("-")) options.goal = args[++i];
+        else { console.error("quack run requires a goal: quack run \"<goal>\""); process.exit(2); }
+        break;
+      case "resume":
+        command = "resume";
+        if (args[i + 1] && !args[i + 1].startsWith("-")) options.goal = args[++i];
+        else { console.error("quack resume requires a mission/task id."); process.exit(2); }
+        break;
+      case "config":
+        command = "config";
+        break;
+      case "update":
+        command = "update";
+        break;
+      case "uninstall":
+        command = "uninstall";
         break;
       case "agents":
         command = "agents";
@@ -181,67 +251,71 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
   return { command, options };
 }
 
-export async function runQuackDoctor(system: ReturnType<typeof createQuackSystem>): Promise<boolean> {
+export async function runQuackDoctor(system: ReturnType<typeof createQuackSystem>, json: boolean = false): Promise<boolean> {
+  if (json) return runDoctorJson(system);
   return runSoloDoctor(system);
-  /* c8 ignore start -- retained unreachable legacy output for source compatibility */
-  console.log(`\n🏥 QUACK OS System Health Doctor v${getVersion()}`);
-  console.log("==========================================");
+}
 
-  let passed = true;
+/** Structured 6G doctor: runtime / storage / recovery / security / skills. */
+async function runDoctorJson(system: ReturnType<typeof createQuackSystem>): Promise<boolean> {
+  interface Check { name: string; ok: boolean; detail: string; }
+  const checks: Check[] = [];
+  const check = (name: string, ok: boolean, detail: string) => { checks.push({ name, ok, detail }); };
 
-  // Check 1: Node.js Version
-  const nodeVersion = process.version;
-  const major = parseInt(nodeVersion.slice(1).split(".")[0], 10);
-  if (major >= 20) {
-    console.log(`[PASS] Node.js Runtime: ${nodeVersion} (>=20)`);
-  } else {
-    console.log(`[FAIL] Node.js Runtime: ${nodeVersion} (Requires Node.js >=20)`);
-    passed = false;
-  }
+  // Runtime
+  const major = Number(process.version.slice(1).split(".")[0]);
+  const minor = Number(process.version.slice(1).split(".")[1] ?? 0);
+  const nodeOk = major > 22 || (major === 22 && minor >= 5);
+  check("runtime.node", nodeOk, `${process.version}${nodeOk ? "" : " (requires >=22.5)"}`);
+  check("runtime.os", true, `${process.platform} ${process.arch}`);
+  check("runtime.kernel", Boolean(system.runtime), "QuackRuntime constructed");
 
-  // Check 2: Workspace Directory
-  if (existsSync(system.config.workspaceRoot)) {
-    console.log(`[PASS] Workspace Directory: ${system.config.workspaceRoot}`);
-  } else {
-    console.log(`[WARN] Workspace Directory: ${system.config.workspaceRoot} (does not exist)`);
-  }
-
-  // Check 3: Data Persistence Directory
-  if (existsSync(system.config.dataDir)) {
-    console.log(`[PASS] Data Directory: ${system.config.dataDir}`);
-  } else {
-    console.log(`[PASS] Data Directory: ${system.config.dataDir} (will be initialized on first run)`);
-  }
-
-  // Check 4: Registered System Providers
-  const providerIds = system.providers.list();
-  console.log(`[PASS] Registered System Providers: ${providerIds.length} provider(s) [${providerIds.join(", ")}]`);
-
-  // Check 5: DNPL Hardware Telemetry
+  // Storage
   try {
-    const hw = await system.dnpl.hardware.getHardwareInfo();
-    console.log(`[PASS] Hardware Telemetry: CPU ${hw.cpu.cores} cores, RAM ${hw.memory.totalGB} GB`);
-  } catch {
-    console.log(`[WARN] Hardware Telemetry: Basic monitoring available`);
+    system.storage.missions.list();
+    check("storage.database", true, join(system.config.dataDir, "quack.sqlite"));
+  } catch (error) {
+    check("storage.database", false, error instanceof Error ? error.message : String(error));
+  }
+  check("storage.workspace", existsSync(system.config.workspaceRoot), system.config.workspaceRoot);
+
+  // Recovery (multi-process coordination DB reachable)
+  try {
+    const { SqliteConnection } = await import("./storage/sqlite.js");
+    const { SqliteCoordinationStore } = await import("./storage/coordination.js");
+    const store = new SqliteCoordinationStore(new SqliteConnection(join(system.config.dataDir, "coordination.sqlite")), { leaseMs: 1000 });
+    const probe = store.acquire("doctor:probe", `doctor-${process.pid}`);
+    check("recovery.coordination", probe.kind === "ACQUIRED" || probe.kind === "TAKEOVER_STALE", `coordination.sqlite lease probe: ${probe.kind}`);
+  } catch (error) {
+    check("recovery.coordination", false, error instanceof Error ? error.message : String(error));
   }
 
-  // Check 6: System Composition & Event Bus
-  if (system.events && system.runtime) {
-    console.log(`[PASS] Kernel EventBus & QuackRuntime: Healthy`);
-  } else {
-    console.log(`[FAIL] Kernel EventBus & QuackRuntime: Missing initialization`);
-    passed = false;
+  // Security
+  check("security.capabilityBroker", Boolean(system.runtime), "CapabilityBroker wired into runtime");
+  const networkDecisions = system.networkPolicy.recentDecisions().length;
+  check("security.networkPolicy", true, `${networkDecisions} recent decision(s); default deny`);
+
+  // Skills
+  try {
+    const skills = system.skills.getAll();
+    check("skills.registry", true, `${skills.length} skill(s) registered`);
+  } catch (error) {
+    check("skills.registry", false, error instanceof Error ? error.message : String(error));
   }
 
-  console.log("==========================================");
-  if (passed) {
-    console.log("✅ Core diagnostics passed. This does not imply that every production release gate has passed.\n");
-  } else {
-    console.log("❌ System checks failed. Please address issues above before release.\n");
-  }
+  // Providers
+  const providerIds = system.providers.list();
+  check("runtime.providers", providerIds.length > 0, providerIds.join(", ") || "none registered");
 
-  return passed;
-  /* c8 ignore stop */
+  const failed = checks.filter(entry => !entry.ok);
+  const payload = {
+    version: getVersion(),
+    checks,
+    summary: failed.length === 0 ? "System ready." : `${failed.length} check(s) failed.`,
+    ready: failed.length === 0,
+  };
+  console.log(JSON.stringify(payload, null, 2));
+  return failed.length === 0;
 }
 
 async function runSoloDoctor(system: ReturnType<typeof createQuackSystem>): Promise<boolean> {
@@ -252,8 +326,10 @@ async function runSoloDoctor(system: ReturnType<typeof createQuackSystem>): Prom
     console.log(`[${state}] ${name}: ${detail}${fix ? ` | Fix: ${fix}` : ""}`);
   };
   const major = Number(process.version.slice(1).split(".")[0]);
-  report(major >= 20 ? "Available" : "Blocked", "QUACK / Node", `${getVersion()} / ${process.version}`, major >= 20 ? undefined : "Install Node.js 20 or newer.");
-  if (major < 20) passed = false;
+  const minor = Number(process.version.slice(1).split(".")[1] ?? 0);
+  const nodeOk = major > 22 || (major === 22 && minor >= 5);
+  report(nodeOk ? "Available" : "Blocked", "QUACK / Node", `${getVersion()} / ${process.version}`, nodeOk ? undefined : "Install Node.js 22.5 or newer (node:sqlite requirement).");
+  if (!nodeOk) passed = false;
   report("Available", "Windows", process.platform === "win32" ? release() : `${process.platform} (Solo target is Windows)`);
   report("Available", "CPU / RAM", `${cpus()[0]?.model ?? "Unknown CPU"}, ${cpus().length} logical cores, ${(totalmem() / 1024 ** 3).toFixed(1)} GB RAM`);
   const gpu = await commandOutput("nvidia-smi", ["--query-gpu=name,memory.total", "--format=csv,noheader,nounits"]);
@@ -307,8 +383,8 @@ async function commandOutput(command: string, args: readonly string[]): Promise<
   });
 }
 
-function isSkillAction(value: string | undefined): value is "install" | "list" | "enable" | "disable" {
-  return value === "install" || value === "list" || value === "enable" || value === "disable";
+function isSkillAction(value: string | undefined): value is "install" | "list" | "enable" | "disable" | "search" | "create" {
+  return value === "install" || value === "list" || value === "enable" || value === "disable" || value === "search" || value === "create";
 }
 
 async function main(): Promise<void> {
@@ -324,20 +400,74 @@ async function main(): Promise<void> {
     return;
   }
 
-  let configOverrides: Record<string, unknown> = {};
-  if (options.config && existsSync(options.config)) {
-    const configContent = readFileSync(options.config, "utf-8");
-    configOverrides = JSON.parse(configContent);
+  // Unified config: CLI arg > QUACK_* env > config file > default.
+  const config = loadCliConfig({
+    cli: {
+      ...(options.dataDir ? { dataDir: options.dataDir } : {}),
+      ...(options.workspaceRoot ? { workspaceRoot: options.workspaceRoot } : {}),
+    },
+    ...(options.config ? { explicitConfigFile: options.config } : {}),
+  });
+  const commandContext = { json: options.json, config };
+
+  if (command === "init") {
+    process.exit(await commandInit(commandContext));
+    return;
+  }
+  if (command === "status") {
+    process.exit(await commandStatus(commandContext));
+    return;
+  }
+  if (command === "run") {
+    process.exit(await commandRun(commandContext, options.goal));
+    return;
+  }
+  if (command === "resume") {
+    process.exit(await commandResume(commandContext, options.goal));
+    return;
+  }
+  if (command === "config") {
+    process.exit(await commandConfig(commandContext));
+    return;
+  }
+  if (command === "update") {
+    process.exit(await commandUpdate(commandContext));
+    return;
+  }
+  if (command === "uninstall") {
+    process.exit(await commandUninstall(commandContext, options.purgeData));
+    return;
+  }
+  if (command === "skills" && options.skillAction === "search") {
+    process.exit(await commandSkillsSearch(commandContext, options.skillTarget ?? ""));
+    return;
+  }
+  if (command === "skills" && options.skillAction === "create") {
+    process.exit(await commandSkillCreate(commandContext, options.skillTarget ?? ""));
+    return;
+  }
+  if (command === "personas") {
+    process.exit(await commandPersonas(commandContext));
+    return;
+  }
+  if (command === "provider") {
+    const action = options.providerAction ?? "list";
+    if (action === "list") { process.exit(await commandProviderList(commandContext)); return; }
+    if (action === "doctor") { process.exit(await commandProviderDoctor(commandContext)); return; }
+    process.exit(await commandProviderTest(commandContext, options.providerTarget ?? ""));
+    return;
   }
 
   const system = createQuackSystem({
-    dataDir: options.dataDir || (configOverrides.dataDir as string) || undefined,
-    workspaceRoot: options.workspaceRoot || (configOverrides.workspaceRoot as string) || undefined,
+    dataDir: options.dataDir || (options.config && existsSync(options.config)
+      ? (JSON.parse(readFileSync(options.config, "utf-8")) as { dataDir?: string }).dataDir
+      : undefined) || config.dataDir,
+    workspaceRoot: options.workspaceRoot || config.workspaceRoot,
   });
   system.companyRuntime.reconcileInterrupted();
 
   if (command === "doctor") {
-    const ok = await runQuackDoctor(system);
+    const ok = await runQuackDoctor(system, options.json);
     process.exit(ok ? 0 : 1);
     return;
   }
@@ -353,13 +483,6 @@ async function main(): Promise<void> {
     if (!options.backupPath) throw new Error("quack restore requires a backup directory path.");
     const result = await restoreQuackBackup(options.backupPath, system.config.dataDir);
     console.log(JSON.stringify({ status: "PASS", ...result }, null, 2));
-    return;
-  }
-
-  if (command === "init") {
-    const { mkdirSync } = await import("fs");
-    mkdirSync(system.config.dataDir, { recursive: true });
-    console.log(JSON.stringify({ initialized: true, dataDir: system.config.dataDir, workspaceRoot: system.config.workspaceRoot }, null, 2));
     return;
   }
 

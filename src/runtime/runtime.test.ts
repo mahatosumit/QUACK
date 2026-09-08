@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { createIsolatedQuackSystem } from "../test-support/isolated-system.js";
 
 test("runtime reports unsupported execution without a completed task", async () => {
-  const fixture = await createIsolatedQuackSystem();
+  // workflowVerification: "none" keeps this fixture in the no-verifier state:
+  // certification then requires an explicit verifyExecution dependency, and
+  // operation success alone must not complete the mission.
+  const fixture = await createIsolatedQuackSystem({ workflowVerification: "none" });
   const { system } = fixture;
   try {
   const events: string[] = [];

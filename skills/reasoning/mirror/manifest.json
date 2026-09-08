@@ -1,0 +1,46 @@
+{
+  "id": "reasoning.mirror",
+  "name": "Mirror",
+  "version": "1.0.0",
+  "description": "Self-review: critique the produced work as an independent reviewer would. Governed reasoning policy: mirror, self-review, review your work.",
+  "author": "QUACK",
+  "trustLevel": "verified",
+  "requiredCapabilities": [
+    "permission.workspace.read"
+  ],
+  "allowedTools": [
+    "core.workspace.list-files"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "discipline": {
+        "type": "string"
+      }
+    }
+  },
+  "executionLimits": {
+    "timeoutMs": 30000,
+    "maxIterations": 2,
+    "maxToolCalls": 2,
+    "maxRetriesPerStep": 0
+  },
+  "category": "reasoning",
+  "tags": [
+    "mirror",
+    "self-review",
+    "critique",
+    "review",
+    "quality",
+    "reflect",
+    "reasoning-policy"
+  ]
+}

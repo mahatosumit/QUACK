@@ -1,5 +1,31 @@
 # Changelog
 
+## [Unreleased — v1.0 production gate] — 2026-09-08
+
+### Phase 6 — Distribution
+- Global CLI (`quack`), npm distribution, Windows/Linux/macOS installers, `quack init/status/run/resume/config/update/uninstall`, release workflow, fresh-tarball installation verified.
+
+### Phase 6.5 — Production hardening
+- Planner actionable-tool bug fixed; verification-record binding fixed; fresh mission execution fixed; provider secret handling implemented.
+
+### Phase 7 — Intelligent skill ecosystem
+- **Provider validation (7A)**: `quack provider list|doctor|test`; SecretProvider is the sole credential boundary (allowlist + consumer binding + broker-gated runtime reads); persistent secret-free provider health records; auth failures fail closed. Docs: `docs/providers/setup.md`.
+- **External skill intelligence pipeline (7B)**: `src/skills/intelligence/` — SkillAnalyzer (bounded read-only static analysis), SkillClassifier (risk from requirements, not claims), SkillSecurityReviewer (APPROVE/REVIEW/REJECT), SkillAdapter, SkillInstaller (declarative-only staging; external code never executed). No second execution path: adaptation flows through the existing governed installer.
+- **External repository analyses (7C)**: five reference repos analyzed into `docs/skills/analyses/*.skill-analysis.json` (agency-agents REJECTED for prompt injection; Graft/codebase-memory-mcp classified requires-tool-port).
+- **Reasoning capability pack (7D)**: 8 governed LOW-risk reasoning skills (`ultrathink`, `skeptic`, `mirror`, `punch`, `no-yap`, `blind-spots`, `ooda`, `artifacts`) shipped as declarative packages in `skills/reasoning/`; policy text injected verbatim into mission workflows; read-only, deny-escalation, no network/secrets.
+- **Persona framework (7E)**: 7 style-only personas (architect, researcher, debugger, security-reviewer, product-manager, engineer, critic) — routing/style metadata only; cannot grant permissions, tools, or trust; `quack personas`.
+- **Skill generator (7F)**: `quack skill create <id>` scaffolds dual-format packages (human contract + governed machine contract) with mandatory risk declaration; never auto-activated.
+- **Security review (7G)**: adversarial suite for the new surfaces (excessive permissions, hidden network, credential harvesting, staging traversal, prompt injection); fixed real redaction gap — bare `sk-`/`ghp_`/`AKIA`/`nvapi-` literals now redacted.
+- **Live verification (7H)**: NVIDIA NIM provider health verified against the real API; CLI missions complete with evidence-backed verification records and receipts.
+
+### v1 production gate (this release)
+- Full suite: 1516/1516 (0 fail, 0 skip); typecheck PASS; SDK typecheck PASS; lint PASS; build PASS.
+- Secret boundary tightened: provider credential env reads moved inside the security layer (`readProviderCredentialForBoot`), allowlist + consumer binding enforced at boot.
+- Packaging: reasoning pack + Phase 7 docs now shipped (`npm pack` audit clean; no `.env`, no dev artifacts).
+- Fresh-install chain verified: tarball → install → init → doctor (ready) → provider list/test → skills install/enable → governed mission → PASSED verification → receipt.
+- Stress: 50/50 consecutive missions, all receipts verified, avg 1315ms.
+- Honest architecture note: mission execution is deterministic workflow execution; provider `generate` is invoked by provider health checks and the model runtime, not by in-mission reasoning nodes (proven by instrumentation: 0 provider generate calls during a completed mission).
+
 ## [1.0.0] — 2026-07-25
 
 ### Production Certification (v1.0.0 Final Release)

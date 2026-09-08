@@ -1,0 +1,30 @@
+{
+  "skillId": "reasoning.skeptic",
+  "checks": [
+    {
+      "id": "policy-1",
+      "rule": "List every assumption the plan depends on.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-2",
+      "rule": "Mark each assumption as verified (evidence exists) or unverified.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-3",
+      "rule": "For unverified assumptions, state the cheapest check that would verify or refute them.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-4",
+      "rule": "Prefer plans that survive if the weakest assumption is false.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-5",
+      "rule": "Never present an unverified assumption as fact in output.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    }
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "skillId": "reasoning.mirror",
+  "checks": [
+    {
+      "id": "policy-1",
+      "rule": "After producing output, re-read it as if another engineer wrote it.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-2",
+      "rule": "Check correctness against the original goal, not against the effort spent.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-3",
+      "rule": "List the three weakest points of the produced work.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-4",
+      "rule": "Fix material weaknesses before declaring completion.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-5",
+      "rule": "Report what was checked and what was not.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    }
+  ]
+}

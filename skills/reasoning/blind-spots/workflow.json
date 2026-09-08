@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "id": "ground",
+      "description": "Ground the reasoning discipline in the actual workspace before applying it.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Ground Blind Spots policy in real files."
+        }
+      ],
+      "timeoutMs": 5000
+    },
+    {
+      "id": "apply-policy",
+      "description": "Apply Blind Spots policy: Enumerate failure modes: what breaks under load, edge input, or partial failure. Check security boundaries: input validation, authorization, secrets, injection. Check data integrity: loss, duplication, corruption, leak paths. Check the quiet paths: error states, empty states, denied states. Name at least one risk the current plan does not handle.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Read-only policy application anchor; no state is mutated."
+        }
+      ],
+      "timeoutMs": 5000
+    }
+  ]
+}

@@ -14,10 +14,10 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@0a44ba7841725637a19e28fa30b79a866c81b0a6 # v4.0.4
         with:
           node-version: 22
       - name: Install locked dependencies
@@ -33,14 +33,34 @@ jobs:
         run: npm --prefix sdk test
       - name: Assemble isolated public candidate
         run: npm run package:windows
+      # npm tarball + checksums: the primary distribution artifact.
+      # Installers ride along in the package (installers/ is in files[]).
+      - name: Build npm distribution tarball
+        run: npm pack --pack-destination release/run-npm
+      - name: Generate checksums (tarball + zip)
+        shell: pwsh
+        run: |
+          Get-ChildItem release/run-npm/*.tgz, release/run-*/*.zip | ForEach-Object {
+            $hash = (Get-FileHash -Algorithm SHA256 $_.FullName).Hash.ToLower()
+            "${hash}  $($_.Name)" | Out-File -Encoding ascii -Append release/SHA256SUMS.txt
+          }
+          Get-Content release/SHA256SUMS.txt
       - name: Create draft GitHub Release
-        uses: softprops/action-gh-release@v1
+        uses: softprops/action-gh-release@26994186c0ac3ef5cae75ac16aa32e8153525f77 # v1
         with:
           draft: true
           body_path: CHANGELOG.md
           files: |
+            release/run-npm/*.tgz
+            release/SHA256SUMS.txt
             release/run-*/*.zip
             release/run-*/*.sha256
           fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # npm publish runs only after the draft release is assembled, so a
+      # publish failure leaves the GitHub draft intact for manual retry.
+      - name: Publish to npm (runs after draft release is assembled)
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

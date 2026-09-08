@@ -1,0 +1,47 @@
+{
+  "id": "reasoning.blind-spots",
+  "name": "Blind Spots",
+  "version": "1.0.0",
+  "description": "Risk discovery: hunt for what the plan fails to consider. Governed reasoning policy: blind spots, risks, failure modes.",
+  "author": "QUACK",
+  "trustLevel": "verified",
+  "requiredCapabilities": [
+    "permission.workspace.read"
+  ],
+  "allowedTools": [
+    "core.workspace.list-files"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "discipline": {
+        "type": "string"
+      }
+    }
+  },
+  "executionLimits": {
+    "timeoutMs": 30000,
+    "maxIterations": 2,
+    "maxToolCalls": 2,
+    "maxRetriesPerStep": 0
+  },
+  "category": "reasoning",
+  "tags": [
+    "blind-spots",
+    "risk",
+    "failure",
+    "edge",
+    "security",
+    "what-if",
+    "danger",
+    "reasoning-policy"
+  ]
+}

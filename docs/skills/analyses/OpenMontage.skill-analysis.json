@@ -1,0 +1,356 @@
+{
+  "purpose": "Adapted from OpenMontage: 357 capability surface(s), 400 analyzed files. Content adapts to instruction-only skill; capabilities above LOW risk need explicit approval before any workflow conversion.",
+  "dependencies": [],
+  "permissionsRequired": [
+    "secrets.read",
+    "network.http"
+  ],
+  "filesystemAccess": [
+    "write"
+  ],
+  "networkRequirements": [
+    "external-http",
+    "http-client"
+  ],
+  "executionModel": "static-instructions",
+  "securityRisk": {
+    "riskClass": "HIGH",
+    "blockers": [],
+    "warnings": [
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/agents/references/agent-configuration.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/agents/references/client-tools.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/agents/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/avatar-video/references/templates.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/avatar-video/references/video-generation.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/avatar-video/references/video-status.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/avatar-video/references/webhooks.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/avatar-video/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": ".agents/skills/beautiful-mermaid/scripts/render.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/bfl-api/references/code-examples/python-client.py matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/bfl-api/references/code-examples/typescript-client.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/bfl-api/references/endpoints.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/bfl-api/references/rate-limiting.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/bfl-api/references/webhook-integration.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/bfl-api/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/create-video/references/video-agent.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/create-video/references/video-status.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/create-video/references/webhooks.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/create-video/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/gsap-frameworks/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/gsap-plugins/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/gsap-scrolltrigger/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/gsap-utils/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/heygen/references/templates.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/heygen/references/video-agent.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/heygen/references/video-generation.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/heygen/references/video-status.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/heygen/references/webhooks.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/heygen/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".agents/skills/hyperframes/PROVENANCE.md matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": ".agents/skills/hyperframes-animation/scripts/package-loader.mjs matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/hyperframes-animation/transitions/css-destruction.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/hyperframes-cli/references/upgrade-info-misc.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/hyperframes-cli/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": ".agents/skills/hyperframes-creative/scripts/package-loader.mjs matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "obfuscated-execution",
+        "detail": ".agents/skills/hyperframes-media/scripts/lib/bgm.mjs matches obfuscated-execution pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": ".agents/skills/hyperframes-media/scripts/lib/bgm.mjs matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": ".agents/skills/hyperframes-media/scripts/lib/tts.mjs matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/kling-official/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "secret-requirements",
+        "detail": "Repository reads credential-shaped environment variables."
+      }
+    ],
+    "verdict": "REVIEW_REQUIRED",
+    "summary": "Review required: risk=HIGH, 40 warning(s), adaptability=instructions-only."
+  },
+  "adaptationRecommendation": "Content adapts to instruction-only skill; capabilities above LOW risk need explicit approval before any workflow conversion. | Adaptability: instructions-only.",
+  "analyzedAt": "2026-09-08T13:41:58.035Z",
+  "sourceRepository": "OpenMontage",
+  "languages": [
+    "TypeScript",
+    "Shell",
+    "Python",
+    "JavaScript"
+  ],
+  "capabilities": [
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/3d-asset-generation/SKILL",
+      "path": ".agents/skills/3d-asset-generation/SKILL.md",
+      "summary": "name: 3d-asset-generation"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/3d-asset-generation/SKILL.md",
+      "path": ".agents/skills/3d-asset-generation/SKILL.md",
+      "summary": "name: 3d-asset-generation"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/acestep/SKILL",
+      "path": ".agents/skills/acestep/SKILL.md",
+      "summary": "name: acestep"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/acestep/SKILL.md",
+      "path": ".agents/skills/acestep/SKILL.md",
+      "summary": "name: acestep"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/agents/references/agent-configuration",
+      "path": ".agents/skills/agents/references/agent-configuration.md",
+      "summary": "Agent Configuration"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/agents/references/client-tools",
+      "path": ".agents/skills/agents/references/client-tools.md",
+      "summary": "Client Tools"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/agents/references/installation",
+      "path": ".agents/skills/agents/references/installation.md",
+      "summary": "Installation"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/agents/references/outbound-calls",
+      "path": ".agents/skills/agents/references/outbound-calls.md",
+      "summary": "Outbound Calls"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/agents/references/widget-embedding",
+      "path": ".agents/skills/agents/references/widget-embedding.md",
+      "summary": "Widget Embedding"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/agents/SKILL",
+      "path": ".agents/skills/agents/SKILL.md",
+      "summary": "name: agents"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/agents/SKILL.md",
+      "path": ".agents/skills/agents/SKILL.md",
+      "summary": "name: agents"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/ai-video-gen/SKILL",
+      "path": ".agents/skills/ai-video-gen/SKILL.md",
+      "summary": "name: ai-video-gen"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/ai-video-gen/SKILL.md",
+      "path": ".agents/skills/ai-video-gen/SKILL.md",
+      "summary": "name: ai-video-gen"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/atlas-cloud/SKILL",
+      "path": ".agents/skills/atlas-cloud/SKILL.md",
+      "summary": "name: atlas-cloud"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/atlas-cloud/SKILL.md",
+      "path": ".agents/skills/atlas-cloud/SKILL.md",
+      "summary": "name: atlas-cloud"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/avatar-video/references/assets",
+      "path": ".agents/skills/avatar-video/references/assets.md",
+      "summary": "name: assets"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/avatar-video/references/avatars",
+      "path": ".agents/skills/avatar-video/references/avatars.md",
+      "summary": "name: avatars"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/avatar-video/references/backgrounds",
+      "path": ".agents/skills/avatar-video/references/backgrounds.md",
+      "summary": "name: backgrounds"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/avatar-video/references/captions",
+      "path": ".agents/skills/avatar-video/references/captions.md",
+      "summary": "name: captions"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/avatar-video/references/dimensions",
+      "path": ".agents/skills/avatar-video/references/dimensions.md",
+      "summary": "name: dimensions"
+    }
+  ],
+  "fileCount": 400
+}

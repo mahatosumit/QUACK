@@ -1,0 +1,25 @@
+{
+  "skillId": "reasoning.no-yap",
+  "checks": [
+    {
+      "id": "policy-1",
+      "rule": "State facts and actions only; omit restatements of the request.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-2",
+      "rule": "Delete hedging phrases unless uncertainty is material to the decision.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-3",
+      "rule": "Prefer lists over paragraphs when more than two items exist.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-4",
+      "rule": "If a sentence does not change a decision or record a fact, cut it.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    }
+  ]
+}

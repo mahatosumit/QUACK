@@ -1,0 +1,268 @@
+{
+  "purpose": "Adapted from ecc: 237 capability surface(s), 400 analyzed files. Content adapts to instruction-only skill; capabilities above LOW risk need explicit approval before any workflow conversion.",
+  "dependencies": [],
+  "permissionsRequired": [
+    "secrets.read",
+    "network.http"
+  ],
+  "filesystemAccess": [],
+  "networkRequirements": [
+    "http-client",
+    "external-http"
+  ],
+  "executionModel": "static-instructions",
+  "securityRisk": {
+    "riskClass": "HIGH",
+    "blockers": [],
+    "warnings": [
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".agents/skills/coding-standards/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "credential-harvest",
+        "detail": ".agents/skills/frontend-patterns/SKILL.md matches credential-harvest pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".claude/workflows/ecc-pro-security-roadmap.js matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".codebuddy/uninstall.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".kiro/agents/build-error-resolver.md matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/agents/django-reviewer.json matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/agents/django-reviewer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".kiro/agents/java-build-resolver.json matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".kiro/agents/java-build-resolver.md matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".kiro/agents/kotlin-build-resolver.json matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".kiro/agents/kotlin-build-resolver.md matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/agents/planner.json matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/agents/planner.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/agents/typescript-reviewer.json matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/agents/typescript-reviewer.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "credential-harvest",
+        "detail": ".kiro/docs/security-guide.md matches credential-harvest pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "secret-shaped-literal",
+        "detail": ".kiro/docs/security-guide.md matches secret-shaped-literal pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/skills/coding-standards/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/skills/django-security/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "obfuscated-execution",
+        "detail": ".kiro/skills/pytorch-patterns/SKILL.md matches obfuscated-execution pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".kiro/skills/react-testing/SKILL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".opencode/MIGRATION.md matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "secret-requirements",
+        "detail": "Repository reads credential-shaped environment variables."
+      }
+    ],
+    "verdict": "REVIEW_REQUIRED",
+    "summary": "Review required: risk=HIGH, 23 warning(s), adaptability=instructions-only."
+  },
+  "adaptationRecommendation": "Content adapts to instruction-only skill; capabilities above LOW risk need explicit approval before any workflow conversion. | Adaptability: instructions-only.",
+  "analyzedAt": "2026-09-08T13:42:00.114Z",
+  "sourceRepository": "ecc",
+  "languages": [
+    "JavaScript",
+    "Shell",
+    "TypeScript"
+  ],
+  "capabilities": [
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/agent-introspection-debugging/SKILL",
+      "path": ".agents/skills/agent-introspection-debugging/SKILL.md",
+      "summary": "name: agent-introspection-debugging"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/agent-introspection-debugging/SKILL.md",
+      "path": ".agents/skills/agent-introspection-debugging/SKILL.md",
+      "summary": "name: agent-introspection-debugging"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/agent-sort/SKILL",
+      "path": ".agents/skills/agent-sort/SKILL.md",
+      "summary": "name: agent-sort"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/agent-sort/SKILL.md",
+      "path": ".agents/skills/agent-sort/SKILL.md",
+      "summary": "name: agent-sort"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/api-design/SKILL",
+      "path": ".agents/skills/api-design/SKILL.md",
+      "summary": "name: api-design"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/api-design/SKILL.md",
+      "path": ".agents/skills/api-design/SKILL.md",
+      "summary": "name: api-design"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/article-writing/SKILL",
+      "path": ".agents/skills/article-writing/SKILL.md",
+      "summary": "name: article-writing"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/article-writing/SKILL.md",
+      "path": ".agents/skills/article-writing/SKILL.md",
+      "summary": "name: article-writing"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/backend-patterns/SKILL",
+      "path": ".agents/skills/backend-patterns/SKILL.md",
+      "summary": "name: backend-patterns"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/backend-patterns/SKILL.md",
+      "path": ".agents/skills/backend-patterns/SKILL.md",
+      "summary": "name: backend-patterns"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/benchmark-methodology/SKILL",
+      "path": ".agents/skills/benchmark-methodology/SKILL.md",
+      "summary": "name: benchmark-methodology"
+    },
+    {
+      "kind": "skill",
+      "name": ".agents/skills/benchmark-methodology/SKILL.md",
+      "path": ".agents/skills/benchmark-methodology/SKILL.md",
+      "summary": "name: benchmark-methodology"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/brand-discovery/references/10_purpose-why",
+      "path": ".agents/skills/brand-discovery/references/10_purpose-why.md",
+      "summary": "Module 10 — Purpose / Why"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/brand-discovery/references/20_positioning",
+      "path": ".agents/skills/brand-discovery/references/20_positioning.md",
+      "summary": "Module 20 — Positioning"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/brand-discovery/references/30_audience-niche",
+      "path": ".agents/skills/brand-discovery/references/30_audience-niche.md",
+      "summary": "Module 30 — Audience & Niche"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/brand-discovery/references/40_personality-archetype",
+      "path": ".agents/skills/brand-discovery/references/40_personality-archetype.md",
+      "summary": "Module 40 — Personality & Archetype"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/brand-discovery/references/50_voice-tone",
+      "path": ".agents/skills/brand-discovery/references/50_voice-tone.md",
+      "summary": "Module 50 — Voice & Tone"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/brand-discovery/references/60_narrative-story",
+      "path": ".agents/skills/brand-discovery/references/60_narrative-story.md",
+      "summary": "Module 60 — Narrative / Story"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/brand-discovery/references/70_founder-tension",
+      "path": ".agents/skills/brand-discovery/references/70_founder-tension.md",
+      "summary": "Module 70 — Founder Brand vs Organisation Brand"
+    },
+    {
+      "kind": "agent-persona",
+      "name": ".agents/skills/brand-discovery/references/90_SYNTHESIS",
+      "path": ".agents/skills/brand-discovery/references/90_SYNTHESIS.md",
+      "summary": "Module 90 — Master Brandbook (Synthesis)"
+    }
+  ],
+  "fileCount": 400
+}

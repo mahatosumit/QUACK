@@ -1,0 +1,505 @@
+{
+  "purpose": "Adapted from codebase-memory-mcp: 6 capability surface(s), 354 analyzed files. MCP server: adapt as an MCP integration tool behind the capability broker, not as an inline skill.",
+  "dependencies": [
+    "@react-three/drei",
+    "@react-three/fiber",
+    "@react-three/postprocessing",
+    "class-variance-authority",
+    "clsx",
+    "lucide-react",
+    "postprocessing",
+    "radix-ui",
+    "react",
+    "react-dom",
+    "tailwind-merge",
+    "three",
+    "@tailwindcss/vite",
+    "@testing-library/jest-dom",
+    "@testing-library/react",
+    "@types/react",
+    "@types/react-dom",
+    "@types/three",
+    "@vitejs/plugin-react",
+    "jsdom",
+    "tailwindcss",
+    "typescript",
+    "vite",
+    "vitest",
+    "tree-sitter-cli",
+    "nan"
+  ],
+  "permissionsRequired": [
+    "network.http"
+  ],
+  "filesystemAccess": [
+    "write"
+  ],
+  "networkRequirements": [
+    "external-http",
+    "http-client"
+  ],
+  "executionModel": "mcp-server",
+  "securityRisk": {
+    "riskClass": "MEDIUM",
+    "blockers": [],
+    "warnings": [
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".github/ISSUE_TEMPLATE/bug_report.yml matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/bug-repro.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/cache-warm.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/codeql.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/fast-repro.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/pr.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/smoke.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".github/workflows/_build.yml matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/_build.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/_lint.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".github/workflows/_smoke.yml matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/_smoke.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/_soak.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": ".github/workflows/_test.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "CONTRIBUTING.md matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "docs/BENCHMARK.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "docs/RUNTIME_TRACE_MODEL.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "graph-ui/package-lock.json matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "graph-ui/src/lib/i18n.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "install.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "pkg/npm/bin.js matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "postinstall-script",
+        "detail": "pkg/npm/package.json matches postinstall-script pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "postinstall-script",
+        "detail": "pkg/npm/package.json declares an install lifecycle script."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "pkg/npm/test/package-publication.test.js matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "README.md matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "README.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/check-lsp-originality.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/ci/append-vt-notes.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/ci/prepare-release-candidates.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/ci/publish-legacy-aliases.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/ci/publish-vt-evidence.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/ci/smoke-artifact.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/clean.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/embed-frontend.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "obfuscated-execution",
+        "detail": "scripts/extract_nomic_vectors.py matches obfuscated-execution pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/license-gate.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/memlab.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/package-release.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/path-safety.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/run-tests-parallel.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "obfuscated-execution",
+        "detail": "scripts/security-install.sh matches obfuscated-execution pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/security-ui.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "scripts/security-ui.sh matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/setup-windows.ps1 matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "scripts/setup-windows.ps1 matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/setup.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/smoke-invariants.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/smoke-local.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/smoke-test.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/soak-test.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/test-runtime.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "scripts/vendor-grammar.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "SECURITY.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "test-infrastructure/docker-compose.yml matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "test-infrastructure/vm/vm-run-tests.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "test-infrastructure/vm/vm-smoke.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "test-infrastructure/vm/win.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "test-infrastructure/vm/windows-bootstrap.ps1 matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_build_dir_safety.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_cpp_index_hang.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_makefile_ts_runtime_dependencies.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_mcpb_bundle_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_mcpb_registry_entries_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_parallel_harness_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_release_archive_extractor_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_release_candidate_derivation_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_runtime_isolation_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_security_fuzz_harness.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_security_strings_allowlist.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "tests/test_smoke_fixture_contract.sh matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_vendored_integrity_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "tests/test_venue_parity_contract.sh matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_vm_worktree_manifest.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_vt_candidate_selection_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_vt_gate_policy_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_vt_release_notes_contract.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": "tests/test_watcher_disabled.sh matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "credential-harvest",
+        "detail": "tests/test_windows_bundle_contract.sh matches credential-harvest pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "tests/windows/test_cli_non_ascii_arg.py matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "vendored/nomic/code_tokens.txt matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "elevated-shell",
+        "detail": "vendored/nomic/code_tokens.txt matches elevated-shell pattern (outside executable adaptation surface — downgraded)."
+      }
+    ],
+    "verdict": "REVIEW_REQUIRED",
+    "summary": "Review required: risk=MEDIUM, 81 warning(s), adaptability=requires-tool-port."
+  },
+  "adaptationRecommendation": "MCP server: adapt as an MCP integration tool behind the capability broker, not as an inline skill. | Adaptability: requires-tool-port.",
+  "analyzedAt": "2026-09-08T13:41:58.593Z",
+  "sourceRepository": "codebase-memory-mcp",
+  "languages": [
+    "TypeScript",
+    "PowerShell",
+    "Shell",
+    "JavaScript",
+    "Python"
+  ],
+  "capabilities": [
+    {
+      "kind": "mcp-server",
+      "name": "pkg/pypi/src/codebase_memory_mcp/_cli.py",
+      "path": "pkg/pypi/src/codebase_memory_mcp/_cli.py",
+      "summary": "\"\"\"Downloads codebase-memory-mcp on first run, then runs its native entry point.\"\"\""
+    },
+    {
+      "kind": "mcp-server",
+      "name": "pkg/pypi/src/codebase_memory_mcp/__init__.py",
+      "path": "pkg/pypi/src/codebase_memory_mcp/__init__.py",
+      "summary": "codebase-memory-mcp — Fast code intelligence engine for AI coding agents."
+    },
+    {
+      "kind": "mcp-server",
+      "name": "pkg/pypi/src/codebase_memory_mcp/__main__.py",
+      "path": "pkg/pypi/src/codebase_memory_mcp/__main__.py",
+      "summary": "from ._cli import main"
+    },
+    {
+      "kind": "mcp-server",
+      "name": "scripts/test_mcp_interactive.py",
+      "path": "scripts/test_mcp_interactive.py",
+      "summary": "!/usr/bin/env python3"
+    },
+    {
+      "kind": "mcp-server",
+      "name": "scripts/test_mcp_rapid_init.py",
+      "path": "scripts/test_mcp_rapid_init.py",
+      "summary": "!/usr/bin/env python3"
+    },
+    {
+      "kind": "mcp-server",
+      "name": "tests/windows/mcp_stdio.py",
+      "path": "tests/windows/mcp_stdio.py",
+      "summary": "\"\"\"Minimal MCP stdio client for the Windows red-test suite."
+    }
+  ],
+  "fileCount": 354,
+  "license": "MIT"
+}

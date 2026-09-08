@@ -1,0 +1,612 @@
+{
+  "purpose": "Adapted from Graft: 12 capability surface(s), 288 analyzed files. MCP server: adapt as an MCP integration tool behind the capability broker, not as an inline skill.",
+  "dependencies": [
+    "@anthropic-ai/sdk",
+    "commander",
+    "dotenv",
+    "gray-matter",
+    "openai",
+    "tree-sitter",
+    "tree-sitter-go",
+    "tree-sitter-java",
+    "tree-sitter-kotlin",
+    "tree-sitter-php",
+    "tree-sitter-python",
+    "tree-sitter-r",
+    "tree-sitter-swift",
+    "tree-sitter-typescript",
+    "tree-sitter-wasm",
+    "vscode-jsonrpc",
+    "vscode-languageserver-protocol",
+    "web-tree-sitter",
+    "@types/d3-force",
+    "@types/node",
+    "d3-force",
+    "esbuild",
+    "node-gyp",
+    "tsx",
+    "typescript"
+  ],
+  "permissionsRequired": [
+    "secrets.read",
+    "network.http"
+  ],
+  "filesystemAccess": [],
+  "networkRequirements": [
+    "http-client",
+    "external-http"
+  ],
+  "executionModel": "mcp-server",
+  "securityRisk": {
+    "riskClass": "HIGH",
+    "blockers": [],
+    "warnings": [
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": ".github/actions/graft-blast/action.yml matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "shell-injection",
+        "detail": ".github/workflows/blast-pages.yml matches shell-injection pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "CHANGELOG.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "deploy/apprunner.sh matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "docs/github-app.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "package.json matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "postinstall-script",
+        "detail": "package.json matches postinstall-script pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "postinstall-script",
+        "detail": "package.json declares an install lifecycle script."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "README.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "scripts/graph-quality.mjs matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "scripts/postinstall.mjs matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "scripts/postinstall.mjs matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "scripts/run-tests.mjs matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "scripts/stamp-telemetry-key.mjs matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "scripts/tally-audit.mjs matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/app/checkout.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/app/checkout.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/app/identity.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/app/main.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/app/queue.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/app/review-worker.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/app/server.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/blast/blast.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/blast/diff.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/blast/evidence.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/blast/modules.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/blast/owners.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/blast/owners.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/claude/hooks.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/claude/hooks.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/claude/session-metrics.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/claude/state.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/claude/tally.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/cli-meta.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/cli-picker.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/cli.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/cli.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/engine.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/graph/cards.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/graph/container.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/graph/enrich.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/graph/extract.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/graph/invariants.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/graph/lsp/client.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/graph/lsp/enrich.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/graph/lsp/registry.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/graph/seed.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/graph/workspace.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/hosts/mcp-config.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/ingest/fs.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/mcp/server.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/search/grep.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/contract.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/telemetry/flush.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/gate.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/identity.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/index.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/key.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/notice.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/queue.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/send.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/sessions.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/telemetry/track.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "src/upkeep.ts matches dynamic-shell pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "src/viz/export.ts matches hidden-network pattern."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "TELEMETRY.md matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/app-identity.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/app-pages.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/app-review-process.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/app-server.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/ask-fusion.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/ask.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/blast.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/claude-hooks.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/claude-init-workspace.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/claude-init.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/claude-shim-resolve.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/cli-deep-failure.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/cli-picker.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/generic-node24.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/graph-enrich-checkpoint.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/graph-php.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/graph-r.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/graph-references.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/graph-refresh.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/helpers.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "dynamic-shell",
+        "detail": "test/mcp-server.test.ts matches dynamic-shell pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/telemetry-contract.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/telemetry-gate.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/telemetry-identity.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/telemetry-install.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/telemetry-notice.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/telemetry-queue.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/telemetry-send.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "hidden-network",
+        "detail": "test/telemetry-sessions.test.ts matches hidden-network pattern (outside executable adaptation surface — downgraded)."
+      },
+      {
+        "severity": "WARNING",
+        "kind": "secret-requirements",
+        "detail": "Repository reads credential-shaped environment variables."
+      }
+    ],
+    "verdict": "REVIEW_REQUIRED",
+    "summary": "Review required: risk=HIGH, 96 warning(s), adaptability=requires-tool-port."
+  },
+  "adaptationRecommendation": "MCP server: adapt as an MCP integration tool behind the capability broker, not as an inline skill. | Adaptability: requires-tool-port.",
+  "analyzedAt": "2026-09-08T13:41:59.574Z",
+  "sourceRepository": "Graft",
+  "languages": [
+    "JavaScript",
+    "Shell",
+    "TypeScript"
+  ],
+  "capabilities": [
+    {
+      "kind": "skill",
+      "name": ".claude/skills/graft/SKILL",
+      "path": ".claude/skills/graft/SKILL.md",
+      "summary": "name: graft"
+    },
+    {
+      "kind": "skill",
+      "name": ".claude/skills/graft/SKILL.md",
+      "path": ".claude/skills/graft/SKILL.md",
+      "summary": "name: graft"
+    },
+    {
+      "kind": "tool",
+      "name": "src/ai/llm/recover-tool.ts",
+      "path": "src/ai/llm/recover-tool.ts",
+      "summary": "Recover a forced-tool payload from assistant `content` when a gateway ignored"
+    },
+    {
+      "kind": "mcp-server",
+      "name": "src/hosts/mcp-config.ts",
+      "path": "src/hosts/mcp-config.ts",
+      "summary": "Register the graft MCP server in each host's config."
+    },
+    {
+      "kind": "mcp-server",
+      "name": "src/mcp/instructions.ts",
+      "path": "src/mcp/instructions.ts",
+      "summary": "The `instructions` string returned in graft's MCP `initialize` response."
+    },
+    {
+      "kind": "mcp-server",
+      "name": "src/mcp/server.ts",
+      "path": "src/mcp/server.ts",
+      "summary": "Minimal MCP stdio server: newline-delimited JSON-RPC 2.0."
+    },
+    {
+      "kind": "mcp-server",
+      "name": "src/mcp/tool-names.ts",
+      "path": "src/mcp/tool-names.ts",
+      "summary": "The graft MCP tool names, kept in a zero-import module so both the MCP server"
+    },
+    {
+      "kind": "tool",
+      "name": "src/mcp/tool-names.ts",
+      "path": "src/mcp/tool-names.ts",
+      "summary": "The graft MCP tool names, kept in a zero-import module so both the MCP server"
+    },
+    {
+      "kind": "mcp-server",
+      "name": "src/mcp/tools.ts",
+      "path": "src/mcp/tools.ts",
+      "summary": "The MCP tools, as pure functions over the existing engine."
+    },
+    {
+      "kind": "mcp-server",
+      "name": "test/hosts-mcp-config.test.ts",
+      "path": "test/hosts-mcp-config.test.ts",
+      "summary": "import { test } from 'node:test';"
+    },
+    {
+      "kind": "mcp-server",
+      "name": "test/mcp-server.test.ts",
+      "path": "test/mcp-server.test.ts",
+      "summary": "import { test } from 'node:test';"
+    },
+    {
+      "kind": "mcp-server",
+      "name": "test/mcp-tools.test.ts",
+      "path": "test/mcp-tools.test.ts",
+      "summary": "import { test } from 'node:test';"
+    }
+  ],
+  "fileCount": 288,
+  "license": "MIT"
+}

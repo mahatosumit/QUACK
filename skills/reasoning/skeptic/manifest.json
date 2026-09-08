@@ -1,0 +1,46 @@
+{
+  "id": "reasoning.skeptic",
+  "name": "Skeptic",
+  "version": "1.0.0",
+  "description": "Challenge assumptions: verify claims against evidence before relying on them. Governed reasoning policy: skeptic, challenge assumptions, verify claims.",
+  "author": "QUACK",
+  "trustLevel": "verified",
+  "requiredCapabilities": [
+    "permission.workspace.read"
+  ],
+  "allowedTools": [
+    "core.workspace.list-files"
+  ],
+  "inputSchema": {
+    "type": "object",
+    "properties": {
+      "goal": {
+        "type": "string"
+      }
+    }
+  },
+  "outputSchema": {
+    "type": "object",
+    "properties": {
+      "discipline": {
+        "type": "string"
+      }
+    }
+  },
+  "executionLimits": {
+    "timeoutMs": 30000,
+    "maxIterations": 2,
+    "maxToolCalls": 2,
+    "maxRetriesPerStep": 0
+  },
+  "category": "reasoning",
+  "tags": [
+    "skeptic",
+    "challenge",
+    "assumptions",
+    "verify",
+    "evidence",
+    "doubt",
+    "reasoning-policy"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "skillId": "reasoning.ultrathink",
+  "checks": [
+    {
+      "id": "policy-1",
+      "rule": "Restate the goal and success criteria in one sentence before any work.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-2",
+      "rule": "Decompose the problem into independently verifiable parts.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-3",
+      "rule": "For each part, list what is known, what is assumed, and what must be discovered.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-4",
+      "rule": "Choose the approach that satisfies the success criteria with the least irreversible change.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-5",
+      "rule": "Only begin execution after the decomposition covers every requested behavior.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    }
+  ]
+}

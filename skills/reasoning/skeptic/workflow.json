@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "id": "ground",
+      "description": "Ground the reasoning discipline in the actual workspace before applying it.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Ground Skeptic policy in real files."
+        }
+      ],
+      "timeoutMs": 5000
+    },
+    {
+      "id": "apply-policy",
+      "description": "Apply Skeptic policy: List every assumption the plan depends on. Mark each assumption as verified (evidence exists) or unverified. For unverified assumptions, state the cheapest check that would verify or refute them. Prefer plans that survive if the weakest assumption is false. Never present an unverified assumption as fact in output.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Read-only policy application anchor; no state is mutated."
+        }
+      ],
+      "timeoutMs": 5000
+    }
+  ]
+}

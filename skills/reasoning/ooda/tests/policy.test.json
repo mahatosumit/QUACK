@@ -1,0 +1,30 @@
+{
+  "skillId": "reasoning.ooda",
+  "checks": [
+    {
+      "id": "policy-1",
+      "rule": "Observe: gather only facts relevant to the current decision.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-2",
+      "rule": "Orient: relate observations to the goal and known constraints.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-3",
+      "rule": "Decide: choose one action with an explicit reason and a reversibility check.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-4",
+      "rule": "Act: execute the decision, then observe the result before the next loop.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    },
+    {
+      "id": "policy-5",
+      "rule": "If the observation contradicts the orientation, restart the loop instead of forcing the action.",
+      "assertion": "manifest-and-workflow carry this rule verbatim"
+    }
+  ]
+}

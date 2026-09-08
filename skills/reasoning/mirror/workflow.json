@@ -1,0 +1,40 @@
+{
+  "steps": [
+    {
+      "id": "ground",
+      "description": "Ground the reasoning discipline in the actual workspace before applying it.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Ground Mirror policy in real files."
+        }
+      ],
+      "timeoutMs": 5000
+    },
+    {
+      "id": "apply-policy",
+      "description": "Apply Mirror policy: After producing output, re-read it as if another engineer wrote it. Check correctness against the original goal, not against the effort spent. List the three weakest points of the produced work. Fix material weaknesses before declaring completion. Report what was checked and what was not.",
+      "requiredTools": [
+        "core.workspace.list-files"
+      ],
+      "toolInvocations": [
+        {
+          "toolId": "core.workspace.list-files",
+          "input": {
+            "path": ".",
+            "depth": 1
+          },
+          "reason": "Read-only policy application anchor; no state is mutated."
+        }
+      ],
+      "timeoutMs": 5000
+    }
+  ]
+}

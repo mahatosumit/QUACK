@@ -11,6 +11,7 @@ import { createQuackSystem } from "../distributions/swe-system.js";
 test("runtime persists tasks and audit events to the configured data directory", async () => {
   const workspaceRoot = join(tmpdir(), createId("quack_workspace"));
   const dataDir = join(tmpdir(), createId("quack_state"));
+  await mkdir(workspaceRoot, { recursive: true });
 
   try {
     const system = createQuackSystem({ workspaceRoot, dataDir });
@@ -18,18 +19,22 @@ test("runtime persists tasks and audit events to the configured data directory",
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
+    assert.equal(result.data.status, "completed", "default assembly certifies via workflow evidence");
 
     const persisted = JSON.parse(await readFile(join(dataDir, "tasks.json"), "utf8")) as { tasks: Array<{ id: string; status: string }> };
     assert.equal(persisted.tasks.length, 1);
     assert.equal(persisted.tasks[0]?.id, result.data.id);
-    assert.equal(persisted.tasks[0]?.status, "failed");
+    assert.equal(persisted.tasks[0]?.status, "completed");
 
     const events = await system.auditLog.readAll();
     assert.ok(events.some((event) => event.type === "task.created"));
-    assert.ok(events.some((event) => event.type === "task.failed"));
+    assert.ok(events.some((event) => event.type === "task.completed"));
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    // Windows briefly retains directory entries after a database close and
+    // while async event sinks flush; retry removal (same pattern as
+    // removeTestDirectory in test-support).
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
   }
 });
 
