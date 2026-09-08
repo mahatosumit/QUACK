@@ -25,9 +25,15 @@ async function freshSystem(context: { after: (fn: () => Promise<void>) => void }
   for (const [name, content] of Object.entries(workspaceFiles)) {
     await writeFile(join(workspaceRoot, name), content, "utf8");
   }
-  context.after(() => rm(root, { recursive: true, force: true }));
 
   const system = createQuackSystem({ dataDir: join(home, "data"), workspaceRoot });
+  // Fire-and-forget emits (ownership release, skill packages) append to the
+  // audit log after the mission resolves; drain before teardown so cleanup
+  // never races an in-flight append (ENOTEMPTY on Windows).
+  context.after(async () => {
+    await system.events.drain();
+    await rm(root, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+  });
   return { system, home, workspaceRoot };
 }
 

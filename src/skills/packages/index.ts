@@ -210,7 +210,7 @@ export class SkillPackageManager {
     void this.deps.eventBus.emit("skill.package.enabled", {
       packageId: installed.id,
       version: installed.version,
-    }, { actor: "skill-package-manager" });
+    }, { actor: "skill-package-manager" }).catch(() => undefined);
     return result;
   }
 
@@ -228,7 +228,7 @@ export class SkillPackageManager {
     void this.deps.eventBus.emit("skill.package.disabled", {
       packageId: installed.id,
       version: installed.version,
-    }, { actor: "skill-package-manager" });
+    }, { actor: "skill-package-manager" }).catch(() => undefined);
     return result;
   }
 

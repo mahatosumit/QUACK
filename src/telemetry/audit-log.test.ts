@@ -1,6 +1,9 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { InMemoryAuditLog } from "./audit-log.js";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { InMemoryAuditLog, JsonlAuditLog } from "./audit-log.js";
 import { type QuackEvent } from "../events/event-bus.js";
 
 const makeEvent = (overrides?: Partial<QuackEvent>): QuackEvent => ({
@@ -46,5 +49,22 @@ describe("InMemoryAuditLog", () => {
     assert.equal(events[0].id, "first");
     assert.equal(events[1].id, "second");
     assert.equal(events[2].id, "third");
+  });
+});
+
+describe("JsonlAuditLog", () => {
+  it("concurrent appends never drop or reorder events", async (t) => {
+    const dir = await mkdtemp(join(tmpdir(), "quack-audit-"));
+    t.after(() => rm(dir, { recursive: true, force: true }));
+    const log = new JsonlAuditLog(join(dir, "audit.jsonl"));
+    const total = 200;
+    // Fire-and-forget style: do not await individual appends, mirroring
+    // void eventBus.emit consumers that race the read-modify-write.
+    const appends = Array.from({ length: total }, (_, index) =>
+      log.append(makeEvent({ id: `evt_${index}` })));
+    await Promise.all(appends);
+    const events = await log.readAll();
+    assert.equal(events.length, total);
+    assert.deepEqual(events.map((event) => event.id), Array.from({ length: total }, (_, index) => `evt_${index}`));
   });
 });

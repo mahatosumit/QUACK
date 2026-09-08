@@ -1,5 +1,5 @@
-import { isMissingFile } from "../core/utils.js";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { atomicWriteFile, isMissingFile } from "../core/utils.js";
+import { mkdir, readFile } from "node:fs/promises";
 import { dirname } from "node:path";
 import { type QuackEvent } from "../events/event-bus.js";
 
@@ -21,13 +21,22 @@ export class InMemoryAuditLog implements AuditLog {
 }
 
 export class JsonlAuditLog implements AuditLog {
+  // ponytail: single-process write chain; concurrent appends interleave
+  // read-modify-write and silently drop events (fire-and-forget emits race).
+  // Cross-process audit lives in the sqlite ledger.
+  private appendQueue: Promise<void> = Promise.resolve();
+
   constructor(private readonly filePath: string) {}
 
-  async append(event: QuackEvent): Promise<void> {
-    await mkdir(dirname(this.filePath), { recursive: true });
-    const existing = await this.readRaw();
-    const next = `${existing}${JSON.stringify(event)}\n`;
-    await writeFile(this.filePath, next, "utf8");
+  append(event: QuackEvent): Promise<void> {
+    const operation = this.appendQueue.then(async () => {
+      await mkdir(dirname(this.filePath), { recursive: true });
+      const existing = await this.readRaw();
+      const next = `${existing}${JSON.stringify(event)}\n`;
+      await atomicWriteFile(this.filePath, next);
+    });
+    this.appendQueue = operation.then(() => undefined, () => undefined);
+    return operation;
   }
 
   async readAll(): Promise<QuackEvent[]> {
