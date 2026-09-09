@@ -13,7 +13,7 @@ function testContext(): BrainContext {
   return { actor: "test", sessionId: "test-session", workspaceId: "test-ws" };
 }
 
-test("SimpleBrain plan returns three steps", async () => {
+test("SimpleBrain plan returns actionable deterministic steps (fresh-machine contract)", async () => {
   const brain = new SimpleBrain();
   const task = {
     id: createId("task"),
@@ -28,9 +28,20 @@ test("SimpleBrain plan returns three steps", async () => {
   assert.ok(result.ok);
   if (!result.ok) return;
 
-  assert.equal(result.data.steps.length, 3);
+  assert.ok(result.data.steps.length > 0);
   assert.equal(result.data.goal, "test the system");
   assert.equal(result.data.estimatedTotalComplexity, "low");
+  // Offline machines have no providers: the plan must still be executable —
+  // every tool-declaring step carries a concrete invocation (release-blocker
+  // regression for the credential-free fresh-install mission path).
+  for (const step of result.data.steps) {
+    if (step.tools.length > 0) {
+      assert.ok((step.toolInvocations ?? []).length > 0,
+        `Step "${step.title}" declares tools without invocations`);
+    }
+  }
+  const allInvocations = result.data.steps.flatMap((step) => step.toolInvocations ?? []);
+  assert.ok(allInvocations.length > 0, "SimpleBrain plan must contain at least one tool invocation");
 });
 
 test("SimpleBrain refuses execution without an executor and validator", async () => {

@@ -51,9 +51,18 @@ export function resolveInsideRoot(root: string, candidate: string): PathPolicyRe
   if (withoutDrive.includes(":")) return { allowed: false, denial: "ALTERNATE_DATA_STREAM" };
   if (!isAbsolute(root)) return { allowed: false, denial: "NOT_ABSOLUTE_ROOT" };
 
-  const resolvedRoot = safeRealpath(root) ?? resolve(root);
-  const lexical = resolve(resolvedRoot, candidate);
-  if (!containsLexically(resolvedRoot, lexical)) return { allowed: false, denial: "TRAVERSAL_ESCAPE" };
+  const logicalRoot = resolve(root);
+  const resolvedRoot = safeRealpath(root) ?? logicalRoot;
+  // A candidate may be spelled through either the logical root the operator
+  // configured (e.g. macOS /var/folders symlink) or the canonical real root.
+  // Resolve against the form that actually contains it; containment is still
+  // enforced against the REAL root for every existing path (below).
+  const asLogical = resolve(logicalRoot, candidate);
+  const asReal = resolve(resolvedRoot, candidate);
+  const lexical = containsLexically(logicalRoot, asLogical) ? asLogical : asReal;
+  if (!containsLexically(logicalRoot, asLogical) && !containsLexically(resolvedRoot, asReal)) {
+    return { allowed: false, denial: "TRAVERSAL_ESCAPE" };
+  }
 
   // If the target (or any existing ancestor) is a symlink/junction, its real
   // path must stay inside the real root. Both sides are realpath'd so 8.3
@@ -63,10 +72,13 @@ export function resolveInsideRoot(root: string, candidate: string): PathPolicyRe
     return { allowed: false, denial: "SYMLINK_ESCAPE" };
   }
   if (realTarget === undefined) {
-    // Walk existing ancestors up to (not past) the root: any symlinked
-    // intermediate component that resolves outside the real root escapes.
+    // Walk existing ancestors up to (not past) the containing root form:
+    // any symlinked intermediate component that resolves outside the real
+    // root escapes. The walk root depends on which spelling contained the
+    // candidate (logical macOS tempdir vs canonical real path).
+    const walkRoot = containsLexically(logicalRoot, lexical) ? logicalRoot : resolvedRoot;
     let current = dirname(lexical);
-    while (containsLexically(resolvedRoot, current) && current !== dirname(resolvedRoot)) {
+    while (containsLexically(walkRoot, current) && current !== dirname(walkRoot)) {
       const realAncestor = safeRealpath(current);
       if (realAncestor !== undefined && !containsLexically(resolvedRoot, realAncestor)) {
         return { allowed: false, denial: "SYMLINK_ESCAPE" };

@@ -1,4 +1,4 @@
-import { createId, fail, ok, type JsonObject, type QuackResult } from "../core/types.js";
+import { fail, ok, type QuackResult } from "../core/types.js";
 import {
   type Brain,
   type BrainContext,
@@ -9,43 +9,38 @@ import {
   type Reflection,
 } from "./brain.js";
 import { type Task } from "../runtime/task.js";
+import { Planner } from "../engine/planner.js";
 
-/** Offline planning fallback. It cannot execute or certify mission completion. */
+/**
+ * Offline planning fallback: the same deterministic Planner graph
+ * (workspace list-files + code-search invocations) the ExecutiveBrain uses,
+ * without the provider/memory wiring. Missions on credential-free machines
+ * still produce actionable, governed, read-only plans; deep reasoning still
+ * requires wiring the ExecutiveBrain.
+ */
 export class SimpleBrain implements Brain {
-  async plan(task: Task, _context: BrainContext): Promise<QuackResult<Plan>> {
-    const steps: PlanStep[] = [
-      {
-        id: createId("step"),
-        title: `Understand goal: ${task.goal}`,
-        description: `Parse and validate the user goal "${task.goal}".`,
-        estimatedComplexity: "low",
-        dependencies: [],
-        tools: [],
-      },
-      {
-        id: createId("step"),
-        title: "Select runtime capabilities",
-        description: "Identify which tools, providers, and memory scopes are relevant.",
-        estimatedComplexity: "low",
-        dependencies: [],
-        tools: [],
-      },
-      {
-        id: createId("step"),
-        title: "Produce verified response",
-        description: "Return a structured result after self-checking the output.",
-        estimatedComplexity: "medium",
-        dependencies: [],
-        tools: [],
-      },
-    ];
+  private readonly planner = new Planner({
+    defaultRetryPolicy: { maxRetries: 0, backoff: "fixed", baseDelayMs: 0, maxDelayMs: 0 },
+    defaultTimeoutMs: 30_000,
+    maxNodesPerGraph: 20,
+  });
 
+  async plan(task: Task, _context: BrainContext): Promise<QuackResult<Plan>> {
+    const proposal = this.planner.createPlan(task.goal, "");
     return ok({
       goal: task.goal,
-      steps,
-      strategy: "Deterministic stub plan: understand, select, produce.",
+      steps: proposal.taskGraph.nodes.map((node) => ({
+        id: node.id,
+        title: node.description,
+        description: node.description,
+        estimatedComplexity: "low",
+        dependencies: node.dependencies,
+        tools: node.requiredTools,
+        toolInvocations: node.toolInvocations,
+      })),
+      strategy: proposal.strategy,
       estimatedTotalComplexity: "low",
-      requiresPermissions: [],
+      requiresPermissions: proposal.requiresPermissions,
     });
   }
 

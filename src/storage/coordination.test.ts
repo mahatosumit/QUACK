@@ -95,8 +95,9 @@ test("second process rejected during valid lease, accepted after lease expiry (s
   const { dbPath, cleanup } = await tempDb();
   const resourceId = createId("res");
   try {
-    // 150ms lease: short but real (worker clock granularity is fine).
-    const holder = spawnWorker(dbPath, "acquire", resourceId, "owner-a", 150);
+    // Lease long enough that the BUSY probe (a forked worker, ~0.5-1s to
+    // start on slow CI runners) still lands inside the lease window.
+    const holder = spawnWorker(dbPath, "acquire", resourceId, "owner-a", 2_000);
     const first = await workerResult(holder);
     assert.equal((first["outcome"] as AcquireOutcome).kind, "ACQUIRED");
 
@@ -104,7 +105,8 @@ test("second process rejected during valid lease, accepted after lease expiry (s
     const busy = await workerResult(rejected);
     assert.equal((busy["outcome"] as AcquireOutcome).kind, "BUSY");
 
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    // Wait past the 2s lease so the takeover is a genuine stale takeover.
+    await new Promise((resolve) => setTimeout(resolve, 2_400));
 
     const takeover = spawnWorker(dbPath, "acquire", resourceId, "owner-b");
     const taken = await workerResult(takeover);
@@ -120,7 +122,10 @@ test("second process rejected during valid lease, accepted after lease expiry (s
 test("old owner cannot write after takeover: version fencing rejects stale writers", async () => {
   const { dbPath, cleanup } = await tempDb();
   const resourceId = createId("res");
-  const shortLease = new SqliteCoordinationStore(new SqliteConnection(dbPath), { leaseMs: 60 });
+  // Lease long enough that the immediate post-acquire write cannot be
+  // starved past expiry on a loaded CI runner, short enough that a bounded
+  // sleep crosses it for the takeover phase.
+  const shortLease = new SqliteCoordinationStore(new SqliteConnection(dbPath), { leaseMs: 500 });
   try {
     const original = shortLease.acquire(resourceId, "owner-a");
     assert.equal(original.kind, "ACQUIRED");
@@ -131,7 +136,7 @@ test("old owner cannot write after takeover: version fencing rejects stale write
     assert.equal(writeA.kind, "WRITTEN");
 
     // Lease expires; owner-b takes over, bumping the fencing version.
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await new Promise((resolve) => setTimeout(resolve, 650));
     const takeover = shortLease.acquire(resourceId, "owner-b");
     assert.equal(takeover.kind, "TAKEOVER_STALE");
     assert.equal(takeover.lease.version, versionA + 1);

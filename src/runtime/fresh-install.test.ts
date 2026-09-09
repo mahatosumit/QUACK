@@ -44,10 +44,10 @@ test("fresh install: mission executes governed tools and produces a completion r
   });
 
   const result = await system.runtime.submitGoal("say hello and complete", "cli", { origin: "cli" });
-  assert.ok(result.ok, `Mission submission failed: ${result.ok ? "" : result.error.message}`);
+  assert.ok(result.ok, `Mission submission failed: ${result.ok ? "" : JSON.stringify(result.error)}`);
 
   const task = result.data;
-  assert.equal(task.status, "completed", `Mission did not complete: ${JSON.stringify(task.result)}`);
+  assert.equal(task.status, "completed", `Mission did not complete: ${JSON.stringify({ error: task.error, result: task.result })}`);
   assert.ok((task.result as { summary?: string }).summary, "Completion summary is missing");
 
   // Completion receipt (contracts v1) must be attached.

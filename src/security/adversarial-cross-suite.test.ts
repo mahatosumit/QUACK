@@ -326,11 +326,13 @@ async function coordinationDb(): Promise<{ dbPath: string; cleanup: () => Promis
 
 test("recovery attack: stale owner write after takeover is rejected (fencing)", async () => {
   const { dbPath, cleanup } = await coordinationDb();
-  const store = new SqliteCoordinationStore(new SqliteConnection(dbPath), { leaseMs: 40 });
+  // Margin lease: survives CI runner stalls between acquire and writeFenced,
+  // but expires within the bounded takeover sleep below.
+  const store = new SqliteCoordinationStore(new SqliteConnection(dbPath), { leaseMs: 500 });
   try {
     const a = store.acquire("res", "attacker-a");
     assert.equal(a.kind, "ACQUIRED");
-    await new Promise((r) => setTimeout(r, 90));
+    await new Promise((r) => setTimeout(r, 650));
 
     const b = store.acquire("res", "honest-b");
     assert.equal(b.kind, "TAKEOVER_STALE");
@@ -349,10 +351,10 @@ test("recovery attack: stale owner write after takeover is rejected (fencing)", 
 
 test("recovery attack: expired lease cannot be resurrected by a heartbeat race", async () => {
   const { dbPath, cleanup } = await coordinationDb();
-  const store = new SqliteCoordinationStore(new SqliteConnection(dbPath), { leaseMs: 30 });
+  const store = new SqliteCoordinationStore(new SqliteConnection(dbPath), { leaseMs: 500 });
   try {
     store.acquire("res", "owner-a");
-    await new Promise((r) => setTimeout(r, 60));
+    await new Promise((r) => setTimeout(r, 650));
     assert.equal(store.heartbeat("res", "owner-a"), false);
     const b = store.acquire("res", "owner-b");
     assert.equal(b.kind, "TAKEOVER_STALE");

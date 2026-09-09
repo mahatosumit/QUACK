@@ -126,6 +126,9 @@ jobs:
         run: |
           npm ci
           npm run build
+          # npm pack does not create --pack-destination; make it first
+          # (node one-liner is portable across the pwsh/bash default shells).
+          node -e "require('node:fs').mkdirSync('release',{recursive:true})"
           npm pack --pack-destination "$PWD/release"
       - name: Install into clean directory
         shell: bash

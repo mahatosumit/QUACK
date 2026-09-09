@@ -19,7 +19,7 @@ test("runtime persists tasks and audit events to the configured data directory",
 
     assert.equal(result.ok, true);
     if (!result.ok) return;
-    assert.equal(result.data.status, "completed", "default assembly certifies via workflow evidence");
+    assert.equal(result.data.status, "completed", `default assembly certifies via workflow evidence: ${JSON.stringify({ error: result.data.error, result: result.data.result })}`);
 
     const persisted = JSON.parse(await readFile(join(dataDir, "tasks.json"), "utf8")) as { tasks: Array<{ id: string; status: string }> };
     assert.equal(persisted.tasks.length, 1);

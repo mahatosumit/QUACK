@@ -15,7 +15,8 @@ function createWorkspace(): { root: string; fileInfo: (rel: string) => FileInfo;
   return {
     root,
     fileInfo: (rel: string): FileInfo => {
-      const fullPath = join(root, rel.replace(/\//g, "\\"));
+      // Platform-neutral: node:path join handles "/" on Windows and POSIX.
+      const fullPath = join(root, rel);
       const content = readLinkContent(rel);
       writeFileSync(fullPath, content);
       return {

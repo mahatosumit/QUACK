@@ -95,6 +95,33 @@ test("path policy rejects symlink parent escape for new-file targets", async t =
   if (!writeTarget.allowed) assert.equal(writeTarget.denial, "SYMLINK_ESCAPE");
 });
 
+test("path policy accepts candidates spelled through a symlinked root while still rejecting escapes", async t => {
+  // Simulates the macOS tempdir (/var/folders -> /private/var/folders): the
+  // operator-configured root is a symlink; absolute candidates are spelled
+  // through the logical form while the canonical real form differs.
+  const real = await mkdtemp(join(tmpdir(), "quack-path-real-"));
+  t.after(() => rm(real, { recursive: true, force: true }));
+  const logicalParent = await mkdtemp(join(tmpdir(), "quack-path-link-"));
+  t.after(() => rm(logicalParent, { recursive: true, force: true }));
+  const rootLink = join(logicalParent, "rootlink");
+  await symlink(real, rootLink, "junction");
+  await mkdir(join(real, "nested"), { recursive: true });
+
+  // Candidate spelled through the logical (symlinked) root is allowed and
+  // resolves to the logical spelling.
+  const viaLink = resolveInsideRoot(rootLink, join(rootLink, "nested", "file.txt"));
+  assert.equal(viaLink.allowed, true, `logical spelling must be accepted: ${JSON.stringify(viaLink)}`);
+  assert.ok(viaLink.resolved?.includes(join("nested", "file.txt")));
+
+  // Relative candidates under the logical root still work.
+  const rel = resolveInsideRoot(rootLink, "nested/file.txt");
+  assert.equal(rel.allowed, true);
+
+  // Escapes through the symlinked root are still rejected.
+  const escape = resolveInsideRoot(rootLink, "../escape.txt");
+  assert.equal(escape.allowed, false);
+});
+
 test("argv process execution runs without a shell and with materialized env only", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-proc-"));
   t.after(() => rm(dir, { recursive: true, force: true }));

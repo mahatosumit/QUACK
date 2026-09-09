@@ -36,7 +36,10 @@ jobs:
       # npm tarball + checksums: the primary distribution artifact.
       # Installers ride along in the package (installers/ is in files[]).
       - name: Build npm distribution tarball
-        run: npm pack --pack-destination release/run-npm
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path release/run-npm | Out-Null
+          npm pack --pack-destination release/run-npm
       - name: Generate checksums (tarball + zip)
         shell: pwsh
         run: |

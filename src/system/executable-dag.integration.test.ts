@@ -13,10 +13,11 @@ test("ExecutiveBrain submitGoal executes concrete DAG toolInvocations through ru
   const previousNvidiaKey = process.env["NVIDIA_API_KEY"];
   await mkdir(workspaceRoot, { recursive: true });
   await writeFile(join(workspaceRoot, "hello.txt"), "hello from executable dag\n", "utf8");
+  let system: ReturnType<typeof createQuackSystem> | undefined;
 
   try {
     delete process.env["NVIDIA_API_KEY"];
-    const system = createQuackSystem({
+    system = createQuackSystem({
       workspaceRoot,
       dataDir,
       permissions: ["workspace.read"],
@@ -45,7 +46,11 @@ test("ExecutiveBrain submitGoal executes concrete DAG toolInvocations through ru
     } else {
       process.env["NVIDIA_API_KEY"] = previousNvidiaKey;
     }
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    // Fire-and-forget emits (ownership release) can append to the audit log
+    // after submitGoal resolves; drain before teardown so rm never races an
+    // in-flight append (ENOTEMPTY on macOS/Windows).
+    await system?.events.drain();
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 8, retryDelay: 50 });
   }
 });

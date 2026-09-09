@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdir } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { createId } from "../core/types.js";
@@ -9,6 +10,11 @@ import { removeTestDirectory } from "../test-support/isolated-system.js";
 
 function cwdCommand(): string {
   return `"${process.execPath}" -e "console.log(process.cwd())"`;
+}
+
+/** Node's child cwd resolves symlinks (macOS /var -> /private/var); compare canonical forms. */
+function canonical(path: string): string {
+  try { return realpathSync(path); } catch { return path; }
 }
 
 test("terminal - runs in the configured workspace, not the process cwd", async () => {
@@ -32,7 +38,7 @@ test("terminal - runs in the configured workspace, not the process cwd", async (
 
     assert.ok(result.ok);
     if (!result.ok) return;
-    assert.equal((result.data.stdout as string).trim(), workspaceRoot);
+    assert.equal(canonical((result.data.stdout as string).trim()), canonical(workspaceRoot));
   } finally {
     await system?.events.drain();
     await removeTestDirectory(workspaceRoot);
@@ -61,7 +67,7 @@ test("terminal - a relative workingDirectory stays inside the workspace", async 
 
     assert.ok(result.ok);
     if (!result.ok) return;
-    assert.equal((result.data.stdout as string).trim(), join(workspaceRoot, "sub"));
+    assert.equal(canonical((result.data.stdout as string).trim()), canonical(join(workspaceRoot, "sub")));
   } finally {
     await system?.events.drain();
     await removeTestDirectory(workspaceRoot);
@@ -91,7 +97,7 @@ test("terminal - accepts an absolute workingDirectory inside the workspace", asy
 
     assert.ok(result.ok);
     if (!result.ok) return;
-    assert.equal((result.data.stdout as string).trim(), subdir);
+    assert.equal(canonical((result.data.stdout as string).trim()), canonical(subdir));
   } finally {
     await system?.events.drain();
     await removeTestDirectory(workspaceRoot);
