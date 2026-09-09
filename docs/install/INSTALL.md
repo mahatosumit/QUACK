@@ -18,6 +18,9 @@ old, the installer stops and tells you how to fix it.
 
 ## Option 1 — npm (all platforms)
 
+> Available once the first release is published to npm. Until then, install
+> from a checkout or a built tarball: `npm install -g path/to/quack-os-1.0.0.tgz`.
+
 ```bash
 npm install -g @quack/os
 ```
