@@ -23,9 +23,11 @@ follow these non-negotiable rules:
 ## Piping scripts from the web
 
 `curl ... | bash` runs remote text in your shell. The official installer is
-served from `quack.os` (static GitHub Pages of this repository's
-`website/` directory, same commit as the published package). If you prefer
-not to pipe:
+designed to be served from `quack.os` (static GitHub Pages of this
+repository's `website/` directory, same commit as the published package).
+> **Deployment status:** the site is not live yet; until it is, install via
+> npm (see [INSTALL.md](../INSTALL.md)). If you prefer not to pipe when the
+> site is available:
 
 ```bash
 # Download, inspect, then run

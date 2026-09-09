@@ -17,8 +17,8 @@ import { join } from "node:path";
 import type { CrashPoint } from "../test-support/multi-process-recovery-types.js";
 
 const WORKER_URL = new URL("../test-support/ownership-child.js", import.meta.url);
-/** Child lease is 600ms; takeover requires expiry. */
-const LEASE_WAIT_MS = 900;
+/** Child lease is 5s (CI-realistic for a forked process under full-suite load); takeover requires expiry. */
+const LEASE_WAIT_MS = 7_500;
 
 export type SpawnedMessage = { readonly type: string; readonly [key: string]: unknown };
 

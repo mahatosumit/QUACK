@@ -56,6 +56,8 @@ export interface ModelRuntimeProviderConfig {
   readonly fallback?: boolean;
   readonly capabilities?: readonly ModelCapability[];
   readonly timeoutMs?: number;
+  /** Injectable fetcher (e.g. NetworkPolicyEngine.fetch) for governed egress. */
+  readonly fetch?: typeof fetch;
 }
 
 export interface ModelRuntimeConfig {
@@ -70,16 +72,18 @@ export class OllamaModelProvider implements ModelProvider {
   readonly kind = "ollama" as const;
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly fetcher: typeof fetch;
 
   constructor(private readonly config: ModelRuntimeProviderConfig) {
     this.id = config.id ?? "ollama";
     this.baseUrl = config.baseUrl ?? "http://localhost:11434";
     this.timeoutMs = config.timeoutMs ?? 60_000;
+    this.fetcher = config.fetch ?? fetch;
   }
 
   async listModels(): Promise<QuackResult<readonly ModelInfo[]>> {
     try {
-      const response = await fetch(`${this.baseUrl}/api/tags`, { signal: AbortSignal.timeout(this.timeoutMs) });
+      const response = await this.fetcher(`${this.baseUrl}/api/tags`, { signal: AbortSignal.timeout(this.timeoutMs) });
       if (!response.ok) return fail(providerError("model.list_failed", `Ollama model list failed with ${response.status}.`));
       const parsed = await response.json() as { readonly models?: readonly { readonly name?: string }[] };
       return ok((parsed.models ?? []).flatMap((model) => model.name ? [this.modelInfo(model.name)] : []));
@@ -91,7 +95,7 @@ export class OllamaModelProvider implements ModelProvider {
   async generate(request: ModelRequest & { readonly model: string }): Promise<QuackResult<ModelResponse>> {
     const started = Date.now();
     try {
-      const response = await fetch(`${this.baseUrl}/api/generate`, {
+      const response = await this.fetcher(`${this.baseUrl}/api/generate`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -129,7 +133,7 @@ export class OllamaModelProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest & { readonly model: string }): AsyncIterable<ModelStreamChunk> {
-    const response = await fetch(`${this.baseUrl}/api/generate`, {
+    const response = await this.fetcher(`${this.baseUrl}/api/generate`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -189,16 +193,18 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   readonly kind = "openai-compatible" as const;
   private readonly baseUrl: string;
   private readonly timeoutMs: number;
+  private readonly fetcher: typeof fetch;
 
   constructor(private readonly config: ModelRuntimeProviderConfig) {
     this.id = config.id ?? "openai-compatible";
     this.baseUrl = (config.baseUrl ?? "https://api.openai.com/v1").replace(/\/+$/, "");
     this.timeoutMs = config.timeoutMs ?? 60_000;
+    this.fetcher = config.fetch ?? fetch;
   }
 
   async listModels(): Promise<QuackResult<readonly ModelInfo[]>> {
     try {
-      const response = await fetch(`${this.baseUrl}/models`, {
+      const response = await this.fetcher(`${this.baseUrl}/models`, {
         headers: this.headers(),
         signal: AbortSignal.timeout(this.timeoutMs),
       });
@@ -213,7 +219,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   async generate(request: ModelRequest & { readonly model: string }): Promise<QuackResult<ModelResponse>> {
     const started = Date.now();
     try {
-      const response = await fetch(`${this.baseUrl}/chat/completions`, {
+      const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { ...this.headers(), "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -249,7 +255,7 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest & { readonly model: string }): AsyncIterable<ModelStreamChunk> {
-    const response = await fetch(`${this.baseUrl}/chat/completions`, {
+    const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -432,9 +438,15 @@ export function loadModelRuntimeConfig(path = join(process.cwd(), "config", "mod
   };
 }
 
-export function createModelRuntime(config = loadModelRuntimeConfig()): ModelRuntime {
+/**
+ * Creates the model runtime. `fetcher` (e.g. NetworkPolicyEngine.fetch)
+ * governs every provider network call; omitting it falls back to global fetch
+ * for tests and standalone library use. Production wiring always passes a
+ * policy-gated fetcher.
+ */
+export function createModelRuntime(config = loadModelRuntimeConfig(), fetcher?: typeof fetch): ModelRuntime {
   const registry = new ModelRegistry();
-  const providers = config.providers.map(createProvider);
+  const providers = config.providers.map((providerConfig) => createProvider(fetcher ? { ...providerConfig, fetch: fetcher } : providerConfig));
   for (const providerConfig of config.providers) {
     registry.register({
       id: `${providerConfig.id ?? providerConfig.provider}:${providerConfig.model}`,

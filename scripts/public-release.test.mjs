@@ -76,3 +76,17 @@ test("state classifier distinguishes source modules from private state", () => {
   assert.equal(isPrivateArtifact("node_modules/provider/private.key"), true);
   assert.equal(isPrivateArtifact("node_modules/.quack/private.js"), true);
 });
+
+test("secret-named runtime code is shippable while secret data files are not", () => {
+  // Regression: the compiled SecretProvider itself must never be classified as
+  // private data, or every staged release is silently incomplete.
+  assert.equal(isPrivateArtifact("dist/security/secret-provider.js"), false);
+  assert.equal(isPrivateArtifact("dist/security/secret-provider.d.ts"), false);
+  assert.equal(isPrivateArtifact("dist/security/secret-provider.js.map"), false);
+  assert.equal(isPrivateArtifact("password-reset-ui.js"), false);
+  assert.equal(isPrivateArtifact("secret-vault.js"), false);
+  // Genuine secret data shapes stay private.
+  for (const path of ["secrets.json", "credentials", "password.txt", "user-secrets.txt", "api.credentials", "provider-secrets.json", "my-secrets.yaml", "prod-credentials.env"]) {
+    assert.equal(isPrivateArtifact(path), true, path);
+  }
+});

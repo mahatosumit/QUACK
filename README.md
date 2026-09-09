@@ -61,13 +61,13 @@ QuackRuntime
   → CapabilityBroker
   → Policy / Identity / Authorization
   → Execution Admission
-  → Sandbox Gate
-  → Worker
-  → Tool / Skill / MCP / Delegation
+  → Governed Tool / Skill / MCP / Delegation
   → Evidence
   → Verification
   → Completion / Receipt
 ```
+
+> Process-level governance (capability admission, path policy, argv-only process execution) is applied at the tool boundary. A worker process-isolation backend exists and is exercised in tests, but the production path does not yet run tools inside an isolated worker; OS-level isolation (containers/microVM) is not implemented. See [Security Model](#security-model).
 
 Briefly:
 
@@ -83,16 +83,19 @@ Briefly:
 Requires **Node.js >= 22.5** (npm included). No build step.
 
 ```bash
+# available once the first release is published to npm
 npm install -g @quack/os
 quack --version
 ```
 
-Shell installers (from the published site once the release is out):
+Until the first release is published, install from a checkout or a built tarball (`npm install -g path/to/quack-os-1.0.0.tgz`), then `quack --version`.
+
+Shell installers will be available at `https://quack.os/install.sh` / `install.ps1` **once the project website is deployed and the first release is published** (deployment requires one-time GitHub Pages setup):
 
 ```bash
-# Linux / macOS
+# Linux / macOS (available once the site is live)
 curl -fsSL https://quack.os/install.sh | bash
-# Windows (PowerShell)
+# Windows (available once the site is live)
 irm https://quack.os/install.ps1 | iex
 ```
 
@@ -227,7 +230,7 @@ Provider states are distinct: **registered** (credential present) → **health-c
 ## Security Model
 
 - **CapabilityBroker** — what execution may do. Every tool call resolves to an explicit grant; standing consent covers read-only workspace reads only; elevated permissions (terminal, workspace write) require explicit grants or an approver.
-- **Sandbox gate** — whether execution is admitted at all; denials fail closed.
+- **Execution admission** — whether execution is admitted at all; denials fail closed. (This is process-level governance, not an OS-level sandbox — see the honest boundary below.)
 - **SecretProvider** — the only credential boundary: allowlisted variables, consumer binding, broker-gated runtime reads. Secrets are never logged, never returned to tools, never sent to the browser.
 - **Path policy** — every workspace path is validated: traversal (`..`), absolute escape, symlink/junction escape, UNC/device paths, alternate data streams, and NUL are rejected; existing paths are realpath-verified against the trusted root.
 - **Skill quarantine** — external skill material is staged, statically reviewed, and never auto-executed (see Skills).

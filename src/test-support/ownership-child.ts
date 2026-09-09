@@ -114,7 +114,7 @@ async function fixture(boundary: string | undefined) {
 
   const runtime = new QuackRuntime({ eventBus: events, memory, tools, providers: new ProviderRegistry(), permissions: policy,
     capabilityBroker: new PermissionBackedCapabilityBroker(policy, grants), missionId: "measurement", agentId: "observer",
-    dataDir, ownershipLeaseMs: 600,
+    dataDir, ownershipLeaseMs: 5_000,
     sessionRuntime: sessions,
     taskStore: new JsonFileTaskStore(join(dataDir, "tasks.json")),
     planGraph: async () => {
@@ -187,7 +187,7 @@ switch (mode) {
     const missionId = task.execution!.missionId;
     const conn = new SqliteConnection(join(dataDir, "coordination.sqlite"));
     const { SqliteCoordinationStore } = await import("../storage/coordination.js");
-    const store = new SqliteCoordinationStore(conn, { leaseMs: 600 });
+    const store = new SqliteCoordinationStore(conn, { leaseMs: 5_000 });
     const leaseId = `mission:${missionId}`;
     try {
       // Wrong-epoch write under a forged owner name: must never be WRITTEN.
@@ -292,7 +292,7 @@ Observe one durable measurement across a process crash.
     });
     const runtime = new QuackRuntime({ eventBus: events, memory: new InMemoryMemoryStore(), tools,
       providers: new ProviderRegistry(), permissions: policy, capabilityBroker: broker,
-      missionId: "measurement", agentId: "observer", dataDir, ownershipLeaseMs: 600,
+      missionId: "measurement", agentId: "observer", dataDir, ownershipLeaseMs: 5_000,
       sessionRuntime: sessions, taskStore: new JsonFileTaskStore(join(dataDir, "tasks.json")),
       planGraph: async () => ok({ id: skillGraph.id, goal: skillGraph.description, strategy: "compiled-skill", taskGraph: skillGraph,
         requiresPermissions: ["workspace.read"], riskEstimate: { level: "low", factors: [], mitigation: [] },

@@ -7,6 +7,7 @@ import { DEFAULT_PORT } from "./desktop/types.js";
 import { createQuackBackup, restoreQuackBackup } from "./recovery/index.js";
 import { cpus, release, totalmem } from "node:os";
 import { execFile } from "node:child_process";
+import { redactSecrets } from "./security/secret-provider.js";
 import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas } from "./cli/commands.js";
 import { loadCliConfig } from "./cli/config.js";
 
@@ -357,7 +358,7 @@ async function runSoloDoctor(system: ReturnType<typeof createQuackSystem>): Prom
     const provider = system.providers.get(id);
     if (!provider.ok) continue;
     const health = await provider.data.healthCheck();
-    report(health.healthy ? "Available" : "Degraded", `Provider ${id}`, health.message);
+    report(health.healthy ? "Available" : "Degraded", `Provider ${id}`, redactSecrets(health.message));
   }
   const mcpServers = system.mcpServers.list();
   report(mcpServers.length > 0 ? "Available" : "Needs Setup", "MCP", mcpServers.length > 0 ? `${mcpServers.length} server(s) registered` : "no servers configured", mcpServers.length ? undefined : "Register a trusted or restricted MCP server in Settings.");

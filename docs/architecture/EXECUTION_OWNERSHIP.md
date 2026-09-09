@@ -15,6 +15,31 @@ Acknowledged writes are reused on resume, while ambiguous writes fail closed
 without provider replay. Unselected providers remain inert and the existing
 local memory store remains unchanged.
 
+## Current status update — 2026-09-09 (multi-process ownership)
+
+The earlier statement in this document that "multi-process recovery is
+unsupported" is superseded. Multi-process ownership and recovery are now part
+of the canonical path:
+
+- Mission ownership is a fenced lease state machine (`UNOWNED → ACQUIRING →
+  OWNED → HEARTBEATING → COMPLETING → RELEASED`, plus `LEASE_LOST`,
+  `STALE_OWNER`, `OWNERSHIP_CONFLICT`) backed by the coordination database
+  with monotonic fencing epochs and release tombstones.
+- Atomic acquisition, heartbeat lease renewal (fail-closed at lease/3), stale
+  takeover, crash recovery, and write fencing (`assertOwnedForWrite`) are all
+  implemented; durable transitions route through `fencedTransition`.
+- Verified by real forked-process tests in
+  `src/runtime/multi-process-recovery.test.ts` (crash at six boundaries,
+  simultaneous recovery converging to one owner, stale re-execution blocked,
+  repeated crash/restart cycles, SIGKILL mid-mission resume) and adversarial
+  tests (forged owner rejected, DB-tampered version cannot re-open a fenced
+  epoch).
+- No process may continue durable writes after losing ownership; the fencing
+  epoch embedded in every write enforces this.
+
+Limitations that remain accurate: recovery requires a runtime created with a
+`dataDir`; in-memory runtimes fail closed.
+
 ## Current status update — 2026-09-06 (interrupted recovery)
 
 Interrupted-mission recovery joins the canonical path (ADR 0028):
@@ -27,7 +52,9 @@ same `SessionRuntime → DefaultLoopDriver → WorkflowEngine → CapabilityBrok
 verification` pipeline. Recovery requires a runtime created with a `dataDir`;
 in-memory runtimes fail closed. The task and execution identity persist before
 planning, while tool dispatch cannot start before the first canonical
-checkpoint exists. Multi-process recovery is unsupported.
+checkpoint exists. Within a single process, resume uses this canonical path;
+cross-process takeover additionally requires the fenced ownership lease
+described in the 2026-09-09 update above.
 
 ## Current status update — 2026-09-04
 

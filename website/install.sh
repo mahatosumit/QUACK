@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # QUACK OS official installer (npm-primary distribution).
 #
-#   curl -fsSL https://quack.os/install | bash
+#   curl -fsSL https://quack.os/install.sh | bash
 #
 # Security rules this script MUST keep:
 #   - fails closed on any unmet requirement (never "best effort" installs)

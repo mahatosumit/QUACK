@@ -32,6 +32,12 @@ quack doctor
 
 ## Option 2 — official installer
 
+> **Status:** the installer scripts are maintained in this repository
+> (`installers/`) and exercised by CI (fail-closed checks + drift guards), but
+> the `quack.os` website serving them is not yet live. Once the site is
+> deployed, the commands below work as written. Until then use Option 1 —
+> the installers perform exactly the same npm installation.
+
 Linux / macOS:
 
 ```bash

@@ -14,6 +14,8 @@ export interface OpenAiProviderConfig {
   readonly defaultModel?: string;
   readonly timeoutMs?: number;
   readonly id?: string;
+  /** Injectable fetcher (e.g. NetworkPolicyEngine.fetch) for governed egress. */
+  readonly fetch?: typeof fetch;
   /** Endpoint-specific claims. Omitted capabilities default to unsupported. */
   readonly capabilities?: {
     readonly streaming?: boolean;
@@ -26,17 +28,20 @@ export interface OpenAiProviderConfig {
 
 /**
  * Adapter for OpenAI-compatible chat completion APIs.
- * Uses the native fetch API — no external SDK dependency.
+ * Uses the native fetch API — no external SDK dependency. Pass a policy-gated
+ * `fetch` (NetworkPolicyEngine.fetch) so every request stays governed.
  */
 export class OpenAiCompatibleProvider implements ProviderAdapter {
   readonly id: string;
+  private readonly fetcher: typeof fetch;
 
   constructor(private readonly config: OpenAiProviderConfig) {
     this.id = config.id ?? "provider.openai-compatible";
+    this.fetcher = config.fetch ?? fetch;
   }
 
   async discover(): Promise<ProviderCapabilities> {
-    const response = await fetch(`${this.config.baseUrl}/models`, {
+    const response = await this.fetcher(`${this.config.baseUrl}/models`, {
       headers: this.authHeaders(),
       signal: AbortSignal.timeout(this.config.timeoutMs ?? 10_000),
     });
@@ -57,7 +62,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
 
   async healthCheck(): Promise<{ readonly healthy: boolean; readonly message: string }> {
     try {
-      const response = await fetch(`${this.config.baseUrl}/models`, {
+      const response = await this.fetcher(`${this.config.baseUrl}/models`, {
         headers: this.authHeaders(),
         signal: AbortSignal.timeout(this.config.timeoutMs ?? 10_000),
       });
@@ -84,7 +89,7 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
       max_tokens: 4096,
     };
 
-    const response = await fetch(`${this.config.baseUrl}/chat/completions`, {
+    const response = await this.fetcher(`${this.config.baseUrl}/chat/completions`, {
       method: "POST",
       headers: {
         ...this.authHeaders(),
@@ -124,21 +129,23 @@ export class OpenAiCompatibleProvider implements ProviderAdapter {
   }
 }
 
-export function createOllamaProvider(options: { readonly baseUrl?: string; readonly model?: string; readonly timeoutMs?: number } = {}): OpenAiCompatibleProvider {
+export function createOllamaProvider(options: { readonly baseUrl?: string; readonly model?: string; readonly timeoutMs?: number; readonly fetch?: typeof fetch } = {}): OpenAiCompatibleProvider {
   return new OpenAiCompatibleProvider({
     id: "provider.ollama",
     baseUrl: options.baseUrl ?? "http://127.0.0.1:11434/v1",
     defaultModel: options.model,
     timeoutMs: options.timeoutMs,
+    fetch: options.fetch,
   });
 }
 
-export function createVllmProvider(options: { readonly baseUrl: string; readonly model: string; readonly apiKey?: string; readonly timeoutMs?: number }): OpenAiCompatibleProvider {
+export function createVllmProvider(options: { readonly baseUrl: string; readonly model: string; readonly apiKey?: string; readonly timeoutMs?: number; readonly fetch?: typeof fetch }): OpenAiCompatibleProvider {
   return new OpenAiCompatibleProvider({
     id: "provider.vllm",
     baseUrl: options.baseUrl,
     defaultModel: options.model,
     apiKey: options.apiKey,
     timeoutMs: options.timeoutMs,
+    fetch: options.fetch,
   });
 }

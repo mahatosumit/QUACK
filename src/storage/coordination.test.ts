@@ -123,9 +123,10 @@ test("old owner cannot write after takeover: version fencing rejects stale write
   const { dbPath, cleanup } = await tempDb();
   const resourceId = createId("res");
   // Lease long enough that the immediate post-acquire write cannot be
-  // starved past expiry on a loaded CI runner, short enough that a bounded
-  // sleep crosses it for the takeover phase.
-  const shortLease = new SqliteCoordinationStore(new SqliteConnection(dbPath), { leaseMs: 500 });
+  // starved past expiry on a loaded CI runner (full parallel suite can
+  // deschedule this process for hundreds of ms; 3s holds), short enough
+  // that a bounded sleep crosses it for the takeover phase.
+  const shortLease = new SqliteCoordinationStore(new SqliteConnection(dbPath), { leaseMs: 3_000 });
   try {
     const original = shortLease.acquire(resourceId, "owner-a");
     assert.equal(original.kind, "ACQUIRED");
@@ -136,7 +137,7 @@ test("old owner cannot write after takeover: version fencing rejects stale write
     assert.equal(writeA.kind, "WRITTEN");
 
     // Lease expires; owner-b takes over, bumping the fencing version.
-    await new Promise((resolve) => setTimeout(resolve, 650));
+    await new Promise((resolve) => setTimeout(resolve, 3_500));
     const takeover = shortLease.acquire(resourceId, "owner-b");
     assert.equal(takeover.kind, "TAKEOVER_STALE");
     assert.equal(takeover.lease.version, versionA + 1);

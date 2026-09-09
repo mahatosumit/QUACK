@@ -5,7 +5,11 @@ import { randomUUID } from "node:crypto";
 
 const repositoryRoot = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const forbiddenSegment = /^(?:\.git|\.quack(?:-.*)?|\.claude|\.codex|\.agents|\.progress|\.phase1-checks|graphify-out|coverage|\.cache|cache|caches|logs)$/i;
-const forbiddenFile = /(?:^\.env(?:\.|$)|\.(?:sqlite(?:-wal|-shm)?|db|log|jsonl|pem|key|p12|pfx)$|(?:^|[-_.])(?:credentials?|secrets?|passwords?)(?:[-_.]|$))/i;
+// Data-file extensions are private regardless of naming (state, keys, logs).
+const dataFileExtension = /\.(?:sqlite(?:-wal|-shm)?|db|log|jsonl|pem|key|p12|pfx)$/i;
+// Secret-NAME matches need a code-vs-data distinction: secret-provider.js
+// is runtime code, user-secrets.json is data.
+const secretName = /(?:^|[-_.])(?:credentials?|secrets?|passwords?)(?:[-_.]|$)/i;
 const testOutput = /(?:\.test\.|\.e2e\.)/i;
 
 function relativePath(value) {
@@ -24,7 +28,39 @@ export function isPrivateArtifact(path) {
   const parts = path.replaceAll("\\", "/").split("/");
   const file = parts.at(-1);
   const dependencySource = parts[0] === "node_modules" && /\.(?:[cm]?js|[cm]?ts)(?:\.map)?$/i.test(file);
-  return parts.some((part) => forbiddenSegment.test(part)) || /^\.env(?:\.|$)/i.test(file) || (!dependencySource && forbiddenFile.test(file));
+  if (parts.some((part) => forbiddenSegment.test(part))) return true;
+  if (/^\.env(?:\.|$)/i.test(file)) return true;
+  if (dependencySource) return false;
+  if (dataFileExtension.test(file)) return true;
+  return secretName.test(file) && isSecretDataFile(file);
+}
+
+/**
+ * Distinguishes secret DATA files from source-code files that merely mention
+ * secrets in their name (secret-provider.js, password-reset-ui.d.ts, a
+ * node_modules type like generate_secret.d.ts). Secret data: stem IS the bare
+ * term ("secrets.json", "credentials.env", "password.txt") or ends with the
+ * term after an owner/scope prefix ("user-secrets.txt", "api.credentials",
+ * "provider-secrets.json"). Code: term followed by code-like segments
+ * ("secret-provider", "password-reset-ui", "generate_secret").
+ */
+function isSecretDataFile(file) {
+  // Strip full code extension chains (.js, .d.ts, .js.map). A name whose
+  // only dot is the secret term itself ("api.credentials") has no extension
+  // to strip and is judged whole.
+  const stem = /\.(?:js|mjs|cjs|ts|mts|cts|map)$/i.test(file) ? file.replace(/(?:\.[^.]+){1,2}$/, "") : file.replace(/\.(?:json|ya?ml|txt|env|bak|old|dump|export|md)$/i, "");
+  const segments = stem.split(/[-_.]/);
+  const last = segments.at(-1);
+  if (!/^(?:credentials?|secrets?|passwords?)$/i.test(last)) {
+    // Term must be the LAST segment for a data file; "secret-provider",
+    // "generate_secret" have code after the term.
+    return false;
+  }
+  if (segments.length === 1) return true; // secrets.json, credentials, password.txt
+  // A data file prefix names an owner/scope ("api", "user", "provider"),
+  // never a code construct; two-segment compounds are data by default.
+  const dataPrefix = /^(?:api|user|users|app|prod|production|stage|staging|test|tests?|private|local|env|provider|server|client|backup|bak|old|new|main|all|my|the)$/i;
+  return dataPrefix.test(segments[0]) || segments.length === 2;
 }
 
 async function assertRegularPath(root, path) {

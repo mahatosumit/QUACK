@@ -258,10 +258,16 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   };
   const storage = createSqliteStorage(join(config.dataDir, "quack.sqlite"));
   const browserHosts = (process.env["QUACK_BROWSER_ALLOW_HOSTS"] ?? "").split(",").map((host) => host.trim()).filter(Boolean);
+  const openAiHosts = [process.env["QUACK_OPENAI_BASE_URL"], process.env["QUACK_VLLM_BASE_URL"]].flatMap((url) => {
+    try { return url ? [new URL(url).hostname] : []; } catch { return []; }
+  });
   const networkPolicy = new NetworkPolicyEngine({
     rules: [
-      { id: "ollama-loopback", mode: "LOCAL_SERVICE", purposes: ["provider.ollama"], requesters: ["provider.ollama"], hosts: ["127.0.0.1", "localhost"], ports: [11434], schemes: ["http:"] },
+      { id: "ollama-loopback", mode: "LOCAL_SERVICE", purposes: ["provider.ollama", "model.provider"], requesters: ["provider.ollama", "model.runtime"], hosts: ["127.0.0.1", "localhost"], ports: [11434], schemes: ["http:"] },
       { id: "nvidia-api", mode: "ALLOWLIST", purposes: ["provider.nvidia"], requesters: ["provider.nvidia-nim"], hosts: ["integrate.api.nvidia.com"], ports: [443], schemes: ["https:"] },
+      // Configured provider endpoints only: the host must come from the same
+      // env var the provider was registered with, not from an arbitrary URL.
+      ...(openAiHosts.length > 0 ? [{ id: "provider-configured-endpoints", mode: "ALLOWLIST" as const, purposes: ["provider.openai-compatible", "provider.vllm", "model.provider"], requesters: ["provider.openai-compatible", "provider.vllm", "model.runtime"], hosts: [...new Set(openAiHosts)], schemes: ["http:" as const, "https:" as const] }] : []),
       ...(browserHosts.length > 0 ? [{ id: "browser-hosts", mode: "ALLOWLIST" as const, purposes: ["browser.navigation"], requesters: ["browser.playwright"], hosts: browserHosts, schemes: ["http:" as const, "https:" as const] }] : []),
     ],
     audit: async (decision) => {
@@ -310,6 +316,7 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
         apiKey: openAiKey,
         baseUrl,
         defaultModel: process.env["QUACK_OPENAI_MODEL"] ?? "gpt-4o",
+        fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.openai-compatible", requester: "provider.openai-compatible" }, init),
       }),
       {
         displayName: "OpenAI-compatible",
@@ -460,7 +467,12 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   // --- Wire Model Manager ---
   const modelRegistry = new ModelRegistry();
   const modelRouter = new ModelRouter();
-  const modelRuntime = createModelRuntime();
+  // Provider egress flows through the SAME network policy as the other
+  // provider adapters (model.ollama / model.openai-compatible purposes).
+  const modelRuntime = createModelRuntime(
+    undefined,
+    (input, init) => networkPolicy.fetch({ url: String(input), purpose: "model.provider", requester: "model.runtime" }, init),
+  );
   modelRegistry.register({
     id: "echo",
     name: "Local Echo",
@@ -557,19 +569,20 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   if (process.env["QUACK_OLLAMA_BASE_URL"] || process.env["QUACK_OLLAMA_MODEL"]) {
     const baseUrl = process.env["QUACK_OLLAMA_BASE_URL"] ?? "http://127.0.0.1:11434/v1";
     registerProvider(
-      createOllamaProvider({ baseUrl, model: process.env["QUACK_OLLAMA_MODEL"] }),
+      createOllamaProvider({ baseUrl, model: process.env["QUACK_OLLAMA_MODEL"], fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.ollama", requester: "provider.ollama" }, init) }),
       { displayName: "Ollama", runtime: "ollama", boundary: "local", endpoint: baseUrl },
     );
   }
   if (process.env["QUACK_VLLM_BASE_URL"] && process.env["QUACK_VLLM_MODEL"]) {
+    const vllmKey = readProviderCredentialForBoot("QUACK_VLLM_API_KEY", "provider.vllm");
     registerProvider(
-      createVllmProvider({ baseUrl: process.env["QUACK_VLLM_BASE_URL"], model: process.env["QUACK_VLLM_MODEL"], apiKey: process.env["QUACK_VLLM_API_KEY"] }),
+      createVllmProvider({ baseUrl: process.env["QUACK_VLLM_BASE_URL"], model: process.env["QUACK_VLLM_MODEL"], apiKey: vllmKey, fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.vllm", requester: "provider.vllm" }, init) }),
       {
         displayName: "vLLM",
         runtime: "vllm",
         boundary: "remote-private",
         endpoint: process.env["QUACK_VLLM_BASE_URL"],
-        credentialEnvironmentVariables: process.env["QUACK_VLLM_API_KEY"] ? ["QUACK_VLLM_API_KEY"] : [],
+        credentialEnvironmentVariables: vllmKey ? ["QUACK_VLLM_API_KEY"] : [],
       },
     );
   }
