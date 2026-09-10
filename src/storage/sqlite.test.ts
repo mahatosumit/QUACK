@@ -158,6 +158,10 @@ function sampleEvaluation() {
       capabilityCheckCount: 0,
       recoveredDenials: 0,
       evidenceCoverage: 0,
+      instructionDispatchCount: 0,
+      instructionDispatchedCount: 0,
+      instructionRejectedCount: 0,
+      instructionInjectionFlagCount: 0,
     },
     dimensions: { capabilityDiscipline: 100, recovery: 100, planning: 70, evidenceQuality: 20 },
   };

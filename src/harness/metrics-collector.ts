@@ -34,6 +34,14 @@ export function collectMetrics(trace: MissionTrace): HarnessMetrics {
   // trace-level toolsExecuted list is the denominator.
   const evidenced = trace.toolsExecuted.filter((tool) => tool.success && tool.output !== undefined).length;
 
+  // P8.6: governed-instruction dispatch census (metadata only). Counts are
+  // derived from P8.6 records; a mission without QIE dispatch reports zeros
+  // (and the instruction dimensions are simply absent from evaluation).
+  const instructionRecords = trace.instruction ?? [];
+  const instructionDispatched = instructionRecords.filter((record) => record.outcome === "dispatched").length;
+  const instructionRejected = instructionRecords.filter((record) => record.outcome === "rejected").length;
+  const instructionInjectionFlags = instructionRecords.reduce((total, record) => total + record.injectionFlagCount, 0);
+
   return {
     taskSuccessRate: trace.finalOutcome.success ? 1 : 0,
     toolFailureRate: toolCallCount === 0 ? 0 : failedTools / toolCallCount,
@@ -45,6 +53,10 @@ export function collectMetrics(trace: MissionTrace): HarnessMetrics {
     capabilityCheckCount: trace.capabilitiesRequested.length,
     recoveredDenials,
     evidenceCoverage: toolCallCount === 0 ? 0 : evidenced / toolCallCount,
+    instructionDispatchCount: instructionRecords.length,
+    instructionDispatchedCount: instructionDispatched,
+    instructionRejectedCount: instructionRejected,
+    instructionInjectionFlagCount: instructionInjectionFlags,
   };
 }
 

@@ -266,6 +266,38 @@ prompt-injection hardening of model behavior itself (e.g., structured
 role channels) is a provider-contract question deferred with P8.4's
 role-mapping decision. 52 adversarial tests.
 
+## Implementation update — P8.6 Harness Instruction Scoring (2026-09-11)
+
+Two QIE-side modules and an additive harness extension:
+
+- `src/instruction/records.ts`: `GovernedInstructionRecord` — the durable,
+  METADATA-ONLY account of one governed dispatch (digest, mission/task
+  identity, plan version, output-contract kind, outcome, per-layer
+  trust census, budget facts, injection flag count + flags). Built from
+  the composed instruction + its defense result, so a record cannot
+  disagree with what was enforced. `parseInstructionRecord` is the
+  fail-closed intake for persisted records: unknown outcomes, forged
+  non-sha256 digests, malformed census, or flag-count mismatches are
+  rejected — tampered records can never silently enter evaluation.
+  Records never contain item data or prompt text (content-leak tested).
+- `src/instruction/evaluator.ts`: pure `scoreInstructionQuality` over
+  records — instructionIntegrity (dispatched vs. rejected share),
+  contextProvenance (authoritative-lane presence),
+  budgetDiscipline (recorded omissions vs. within-budget assembly).
+  Deterministic, order-independent; zero records yield an honest neutral
+  result (never rewarded, never hidden).
+- Harness integration (no second evaluator): `MissionTrace` gains an
+  optional `instruction` records array (additive; traces persist as JSON
+  payloads in the existing repository — no migration);
+  `collectMetrics` derives the dispatch census; `MissionEvaluator`
+  adds the three instruction dimensions (absent when no records — the
+  P5 contract is untouched) and surfaces rejected dispatches as an
+  `instruction.rejected` failure so instruction-layer fail-closures are
+  visible in evaluation. Dependency direction is one-way:
+  harness → instruction records/evaluator; QIE never imports harness.
+
+18 tests: `src/instruction/records.test.ts`.
+
 ## Consequences
 
 Positive: one canonical home for instruction assembly; deterministic and

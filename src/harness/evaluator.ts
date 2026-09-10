@@ -1,5 +1,6 @@
 import { type EventBus } from "../events/event-bus.js";
 import { createId, now } from "../core/types.js";
+import { scoreInstructionQuality } from "../instruction/evaluator.js";
 import { collectMetrics, MetricsCollector } from "./metrics-collector.js";
 import { type EvaluationRepository } from "../storage/sqlite.js";import {
   type EvaluationDimensions,
@@ -92,6 +93,18 @@ function evaluateMissionWithMetrics(
     improvements.push("Ensure the trace recorder is attached before mission execution starts.");
   }
 
+  // P8.6: fail-closed instruction dispatches are an instruction-layer
+  // failure signal — the mission's governed instructions never reached
+  // the runtime (defense rejected or adaptation failed).
+  if (metrics.instructionRejectedCount > 0) {
+    failures.push({
+      code: "instruction.rejected",
+      message: `${metrics.instructionRejectedCount} governed-instruction dispatch(es) were rejected by injection defense or adaptation.`,
+      severity: "medium",
+    });
+    improvements.push("Fix the composed instruction (trust pairing, digest correspondence, item ids) before re-dispatch.");
+  }
+
   const penalty = failures.reduce((total, failure) => {
     if (failure.severity === "high") return total + 30;
     if (failure.severity === "medium") return total + 15;
@@ -148,7 +161,14 @@ function evaluateDimensions(trace: MissionTrace, metrics: ReturnType<typeof coll
   const verified = trace.verificationResults.filter((verification) => verification.success).length;
   const evidenceQuality = clamp(Math.round(metrics.evidenceCoverage * 80 + (verified > 0 ? 20 : 0)));
 
-  return { capabilityDiscipline, recovery, planning, evidenceQuality };
+  // P8.6: instruction quality dimensions from metadata-only dispatch
+  // records. Absent when the mission used no QIE dispatch — instruction
+  // scoring is additive, never fabricated for missions without records.
+  const instruction = trace.instruction?.length
+    ? scoreInstructionQuality(trace.instruction).dimensions
+    : undefined;
+
+  return { capabilityDiscipline, recovery, planning, evidenceQuality, ...(instruction ? { instruction } : {}) };
 }
 
 function clamp(value: number): number {

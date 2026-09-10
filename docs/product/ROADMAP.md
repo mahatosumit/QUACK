@@ -196,6 +196,28 @@ firewall→selector→composer→defense→adapter→governed-runtime flow.
 Remaining: P8.6 harness scoring, P8.7 observability, P8.8 Studio/CLI
 inspection, P8.9 research/SDK.
 
+### P8.6 — Harness Instruction Scoring (SHIPPED 2026-09-11)
+
+Instruction-layer evaluation extending the existing harness evaluator —
+no second evaluator (`src/instruction/records.ts` +
+`src/instruction/evaluator.ts`, ADR 0042 implementation update).
+`GovernedInstructionRecord` is the durable METADATA-ONLY account of one
+governed dispatch: digest, mission/task identity, layer/trust census,
+budget facts, outcome, injection flags — never item data, never prompt
+text. Records attach additively to the existing `MissionTrace` (traces
+persist as full JSON payloads — no schema migration); tampered/forged
+records fail closed at `parseInstructionRecord` (unknown outcomes,
+non-sha256 digests, census/flag mismatches rejected). Harness metrics
+gain `instructionDispatch/Dispatched/Rejected/InjectionFlag` counts;
+`MissionEvaluator` scores three P8.6 dimensions (instructionIntegrity,
+contextProvenance, budgetDiscipline) from records alone and surfaces
+rejected dispatches as `instruction.rejected` evaluation failures.
+Missions without QIE dispatch keep the exact legacy contract (dimensions
+absent, never fabricated). 18 adversarial tests covering content-leak
+resistance, forged-identity rejection, determinism, and the
+compose→defense→adapt→record→evaluate pipeline. Remaining: P8.7
+observability, P8.8 Studio/CLI inspection, P8.9 research/SDK.
+
 ## P9 — Semantic Memory / Knowledge
 
 - embeddings **through GovernedModelRuntime only** (they are provider calls)

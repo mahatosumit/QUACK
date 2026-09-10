@@ -98,6 +98,8 @@ export interface MissionTrace {
   readonly iterations: readonly MissionTraceIteration[];
   readonly finalOutcome: MissionTraceOutcome;
   readonly events: readonly MissionTraceEvent[];
+  /** P8.6: metadata-only governed-instruction dispatch records (absent when the mission used no QIE dispatch). */
+  readonly instruction?: readonly import("../instruction/records.js").GovernedInstructionRecord[];
   readonly startedAt: string;
   readonly completedAt: string;
 }
@@ -115,6 +117,14 @@ export interface HarnessMetrics {
   readonly recoveredDenials: number;
   /** P5: evidence records captured per successful tool call (evidence quality input). */
   readonly evidenceCoverage: number;
+  /** P8.6: total governed-instruction dispatch attempts (metadata-only records). */
+  readonly instructionDispatchCount: number;
+  /** P8.6: dispatch attempts that passed defense + adaptation and were sent to the governed runtime. */
+  readonly instructionDispatchedCount: number;
+  /** P8.6: dispatch attempts fail-closed at the defense/adaptation boundary. */
+  readonly instructionRejectedCount: number;
+  /** P8.6: metadata-only injection flags across all dispatch attempts (defense-in-depth signal). */
+  readonly instructionInjectionFlagCount: number;
 }
 
 /** P5: per-dimension agent evaluation scores (0–100, higher is better). */
@@ -123,6 +133,8 @@ export interface EvaluationDimensions {
   readonly recovery: number;
   readonly planning: number;
   readonly evidenceQuality: number;
+  /** P8.6: instruction quality dimensions; absent when the mission used no QIE dispatch. */
+  readonly instruction?: import("../instruction/evaluator.js").InstructionQualityDimensions;
 }
 
 export interface MissionEvaluationFailure {
