@@ -7,11 +7,14 @@ export interface MissionSubmission {
   readonly missionId?: string;
   readonly goal: string;
   readonly actor?: string;
+  readonly signal?: AbortSignal;
 }
 
 export interface MissionStatus {
   readonly missionId?: string;
   readonly loopId: string;
+  /** Durable runtime task id — the handle for cancel/resume operations. */
+  readonly taskId?: string;
   readonly state: string;
   readonly iterations: number;
   readonly error?: string;
@@ -38,7 +41,7 @@ export class QuackApi {
 
   async submitMission(input: MissionSubmission): Promise<MissionStatus> {
     const system = this.getSystem();
-    const task = await system.runtime.submitGoal(input.goal, input.actor ?? "api", { missionId: input.missionId, origin: "api" });
+    const task = await system.runtime.submitGoal(input.goal, input.actor ?? "api", { missionId: input.missionId, origin: "api", signal: input.signal });
     if (!task.ok) throw Object.assign(new Error(task.error.message), { code: task.error.code });
     const loopResult = system.runtime.getLoopResult(task.data.id);
     if (!loopResult) throw new Error(String(task.data.error?.message ?? "Mission was not admitted to a runtime session."));
@@ -51,12 +54,30 @@ export class QuackApi {
     this.missions.set(loopResult.runId, loopResult);
     this.traces.set(loopResult.runId, trace);
     this.evaluations.set(loopResult.runId, evaluation);
-    return this.statusFromResult(loopResult);
+    return { ...this.statusFromResult(loopResult), taskId: task.data.id };
   }
 
   getStatus(loopId: string): MissionStatus | undefined {
     const result = this.missions.get(loopId);
     return result ? this.statusFromResult(result) : undefined;
+  }
+
+  /** Resume an interrupted mission through the canonical recovery path. */
+  async resumeMission(missionId: string): Promise<MissionStatus> {
+    const system = this.getSystem();
+    const result = await system.runtime.resumeMission(missionId);
+    if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code });
+    const loopResult = system.runtime.getLoopResult(result.data.id);
+    if (!loopResult) return {
+      missionId: result.data.execution?.missionId ?? missionId,
+      loopId: result.data.id,
+      taskId: result.data.id,
+      state: result.data.status === "completed" ? "COMPLETED" : result.data.status === "failed" ? "FAILED" : result.data.status === "created" ? "PENDING" : "RUNNING",
+      iterations: 0,
+      error: typeof result.data.error?.message === "string" ? result.data.error.message : undefined,
+    };
+    this.missions.set(loopResult.runId, loopResult);
+    return this.statusFromResult(loopResult);
   }
 
   getTrace(loopId: string): MissionTrace | undefined {

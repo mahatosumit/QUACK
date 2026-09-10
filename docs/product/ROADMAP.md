@@ -10,52 +10,42 @@ Product constitution: definition, principles/invariants, mission model,
 surfaces, event + API contracts, differentiation, originality, roadmap,
 quality bar. Documentation-only; every claim verified against source.
 
-## P1 — Mission Operations
+## P1 — Mission Operations (SHIPPED 2026-09-10)
 
-- `approval.requested` / `approval.decided` events (extend EventBus types +
-  `RiskAwareApprovalPolicy` emission)
-- pending approval queue + decide endpoints (CLI parity, same callback path)
-- mission cancel endpoint (abort-signal path) + `mission.cancelled` event
-- mission resume endpoint (`QuackRuntime.resumeMission`)
-- trace-by-mission lookup
-- client event contract implementation details + SSE redaction test
-- adversarial tests: forged mission/execution IDs, forged events, forged
-  receipts, cross-session access, UI-bypass attempts → all FAIL CLOSED
-- **Affected:** `src/security/approval-controller.ts`, `src/events/event-bus.ts`,
-  `src/server/index.ts`, `src/api/index.ts`, `src/runtime/runtime.ts` (event
-  emission only), tests. **Risk:** low (additive).
+Approval queue (`approval.requested`/`approval.decided`, deny-on-expiry,
+fail-closed surfaces), mission cancel/resume endpoints, trace-by-mission,
+SSE payload redaction, contract truthfulness guards. Verified: 1,522+17.
 
-## P2 — Mission Control (Studio)
+## P2 — Mission Control (Studio) (SHIPPED 2026-09-10)
 
-- Mission Control home: live lanes (active/queued/waiting-approval/failed/
-  recently completed) from `/missions` + SSE
-- Mission Detail: plan, current step, capabilities, event timeline, tool
-  activity, evidence, verification, receipt
-- Approval Center panel (consumes P1 endpoints)
-- cancel/resume buttons
-- **Affected:** `src/dashboard/web/studio.ts` (+ server tests). **Reuses:**
-  SPA shell, existing endpoints, SSE. **New:** view code only. **Risk:**
-  low-medium.
+Mission Control lanes (active/queued, waiting-approval, failed, recent),
+Mission Detail with capabilities/verification/evidence/timeline +
+cancel/resume buttons, Approval Center queue panel over the P1 endpoints
+(explicit decisions only), live SSE updates with debounced refresh +
+pending-approval nav count. Browser E2E (a11y + console-error gates)
+covers the new surfaces.
 
-## P3 — QUACK Console
+## P3 — QUACK Console (SHIPPED 2026-09-10)
 
-- Console view in the Studio SPA: conversation panel + mission stream
-- mission creation/inspection/continuation from conversation
-- live mission events via SSE (unified client event contract)
-- reconnect guidance + trace backfill
-- **Reuses:** Mission API, SSE, memory (session scope), capabilities.
-  **Boundary:** Console never executes; no fabricated streaming. **Risk:**
-  medium.
+Console view inside the Studio SPA (`#console`): conversation panel +
+mission composer (`POST /missions`), live mission stream via SSE
+(`mission.*`/`tool.*` events feed the conversation), reconnect guidance
+pointing at durable stores. Console never executes; no fabricated
+streaming (model chunks remain P4). E2E covers the console flow.
 
-## P4 — Intelligence / Governed Model Streaming
+## P4 — Intelligence / Governed Model Streaming (SHIPPED 2026-09-10)
 
-- make `ModelRuntime.stream()` reachable through `GovernedModelRuntime.stream`
-  (broker-gated per call, chunk redaction)
-- SSE `model.stream.chunk` passthrough for Console
-- context management: mission context vs session context
-- model comparison groundwork (feeds P5)
-- **Affected:** `src/models/governed-runtime.ts`, server SSE, Console.
-  **Risk:** medium (security-sensitive: chunk redaction tests required).
+`POST /models/stream` — governed streaming through
+`GovernedModelRuntime.stream` (broker-gated per call; denial fails closed
+before provider contact). `model.stream.chunk` event type + SSE
+passthrough so any `/events` client sees the same stream. Chunk text
+redacted at the wire boundary (server route + bus broadcast). Console
+"Ask model" consumes the governed stream and renders governed-model
+turns; honest rejection/denial/empty states. Redaction + fail-closed +
+400 validation covered by `src/server/model-stream.test.ts`.
+
+Context management deepening (mission vs session context) and
+model-comparison groundwork land with P5 harness expansion.
 
 ## P5 — QUACK Harness Expansion
 

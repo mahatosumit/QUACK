@@ -63,6 +63,7 @@ import { ContextLoader, type ContextBundle } from "../core/context/index.js";
 import { IdentityMemoryStore } from "../memory/identity-memory.js";
 import { DecisionMemoryStore } from "../memory/decision-memory.js";
 import { RiskAwareApprovalPolicy } from "../security/approval-controller.js";
+import { QueuedApprovalCallback } from "../security/approval-queue.js";
 import { JsonFileCapabilityGrantRegistry, PermissionBackedCapabilityBroker, buildToolCapabilityRequest, type CapabilityBroker, type CapabilityGrantRegistry } from "../security/capability-broker.js";
 import { readProviderCredentialForBoot } from "../security/secret-provider.js";
 import { EvaluatorAgent, type QualityReport } from "../evaluation/evaluator-agent.js";
@@ -223,6 +224,12 @@ export interface QuackSystem {
   readonly identityMemory: IdentityMemoryStore;
   readonly decisionMemory: DecisionMemoryStore;
   readonly approvalPolicy: RiskAwareApprovalPolicy;
+  /**
+   * P1 Approval Center surface: present only when the caller supplies a
+   * queue-backed approver. Surfaces read/decide through it; they can never
+   * grant capabilities directly (the policy path stays the only authority).
+   */
+  readonly approvals?: QueuedApprovalCallback;
   readonly capabilityBroker: CapabilityBroker;
   readonly capabilityGrants: CapabilityGrantRegistry;
   /** Mission-scoped temporary companies. Role templates persist; live workers do not. */
@@ -561,6 +568,10 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   // `config.approver` is supplied, so a missing approver fails closed instead of silently
   // falling back to an unconditional allow-list.
   const approvalPolicy = new RiskAwareApprovalPolicy(config.permissions, config.approver, { autoApproveLow: true });
+  // P1: expose the queue only when the caller opted into a queued approver,
+  // and bind it to this composition's bus (the queue is built before it).
+  const approvals = config.approver instanceof QueuedApprovalCallback ? config.approver : undefined;
+  approvals?.attach(events);
   const configuredCapabilityGrants = config.capabilityGrants ?? [];
   const capabilityGrants = new JsonFileCapabilityGrantRegistry(join(config.dataDir, "security", "capability-grants.json"));
   for (const grant of configuredCapabilityGrants) {
@@ -910,6 +921,7 @@ const agentLoop = new AgentLoop({
             identityMemory,
             decisionMemory,
             approvalPolicy,
+            approvals,
             capabilityBroker,
             capabilityGrants,
             companyRuntime,

@@ -7,13 +7,15 @@ import { join } from "node:path";
 import { chromium } from "playwright-core";
 import { AxeBuilder } from "@axe-core/playwright";
 import { createQuackSystem } from "../distributions/swe-system.js";
+import { QueuedApprovalCallback } from "../security/approval-queue.js";
 import { QuackHttpServer } from "../server/index.js";
 
 const edgePath = "C:\\Program Files (x86)\\Microsoft\\Edge\\Application\\msedge.exe";
 
 test("Control Room browser E2E passes keyboard and serious axe gates", { skip: !existsSync(edgePath) }, async () => {
   const dataDir = await mkdtemp(join(tmpdir(), "quack-control-room-"));
-  const system = createQuackSystem({ dataDir, workspaceRoot: process.cwd() });
+  // P2 Approval Center surface needs the queue-backed approver wired.
+  const system = createQuackSystem({ dataDir, workspaceRoot: process.cwd(), approver: new QueuedApprovalCallback() });
   const server = new QuackHttpServer({ system, port: 0 });
   const browser = await chromium.launch({ executablePath: edgePath, headless: true });
   const context = await browser.newContext({ viewport: { width: 1366, height: 768 } });
@@ -32,6 +34,19 @@ test("Control Room browser E2E passes keyboard and serious axe gates", { skip: !
     await page.getByRole("heading", { name: "Provider Control Center" }).waitFor();
     await page.getByRole("link", { name: "Actions", exact: true }).click();
     await page.getByRole("heading", { name: "Capability catalog" }).waitFor();
+    // P2 Mission Control + Approval Center surfaces must render without
+    // client errors (empty-state or populated) and stay accessible.
+    await page.getByRole("link", { name: /Approvals/, exact: true }).click();
+    await page.getByRole("heading", { name: "Approval queue" }).waitFor();
+    await page.getByRole("link", { name: "Missions", exact: true }).click();
+    await page.getByRole("heading", { name: "Mission Control" }).waitFor();
+    // P3 Console: conversational composer renders, accepts a mission, and
+    // the conversation records the real accepted state.
+    await page.getByRole("link", { name: "Console", exact: true }).click();
+    await page.getByRole("heading", { name: "Conversation" }).waitFor();
+    await page.locator("#console-input").fill("Inspect the workspace and summarize findings.");
+    await page.locator("#console-submit").click();
+    await page.getByText(/accepted \(/).waitFor();
 
     await page.keyboard.press("Tab");
     assert.notEqual(await page.evaluate(() => document.activeElement?.tagName), "BODY");

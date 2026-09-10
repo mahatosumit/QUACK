@@ -24,7 +24,8 @@ client-facing transport, and it already carries the full envelope below.
 ### MISSION
 `task.created`, `task.planned`, `task.started`, `task.completed`,
 `task.failed`, `mission.started`, `mission.resumed`, `mission.completed`,
-`mission.failed`, `mission.recovery_started`, `mission.recovery_completed`
+`mission.failed`, `mission.cancelled`, `mission.recovery_started`,
+`mission.recovery_completed`
 
 ### NODE / WORKFLOW
 `workflow.created`, `workflow.started`, `workflow.completed`,
@@ -43,11 +44,25 @@ client-facing transport, and it already carries the full envelope below.
 ### MODEL / PROVIDER
 `provider.requested`, `provider.completed`
 
+### MODEL STREAM (P4 governed streaming)
+`model.stream.chunk`
+
+Genuine governed model stream chunks from `POST /models/stream`
+(`GovernedModelRuntime.stream`, broker-gated per call). Chunk text is
+redacted at the wire boundary. Denial fails closed before any provider
+is contacted (terminal chunk carries `denied: true`).
+
 ### EVIDENCE / VERIFICATION / RECEIPT
 Evidence and verification surface inside the trace/receipt objects
 (`trace.created`; receipt in `task.result.receipt`) rather than as granular
-events today. **Planned (P1+):** `approval.requested`, `approval.decided`,
-`mission.cancelled`, `model.stream.chunk` (see "Future events" below).
+events today.
+
+### APPROVAL (P1 Approval Center)
+`approval.requested`, `approval.decided`
+
+Emitted only when the system was started with a queue-backed approver
+(`QueuedApprovalCallback`). Expired requests resolve as denied; decisions
+arrive through the Mission API.
 
 ### RECOVERY / OWNERSHIP
 `recovery.started`, `recovery.completed`, `checkpoint.created`,
@@ -92,10 +107,6 @@ memory views read the store), `reflect.*`.
 
 ## Future events (explicitly NOT implemented today)
 
-| Event | Purpose | Phase |
-|---|---|---|
-| `approval.requested` / `approval.decided` | Approval Center live queue | P1 |
-| `mission.cancelled` | cancel surface state | P1 |
-| `model.stream.chunk` | genuine governed model streaming to Console | P4 |
+None currently. (Clients must still ignore unknown event types.)
 
 Do not document or render these as existing until the emitting code ships.

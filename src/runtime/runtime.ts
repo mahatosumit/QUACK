@@ -575,7 +575,13 @@ export class QuackRuntime {
           } catch (fenceError) {
             if (!`${fenceError instanceof Error ? fenceError.message : fenceError}`.includes("ownership")) throw fenceError;
           }
+          if (cancelled) await this.deps.eventBus.emit("mission.cancelled", { missionId: identity.missionId, taskId: task.id, reason: options.signal?.reason ?? "cancelled" } as unknown as JsonObject, { taskId: task.id, actor: "runtime" });
         }
+      }
+      const signalCancelled = options.signal?.aborted || loopResult?.state === "CANCELLED";
+      if (signalCancelled) {
+        // Non-durable cancelled runs emit the same client event (P1 contract).
+        await this.deps.eventBus.emit("mission.cancelled", { missionId: identity?.missionId ?? task.id, taskId: task.id, reason: options.signal?.reason ?? "cancelled" } as unknown as JsonObject, { taskId: task.id, actor: "runtime" });
       }
       const failure: QuackError = error instanceof MemoryBindingError
         ? { code: error.code, message: error.message, category: error.category, recoverable: error.recoverable }

@@ -93,7 +93,7 @@ test("client event contract documents only event types that exist", async () => 
   // lookahead separator.
   const documented = [...contract.matchAll(/`([a-z]+(?:\.[a-z_.-]+)+)`(?=\s*,|\s*$)/gm)].map((m) => m[1]);
   assert.ok(documented.length >= 40, `expected the client event list to be recognized, found ${documented.length}`);
-  const declaredFuture = ["approval.requested", "approval.decided", "mission.cancelled", "model.stream.chunk"];
+  const declaredFuture: string[] = [];
   for (const type of documented) {
     if (declaredFuture.includes(type)) continue; // explicitly marked future in the doc
     assert.ok(union.has(type), `CLIENT_EVENTS.md documents '${type}' but it is not in the QuackEventType union`);
@@ -102,19 +102,26 @@ test("client event contract documents only event types that exist", async () => 
     assert.ok(!union.has(type), `future event '${type}' has shipped — update CLIENT_EVENTS.md to move it out of the future table`);
     assert.ok(contract.includes(type), `future event '${type}' must stay documented`);
   }
+  // P1 shipped events must now be documented as existing client-facing types.
+  for (const type of ["approval.requested", "approval.decided", "mission.cancelled", "model.stream.chunk"]) {
+    assert.ok(union.has(type), `shipped event '${type}' must exist in the QuackEventType union`);
+    assert.ok(documented.includes(type), `shipped event '${type}' must be documented as existing`);
+  }
 });
 
-test("mission API contract does not document planned endpoints as existing", async () => {
+test("mission API contract documents implemented P1 routes as existing", async () => {
   const contract = await readSource("docs/contracts/MISSION_API.md");
   const server = await readSource("src/server/index.ts");
-  const planned = ["/approvals", "/missions/{id}/resume", "/missions/{id}/cancel"];
+  const shipped = ["/approvals", "/missions/{id}/resume", "/missions/{id}/cancel", "/traces?missionId"];
   const plannedSection = contract.slice(contract.indexOf("## Planned operations"));
   const existingSection = contract.slice(0, contract.indexOf("## Planned operations"));
-  for (const route of planned) {
-    assert.ok(plannedSection.includes(route), `${route} must be documented as planned, not existing`);
-    const base = route.replace("/missions/{id}", "/missions/x");
-    assert.ok(!server.includes(`"${base}"`), `${route} must not be implemented while documented as planned`);
+  for (const route of shipped) {
+    assert.ok(existingSection.includes(route), `${route} is implemented — MISSION_API.md must document it as existing`);
+    assert.ok(!plannedSection.includes(route), `${route} must not remain in the planned table after shipping`);
   }
+  // Every documented P1 route must have a matching dispatcher in the server.
+  assert.ok(server.includes('"/missions/"') && server.includes('"/cancel"'), "cancel route must be dispatched");
+  assert.ok(server.includes('"/missions/"') && server.includes('"/resume"'), "resume route must be dispatched");
+  assert.ok(server.includes('"/approvals"'), "approvals route must be dispatched");
   assert.ok(existingSection.includes("POST `/missions`"), "existing submit route must be documented");
-  assert.ok(!existingSection.includes("/approvals"), "approval routes must not appear in the existing section");
 });

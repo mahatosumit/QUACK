@@ -1,6 +1,6 @@
 # QUACK Current State
 
-**Verified:** 2026-09-08 (Phase 5 complete)
+**Verified:** 2026-09-10 (P1–P4: Mission Operations, Mission Control, Console, Governed Model Streaming)
 
 ## Baseline
 
@@ -74,6 +74,10 @@ historical architecture audits remain context, not proof of current behavior.
 
 | Check | Result |
 | --- | --- |
+| **P4 Governed Model Streaming gate, 2026-09-10** | **PASS: 1,528 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E pass. New `src/server/model-stream.test.ts`: broker denial fails closed before provider contact (terminal `denied: true` chunk), 400 on malformed requests, chunk text redacted at the wire AND on the shared event-bus broadcast (hostile `sk-…`/Bearer literals never survive). Studio contract test asserts the Console consumes the governed endpoint only.** |
+| **P3 Console gate, 2026-09-10** | **PASS: 1,524 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build pass. Control Room E2E exercises the console flow (submit mission → conversation shows real accepted state) under a11y + console-error gates. Studio contract test asserts the P3 boundary: composer posts only through the Mission API; no fabricated model streaming (`model.stream.chunk` absent; guarded).** |
+| **P2 Mission Control (Studio) gate, 2026-09-10** | **PASS: 1,523 ordinary + 17 serial tests; 0 failures. Root/SDK typechecks, build, lint + static guards pass. Control Room browser E2E (Edge, a11y serious/critical + console-error gates) covers the new Mission Control lanes, Mission Detail, and Approval Center surfaces with the queued approver wired. Studio contract tests assert lanes/cancel/resume/approval-queue/SSE wiring.** |
+| **P1 Mission Operations gate, 2026-09-10** | **PASS: 1,522 ordinary + 17 serial tests; 0 failures, skips, or cancellations. Root/SDK typechecks, build, lint + static quality guards pass. Focused: approval-queue 6 · server mission-operations 8 (cancel/resume/approvals/trace-by-mission/SSE redaction, incl. forged-id, replayed-decision, no-queue fail-closed) · product contract 7 · interrupted-recovery 22 (unchanged behavior preserved).** |
 | **Phase 5 final gate, 2026-09-08** | **PASS: 1,456 ordinary + 17 serial tests; 0 failures, skips, or cancellations (includes all dogfood/grant/adversarial changes). Root/SDK typechecks, build, lint pass. Focused: platform+terminal+git-status 20 · skills/privacy/sandbox 30 · isolation 17 · coordination 9 · multi-process recovery 12 (real forks) · interrupted-recovery 22 · adversarial cross-suite 22 · compiler 9 · SDK 3. Release decision: PRODUCTION CANDIDATE (Windows fully verified incl. multi-process recovery; Linux/macOS/ARM64 CI never executed).** |
 | **Phase 4 final gate (4P), 2026-09-07** | **PASS: 1,442 ordinary + 17 serial tests; 0 failures, skips, or cancellations. Root/SDK typechecks, build, lint pass. Focused gates rerun fresh: platform+terminal+git-status 20, skills/privacy/sandbox 30, isolation 13 adversarial + 4 contract, coordination 9 (real forks), adversarial cross-suite 20, interrupted-recovery 22, compiler 9, SDK 3. Static security audit: every child_process/process.env site intentional + governed; zero `shell: true`. Governance audit: single canonical chain, no Phase 4 bypass. CI: IMPLEMENTED, EXECUTION PENDING (no git remote; matrix never run). Release decision: PRODUCTION CANDIDATE (Windows-verified; Linux/macOS unverified).** |
 | Phase 4 stage gate 4K finish + 4L coordination, 2026-09-07 | PASS: 1,422 ordinary tests + 17 serial self-modification tests; 0 failures, skips, or cancellations. Root/SDK typechecks, build, and lint pass. Includes 9 new multi-process coordination tests (real forked processes) and 4 new GitStatusTool argv tests. |
@@ -139,6 +143,126 @@ historical architecture audits remain context, not proof of current behavior.
 | memory-compaction focused gate, 2026-09-06 | PASS: 37 memory/os/provider-binding/decision-memory/identity-memory/knowledge-graph tests, including 7 new compaction cases; 0 failures, skips, or cancellations. Independent verifier confirmed build, typecheck, and source semantics. |
 | memory-compaction root/SDK typechecks, build, and lint, 2026-09-06 | PASS. |
 | memory-compaction full repository suite, 2026-09-06 | PASS: 1,293 ordinary tests + 17 serial self-modification tests; 0 failures, skips, or cancellations. |
+
+## Latest continuation — 2026-09-10 (P4 Governed Model Streaming)
+
+P4 shipped over the existing governed gate (`GovernedModelRuntime.stream`
+already existed — broker-resolved per call; nothing re-implemented):
+
+- **`POST /models/stream`** (`src/server/index.ts`): request
+  `{ prompt, actor, model?, missionId? }` (400 on malformed). Responds as
+  an SSE stream of `model.stream.chunk` events. Every call resolves
+  `provider.invoke` through the capability broker via
+  `GovernedModelRuntime.stream`; **denial fails closed with a terminal
+  `denied: true` chunk before any provider is contacted**. Client
+  disconnect aborts the run's AbortSignal.
+- **Wire-boundary redaction**: chunk `text` passes through
+  `redactSecrets` before being written to the streaming response, and
+  the same redacted payload is broadcast on the one EventBus
+  (`model.stream.chunk`) so any `/events` client (Console) sees the
+  identical redacted stream. Verified by hostile-chunk tests.
+- **Event contract**: `model.stream.chunk` added to the
+  `QuackEventType` union; CLIENT_EVENTS.md moved it from the future
+  table to the existing MODEL STREAM group; the product-contract guard
+  now enforces its documented existence.
+- **Console "Ask model"** (`#console`): new button posts to
+  `/models/stream` and renders streamed text as governed-model turns;
+  rejection/denial/empty states render honestly ("No governed model
+  output — provider unavailable or authority denied"); no fabricated
+  chunks anywhere.
+- **Docs**: MISSION_API.md documents the route (request/response
+  contract, fail-closed semantics); ROADMAP P4 marked SHIPPED with the
+  context-management/model-comparison remainder deferred to P5.
+
+## Latest continuation — 2026-09-10 (P3 QUACK Console)
+
+Console shipped inside the Studio SPA (`#console` route) as a client of
+QUACK Core — view code only, no new server surface, no execution path:
+
+- **Conversation panel**: operator turns (mission submissions) and
+  system turns (real runtime state) in a scrollable log with live
+  stream badge. The composer submits through `POST /missions` only
+  (`actor: console-user`); acceptance/rejection is the conversation's
+  real state — the Console never executes anything itself.
+- **Live mission stream**: the existing `connectLive()` SSE listeners
+  now feed `consoleOnLiveEvent()` — `mission.started/completed/failed/
+  cancelled` and tool activity for the tracked mission append system
+  turns while the Console route is active.
+- **Reconnect guidance (honest)**: when the SSE stream drops, a callout
+  states events may be incomplete and points at the durable stores
+  (Missions / mission detail trace) — no fabricated streaming;
+  `model.stream.chunk` remains future work (P4), guarded by a studio
+  contract test that asserts its absence.
+- **E2E**: Control Room test now drives the console flow end-to-end
+  (fill outcome → submit → conversation records the accepted mission)
+  under the unchanged a11y + console-error gates.
+
+## Latest continuation — 2026-09-10 (P2 Mission Control, Studio)
+
+P2 shipped as view code over the P1 endpoints (SPA shell, endpoints, SSE
+reused — no new server surface):
+
+- **Mission Control lanes** (`#missions`): Active/queued, Waiting
+  approval, Failed, Recently completed — rendered as lane cards from
+  `GET /missions` state, each linking to mission detail.
+- **Mission Detail** (`#mission/{id}`): status/verification/capabilities/
+  iterations/evidence/event timeline plus **Cancel** (visible for
+  RUNNING/QUEUED; confirm-gated; `POST /missions/{id}/cancel`) and
+  **Resume** (`POST /missions/{id}/resume`) buttons. Errors surface
+  honestly via the notice banner.
+- **Approval Center** (`#approvals`): P1 approval-queue panel first —
+  pending requests with prompt/context/expiry and explicit
+  Approve/Deny (`POST /approvals/{id}/approve|deny`,
+  confirm-gated) — then the existing action-approvals and improvement
+  decision sections. When no queued approver is configured the panel
+  shows the honest unavailable message instead of an error.
+- **Live updates**: `connectLive()` subscribes to the SSE projection for
+  mission.*/approval.*/workflow/node/tool events with a 150 ms debounced
+  re-render on live routes; `refreshApprovalCount()` updates the nav
+  badge from the queue (falling back to `/system/status`).
+- **E2E hardened**: Control Room browser test now wires the queued
+  approver (real Approval Center surface renders populated-path code)
+  and visits Missions + Approvals with the a11y/console-error gates
+  unchanged. Studio contract tests assert the P2 wiring.
+
+## Latest continuation — 2026-09-10 (P1 Mission Operations)
+
+P1 shipped on top of the P0 product foundation (single composition root,
+single event bus, single approval path — no second permission system):
+
+- **Approval queue** (`src/security/approval-queue.ts`):
+  `QueuedApprovalCallback` implements the canonical `ApprovalCallback`
+  seam; medium/high-risk approvals park as PENDING records with a
+  monotonic expiry (default 15 min, deny-on-expiry evaluated lazily),
+  a 1000-entry hard cap, `approval.requested`/`approval.decided` events
+  on the one EventBus, and `loop.wake.APPROVAL_DECISION` reuse. The
+  resolver registers synchronously before the first await — a decision
+  arriving in the same tick resolves correctly (race found by tests).
+  Surfaces read/decide through `system.approvals` only when the caller
+  supplied the queue as `config.approver`; risk assessment and
+  allow-list authority stay in `RiskAwareApprovalPolicy`.
+- **Server operations** (`src/server/index.ts`): `POST /missions/{id}/cancel`
+  aborts an in-flight run's AbortSignal (409 for finished, 404 unknown);
+  `POST /missions/{id}/resume` resumes through
+  `QuackApi.resumeMission → QuackRuntime.resumeMission` (terminal
+  missions return stored results; conflict codes map to 409); `GET
+  /approvals` + `POST /approvals/{id}/approve|deny` (fail closed:
+  `approval.not_pending` 404, `approval.expired` 409,
+  `approval.queue_unavailable` 404 when no queued approver); `GET
+  /traces?missionId=…` over the existing TraceRepository.
+- **Runtime**: cancelled runs emit `mission.cancelled` (durable path
+  emits after the fenced CANCELLED transition; non-durable runs emit
+  the same client event). `MissionStatus`/`ApiMissionRecord` gained a
+  `taskId` resume handle.
+- **SSE redaction** (CLIENT_EVENTS contract claim now true): payload
+  strings pass through `redactSecrets`; secret-shaped keys (KEY/TOKEN/
+  SECRET/PASSWORD/CREDENTIAL/APIKEY/AUTHORIZATION/COOKIE) redact to
+  `[REDACTED]` recursively; output stays valid JSON. Verified by two
+  wire-level SSE tests.
+- **Contract truthfulness**: `MISSION_API.md`/`CLIENT_EVENTS.md` moved
+  P1 routes/events to Existing; `product-contract.test.ts` guards now
+  enforce the shipped state (P1 events must be documented; P1 routes
+  must be dispatched and not remain "planned").
 
 ## Latest continuation — 2026-09-08 (Phase 5)
 

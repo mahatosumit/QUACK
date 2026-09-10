@@ -8,6 +8,7 @@ import { type QuackConfig } from "../distributions/swe-config.js";
 import { buildDashboardState } from "../dashboard/web/index.js";
 import { studioHtml, studioScript, studioStyles } from "../dashboard/web/studio.js";
 import { type AppRecipeCategory } from "../recipes/types.js";
+import { redactSecrets } from "../security/secret-provider.js";
 
 export interface ApiServerConfig {
   readonly host?: string;
@@ -37,6 +38,8 @@ export interface ApiMissionRecord {
   readonly goal: string;
   readonly actor: string;
   readonly missionId?: string;
+  /** Durable runtime task id when known — the resume/cancel handle. */
+  readonly taskId?: string;
   readonly loopId?: string;
   readonly traceId?: string;
   readonly iterations: number;
@@ -63,6 +66,7 @@ export class QuackHttpServer {
   private readonly rateWindows = new Map<string, { startedAt: number; count: number }>();
   private readonly server: Server;
   private readonly missions = new Map<string, ApiMissionRecord>();
+  private readonly missionControllers = new Map<string, AbortController>();
   private readonly streamClients = new Set<ServerResponse>();
   private readonly events: QuackEvent[] = [];
   private readonly detachEventLog: () => void;
@@ -153,6 +157,22 @@ export class QuackHttpServer {
       await this.createMission(request, response);
       return;
     }
+    if (method === "POST" && path.startsWith("/missions/") && path.endsWith("/cancel")) {
+      await this.cancelMission(path, request, response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/missions/") && path.endsWith("/resume")) {
+      await this.resumeMission(path, request, response);
+      return;
+    }
+    if (method === "GET" && path === "/approvals") {
+      this.listApprovals(response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/approvals/") && (path.endsWith("/approve") || path.endsWith("/deny"))) {
+      await this.decideApproval(path, request, response);
+      return;
+    }
     if (method === "GET" && path === "/missions") {
       this.writeJson(response, 200, { missions: this.listMissionRecords() });
       return;
@@ -171,6 +191,10 @@ export class QuackHttpServer {
     }
     if (method === "GET" && path.startsWith("/traces/")) {
       await this.getTrace(path, response);
+      return;
+    }
+    if (method === "GET" && path === "/traces") {
+      await this.listTracesByMission(url.searchParams.get("missionId"), response);
       return;
     }
     if (method === "POST" && path === "/skills/import") {
@@ -223,6 +247,10 @@ export class QuackHttpServer {
     }
     if (method === "POST" && path === "/providers/test") {
       await this.testProvider(request, response);
+      return;
+    }
+    if (method === "POST" && path === "/models/stream") {
+      await this.streamModel(request, response);
       return;
     }
     if (method === "GET" && path === "/actions") {
@@ -317,23 +345,116 @@ export class QuackHttpServer {
 
   private async runMission(id: string, input: MissionSubmission): Promise<void> {
     this.updateMission(id, { state: "RUNNING" });
+    const controller = new AbortController();
+    this.missionControllers.set(id, controller);
     try {
-      const status = await this.system.api.submitMission(input);
+      const status = await this.system.api.submitMission({ ...input, signal: controller.signal });
       const trace = this.system.api.getTrace(status.loopId);
       this.updateMission(id, {
         state: status.state === "COMPLETED" ? "COMPLETED" : "FAILED",
         missionId: status.missionId,
+        taskId: status.taskId,
         loopId: status.loopId,
         traceId: trace?.id,
         iterations: status.iterations,
         error: status.error,
       });
     } catch (error) {
+      const cancelled = controller.signal.aborted;
       this.updateMission(id, {
-        state: "FAILED",
-        error: error instanceof Error ? error.message : String(error),
+        state: cancelled ? "FAILED" : "FAILED",
+        error: cancelled
+          ? `Mission cancelled: ${error instanceof Error ? error.message : String(error)}`
+          : error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      this.missionControllers.delete(id);
     }
+  }
+
+  /** P1: cancel an in-flight mission by aborting its run; unknown/finished ids fail closed. */
+  private async cancelMission(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(path.slice("/missions/".length, -"/cancel".length));
+    await this.readOptionalJson(request); // drain body; none expected
+    const controller = this.missionControllers.get(id);
+    const record = this.missions.get(id);
+    if (controller) {
+      controller.abort(new Error("Mission cancelled through the Mission API."));
+      this.writeJson(response, 202, { id, state: "CANCELLING", note: "Cancellation was requested; the mission record reflects the terminal state shortly." });
+      return;
+    }
+    if (record) {
+      this.writeError(response, 409, "mission.not_cancellable", `Mission ${id} is not running (state ${record.state}).`);
+      return;
+    }
+    this.writeError(response, 404, "mission.not_found", `Mission ${id} was not found.`);
+  }
+
+  /** P1: resume an interrupted mission through the canonical recovery path. */
+  private async resumeMission(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(path.slice("/missions/".length, -"/resume".length));
+    await this.readOptionalJson(request);
+    const record = this.missions.get(id);
+    const resumeTarget = record?.taskId ?? id;
+    try {
+      const status = await this.system.api.resumeMission(resumeTarget);
+      if (record) this.updateMission(id, { state: this.recordStateFromStatus(status.state), loopId: status.loopId, iterations: status.iterations, error: status.error });
+      this.writeJson(response, 200, { id, status });
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "task.not_found") {
+        this.writeError(response, 404, "mission.not_found", `Mission ${id} was not found.`);
+        return;
+      }
+      if (code === "recovery.busy") {
+        this.writeError(response, 409, "mission.resume_busy", `Mission ${id} already has an executing owner.`);
+        return;
+      }
+      if (code === "recovery.ownership_conflict" || code === "recovery.reconciliation_required" || code === "recovery.invalid_checkpoint") {
+        this.writeError(response, 409, "mission.resume_conflict", error instanceof Error ? error.message : String(error));
+        return;
+      }
+      this.writeError(response, 500, "mission.resume_failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private recordStateFromStatus(state: string): ApiMissionRecord["state"] {
+    if (state === "COMPLETED") return "COMPLETED";
+    if (state === "FAILED") return "FAILED";
+    if (state === "RUNNING") return "RUNNING";
+    return "QUEUED";
+  }
+
+  /** P1: list pending approval requests. Absent queued approver fails closed honestly. */
+  private listApprovals(response: ServerResponse): void {
+    const approvals = this.system.approvals;
+    if (!approvals) {
+      this.writeError(response, 404, "approval.queue_unavailable", "This system was not started with a queue-backed approver; approval decisions stay in their original surface.");
+      return;
+    }
+    this.writeJson(response, 200, { approvals: approvals.list() });
+  }
+
+  /** P1: submit a human decision on a parked approval. Fails closed on unknown/tampered ids. */
+  private async decideApproval(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const approvals = this.system.approvals;
+    if (!approvals) {
+      this.writeError(response, 404, "approval.queue_unavailable", "This system was not started with a queue-backed approver; approval decisions stay in their original surface.");
+      return;
+    }
+    const suffix = path.endsWith("/approve") ? "/approve" : "/deny";
+    const id = decodeURIComponent(path.slice("/approvals/".length, -suffix.length));
+    const body = await this.readJson(request);
+    if (!isApprovalDecisionRequest(body)) {
+      this.writeError(response, 400, "approval.invalid_decision_request", "A decision requires a non-empty human actor; optional reason string.");
+      return;
+    }
+    const outcome = await approvals.decide(id, { approved: suffix === "/approve", decidedBy: body.actor, reason: body.reason });
+    if (!outcome.ok) {
+      this.writeError(response, outcome.error.code === "approval.not_pending" ? 404 : 409, outcome.error.code, outcome.error.message);
+      return;
+    }
+    this.writeJson(response, 200, outcome.data);
   }
 
   private async getMission(path: string, response: ServerResponse): Promise<void> {
@@ -403,6 +524,16 @@ export class QuackHttpServer {
       return;
     }
     this.writeJson(response, 200, persisted);
+  }
+
+  /** P1: trace-by-mission lookup over the existing TraceRepository. */
+  private async listTracesByMission(missionId: string | null, response: ServerResponse): Promise<void> {
+    if (!missionId || !missionId.trim()) {
+      this.writeError(response, 400, "trace.mission_required", "Provide ?missionId=… to list traces for one mission.");
+      return;
+    }
+    const traces = await this.system.storage.traces.list({ missionId });
+    this.writeJson(response, 200, { missionId, traces });
   }
 
   private async importSkill(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -563,6 +694,61 @@ export class QuackHttpServer {
     }
     const health = await provider.data.healthCheck();
     this.writeJson(response, 200, { providerId: body.providerId, dryRun: true, ...health });
+  }
+
+  /**
+   * P4: governed model streaming. Every call resolves provider.invoke through
+   * the capability broker (GovernedModelRuntime), chunk text is redacted at
+   * this wire boundary before being written or emitted, and each chunk is
+   * broadcast as `model.stream.chunk` so any `/events` client (Console) sees
+   * the same stream. Denial fails closed before any provider is contacted.
+   */
+  private async streamModel(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = await this.readJson(request);
+    if (!isModelStreamRequest(body)) {
+      this.writeError(response, 400, "model.invalid_stream_request", "A stream requires a non-empty prompt and actor; optional model.");
+      return;
+    }
+    const actor = body.actor;
+    const missionId = body.missionId;
+    const controller = new AbortController();
+    const onClientClose = () => controller.abort(new Error("Client disconnected."));
+    request.once("close", onClientClose);
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    response.write(": governed-stream\n\n");
+    let chunksEmitted = 0;
+    let lastError: string | undefined;
+    try {
+      const iterator = this.system.governedModelRuntime.stream(
+        { prompt: body.prompt, ...(body.model ? { model: body.model } : {}) },
+        { missionId, actor, signal: controller.signal },
+      );
+      for await (const chunk of iterator) {
+        if (controller.signal.aborted) break;
+        const text = redactSecrets(chunk.text);
+        chunksEmitted += 1;
+        const payload: JsonObject = {
+          providerId: chunk.providerId, model: chunk.model, text, done: chunk.done,
+          ...(chunk.usage ? { usage: { inputTokens: chunk.usage.inputTokens, outputTokens: chunk.usage.outputTokens, ...(chunk.usage.totalTokens !== undefined ? { totalTokens: chunk.usage.totalTokens } : {}) } } : {}),
+          ...(missionId ? { missionId } : {}),
+        };
+        response.write(formatSse({ id: createId("event"), type: "model.stream.chunk", timestamp: new Date().toISOString(), actor, payload } as unknown as QuackEvent));
+        void this.system.events.emit("model.stream.chunk", payload, { actor }).catch(() => undefined);
+        if (chunk.done) break;
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    } finally {
+      request.removeListener("close", onClientClose);
+    }
+    response.write(formatSse({ id: createId("event"), type: "model.stream.chunk", timestamp: new Date().toISOString(), actor,
+      payload: { providerId: "runtime", model: body.model ?? "auto", text: "", done: true, ...(missionId ? { missionId } : {}), ...(lastError ? { error: redactSecrets(lastError) } : {}), ...(chunksEmitted === 0 && lastError ? { denied: true } : {}) } } as unknown as QuackEvent));
+    response.end();
   }
 
   private async getMemory(response: ServerResponse): Promise<void> {
@@ -942,6 +1128,18 @@ function isProposalDecisionRequest(value: unknown): value is { readonly confirm:
     (value["reason"] === undefined || typeof value["reason"] === "string");
 }
 
+function isApprovalDecisionRequest(value: unknown): value is { readonly actor: string; readonly reason?: string } {
+  return isRecord(value) && typeof value["actor"] === "string" && value["actor"].trim().length > 0 &&
+    (value["reason"] === undefined || typeof value["reason"] === "string");
+}
+
+function isModelStreamRequest(value: unknown): value is { readonly prompt: string; readonly actor: string; readonly model?: string; readonly missionId?: string } {
+  return isRecord(value) && typeof value["prompt"] === "string" && value["prompt"].trim().length > 0 &&
+    typeof value["actor"] === "string" && value["actor"].trim().length > 0 &&
+    (value["model"] === undefined || typeof value["model"] === "string") &&
+    (value["missionId"] === undefined || typeof value["missionId"] === "string");
+}
+
 function isRecipeCategory(value: string): value is AppRecipeCategory {
   return ["rag_app", "agent_app", "multi_agent_app", "voice_agent", "browser_agent", "research_agent", "coding_agent", "data_analysis_agent", "automation_agent", "robotics_agent", "startup_saas_agent"].includes(value);
 }
@@ -981,13 +1179,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function formatSse(event: QuackEvent): string {
+  // Redaction happens at the wire boundary: payload strings are scrubbed
+  // before crossing SSE, so credentials never reach a client stream. Key
+  // redaction mirrors src/recovery/backup.ts; string redaction reuses
+  // redactSecrets. JSON stays valid (replacements are plain literals).
+  const data = JSON.stringify({ ...event, payload: redactEventPayload(event.payload) });
   return [
     `id: ${event.id}`,
     `event: ${event.type}`,
-    `data: ${JSON.stringify(event)}`,
+    `data: ${data}`,
     "",
     "",
   ].join("\n");
+}
+
+function redactEventPayload(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (Array.isArray(value)) return value.map(redactEventPayload);
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      isSecretEventKey(key) ? "[REDACTED]" : redactEventPayload(item),
+    ]));
+  }
+  return value;
+}
+
+function isSecretEventKey(key: string): boolean {
+  return /(?:^|_)(?:key|token|secret|password|passwd|credential|credentials|apikey|authorization|cookie)$/i.test(key) || /^.*_API_KEY$/i.test(key);
 }
 
 function stateFromMissionStatus(status: string): ApiMissionRecord["state"] {

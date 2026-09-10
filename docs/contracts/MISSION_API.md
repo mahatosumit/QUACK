@@ -38,6 +38,25 @@ directly.
 - **GET `/missions/{id}/events`** — events for one mission (from trace).
 - **GET `/traces/{loopId}`** — full `MissionTrace` (plan steps, tools,
   capability requests, verification, events).
+- **GET `/traces?missionId=…`** — traces for one mission
+  (`TraceRepository` lookup).
+
+### Mission operations (P1)
+- **POST `/missions/{id}/cancel`** — aborts an in-flight mission through
+  its run's abort signal → fenced `CANCELLED` transition +
+  `mission.cancelled` event. Non-running missions get
+  `409 mission.not_cancellable`; unknown ids `404`.
+- **POST `/missions/{id}/resume`** — resumes an interrupted mission via
+  `QuackApi.resumeMission → QuackRuntime.resumeMission` (durable
+  recovery, ownership-fenced). Conflict/reconciliation failures map to
+  `409`; unknown ids `404`.
+- **GET `/approvals`** — pending approval requests (only when the system
+  was started with a queue-backed approver; otherwise
+  `404 approval.queue_unavailable` — no queue is fabricated).
+- **POST `/approvals/{id}/approve|deny`** — human decision, body
+  `{ actor, reason? }`. Decides through the same `ApprovalCallback`
+  path (CLI parity); unknown/tampered ids `404 approval.not_pending`;
+  expired requests deny `409 approval.expired`.
 
 ### Skills / proposals / recipes / providers / system
 - **POST `/skills/import`**; **POST `/skills/{id}/enable|disable`**;
@@ -47,6 +66,12 @@ directly.
 - **GET `/recipes`**; **POST `/recipes/{id}/plan`** — recipe planning.
 - **GET `/providers`**; **POST `/providers/test`** — provider health (never
   secrets).
+- **POST `/models/stream`** — P4 governed model streaming: body
+  `{ prompt, actor, model?, missionId? }`; responds as an SSE stream of
+  `model.stream.chunk` events (chunk text redacted at the wire). Every
+  call resolves `provider.invoke` through the capability broker; denial
+  fails closed with a terminal `denied: true` chunk before any provider
+  is contacted.
 - **GET `/actions`**, **GET `/mcp`** — action/MCP registries.
 - **GET `/system/status`**, **GET `/memory`**, **GET `/agents`**,
   **GET `/health`** — system state.
@@ -56,20 +81,24 @@ directly.
 - **GET `/dashboard*`** — Studio SPA assets/state.
 
 ### In-process facade (SDK / CLI / future Console)
-`QuackApi.submitMission(input) → MissionStatus`,
-`getTrace(loopId)`, `getEvaluation(loopId)`; `QuackRuntime.resumeMission`
+`QuackApi.submitMission(input) → MissionStatus` (accepts an optional
+`AbortSignal`), `QuackApi.resumeMission(missionId)`, `getTrace(loopId)`,
+`getEvaluation(loopId)`; `QuackRuntime.resumeMission`
 and abort-signal cancellation are runtime-level operations the CLI already
 uses.
+
+### Studio (reference client)
+The Studio SPA consumes these endpoints: Mission Control lanes (`GET
+/missions`), Mission Detail with cancel/resume (`POST /missions/{id}/cancel|resume`),
+Approval Center queue decisions (`GET /approvals`, `POST
+/approvals/{id}/approve|deny`), live updates via `GET /events` SSE. UI
+decisions never grant capabilities; they only submit human decisions
+through the same callback paths.
 
 ## Planned operations (NOT implemented — do not represent as existing)
 
 | Operation | Route (proposed) | Runtime path | Phase |
 |---|---|---|---|
-| Resume mission | `POST /missions/{id}/resume` | `QuackRuntime.resumeMission` (exists at kernel) | P1 |
-| Cancel mission | `POST /missions/{id}/cancel` | AbortSignal path → fenced `CANCELLED` transition | P1 |
-| Approval queue | `GET /approvals` | `RiskAwareApprovalPolicy` pending queue | P1 |
-| Approval decision | `POST /approvals/{id}/approve\|deny` | same `ApprovalCallback` path (CLI parity) | P1 |
-| Trace by mission | `GET /traces?missionId=…` (list form) | `TraceRepository` lookup | P1 |
 | Evaluation run | `POST /evaluations` | `QuackNativeHarness` + `MissionEvaluator` | P5 |
 | Mission options honored | `POST /missions` full options | runtime goal options | P2 (with Console) |
 

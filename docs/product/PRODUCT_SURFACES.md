@@ -33,13 +33,15 @@ agent, capabilities, approvals, event timeline, tool activity, evidence,
 verification, receipt, artifacts. Data: `GET /missions/{id}` (already returns
 trace/evaluation/tasks) + `GET /traces/{id}`.
 
-## QUACK Console — *P3, planned*
+## QUACK Console — *P3, SHIPPED 2026-09-10 (streamed-model layer is P4)*
 
-Conversational control interface. Conversation composes missions and exposes
-their real state progressively. Consumes: Mission API, SSE (mission events),
-and — once wired (P4) — `GovernedModelRuntime.stream()` for genuine model
-stream chunks. **The Console is a client of QUACK Core. It never executes
-anything itself and never fabricates streaming.**
+Conversational control interface inside the Studio SPA (`#console`).
+Conversation composes missions through the Mission API and exposes
+their real state progressively over SSE (`mission.*`, `tool.*`), with
+reconnect guidance pointing at the durable stores. **The Console is a
+client of QUACK Core. It never executes anything itself and never
+fabricates streaming** — genuine model stream chunks arrive only when
+`GovernedModelRuntime.stream()` is wired (P4).
 
 ## Agent Workspace — *P6*
 

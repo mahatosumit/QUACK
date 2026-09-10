@@ -130,8 +130,14 @@ export type QuackEventType =
   | "mission.resumed"
   | "mission.completed"
   | "mission.failed"
+  | "mission.cancelled"
   | "mission.recovery_started"
-  | "mission.recovery_completed";
+  | "mission.recovery_completed"
+  /** P1 human-approval queue events (Approval Center contract). */
+  | "approval.requested"
+  | "approval.decided"
+  /** P4 governed model streaming chunks (broker-gated per call, redacted at the wire). */
+  | "model.stream.chunk";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;
