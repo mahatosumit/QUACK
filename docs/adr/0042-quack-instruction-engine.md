@@ -298,6 +298,44 @@ Two QIE-side modules and an additive harness extension:
 
 18 tests: `src/instruction/records.test.ts`.
 
+## Implementation update — P8.7 Instruction Observability (2026-09-11)
+
+`src/instruction/observer.ts` + dispatch-seam wiring — NO second event
+system and NO second record shape:
+
+- `instruction.dispatched` / `instruction.rejected` are added to the
+  EXISTING `QuackEventType` union and emitted on the existing EventBus,
+  so every existing surface (SSE `/events` bridge, dashboards, audit
+  feeds) receives instruction telemetry exactly like any other runtime
+  event. Payloads are METADATA-ONLY (record id, mission/task identity,
+  digest, outcome, item/omission/flag counts) — never item data, prompt
+  text, or matched injection content (content-leak tested).
+- `InstructionObserver` implements the `InstructionDispatchObserver`
+  seam declared in records.ts: it builds the P8.6
+  `GovernedInstructionRecord` (single record shape, no widening), emits
+  the bus event, retains a bounded recent-record window (default 200,
+  deterministic eviction), and exposes a metadata-only `summary()` for
+  dashboard aggregation. Event-sink or observer failures are captured
+  and never break a governed dispatch — observability can never fail
+  the dispatch path (tested with a throwing sink and a crashing
+  observer).
+- `invokeGovernedInstruction` gained an optional trailing `observer`
+  parameter: defense/adaptation rejections emit
+  `instruction.rejected` (with the defense error code), and post-dispatch
+  outcomes classify as `dispatched` / `denied`
+  (`model.permission_denied`) / `provider_error`. Observation happens
+  strictly AFTER the dispatch decision; results are identical with and
+  without an observer (tested byte-identical digests/metadata). Without
+  an observer the function is unchanged — P8.4/P8.5 callers keep their
+  exact signature and behavior.
+- Dashboard state (`buildDashboardState`) aggregates
+  `harness.instruction` telemetry (dispatch/dispatched/rejected/denied/
+  provider_error/flag counts + distinct mission count) from
+  trace-attached P8.6 records — metadata only.
+
+12 tests: `src/instruction/observer.test.ts` (10) + dashboard
+aggregation (2).
+
 ## Consequences
 
 Positive: one canonical home for instruction assembly; deterministic and

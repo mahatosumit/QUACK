@@ -137,7 +137,10 @@ export type QuackEventType =
   | "approval.requested"
   | "approval.decided"
   /** P4 governed model streaming chunks (broker-gated per call, redacted at the wire). */
-  | "model.stream.chunk";
+  | "model.stream.chunk"
+  /** P8.7 instruction observability (metadata-only; ADR 0042). */
+  | "instruction.dispatched"
+  | "instruction.rejected";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

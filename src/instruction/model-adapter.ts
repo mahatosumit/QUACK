@@ -3,6 +3,7 @@ import type { ModelRequest, ModelResponse, ModelStreamChunk } from "../models/ru
 import type { ModelCapability } from "../models/types.js";
 import { renderComposedText } from "./composer.js";
 import { enforceInstructionDefense, flagsToMetadata } from "./injection-defense.js";
+import { type InstructionDispatchObserver } from "./records.js";
 import { INSTRUCTION_PLAN_VERSION, type ComposedInstruction, type InstructionOutputKind } from "./types.js";
 
 /**
@@ -154,12 +155,19 @@ export function adaptComposedInstruction(
  * metadata-only) ride in request metadata under `injectionFlags`. No
  * fallback, no retry, no retrieval: a denial or provider error fails
  * closed with the existing `QuackResult` error semantics.
+ *
+ * P8.7: when `observer` is supplied, the dispatch outcome is observed
+ * (event + P8.6 record) — `instruction.dispatched` on success,
+ * `instruction.rejected` on defense/adaptation failure. Observation is
+ * strictly after the dispatch decision and never changes it; the observed
+ * record and event carry metadata only.
  */
 export async function invokeGovernedInstruction(
   runtime: GovernedDispatchRuntime,
   composed: ComposedInstruction,
   context: GovernedInvocationContext,
   options: GovernedInvocationOptions = {},
+  observer?: InstructionDispatchObserver,
 ): Promise<QuackResult<ModelResponse>> {
   if (!runtime || typeof runtime.generate !== "function") {
     return fail({
@@ -172,6 +180,13 @@ export async function invokeGovernedInstruction(
   // P8.5: structural enforcement before adaptation/dispatch.
   const defense = enforceInstructionDefense(composed);
   if (!defense.ok) {
+    await observer?.observeDispatch({
+      composed,
+      flags: [],
+      outcome: "rejected",
+      errorCode: defense.error?.code as import("./records.js").InstructionRecordErrorCode | undefined,
+      actor: context.actor,
+    }).catch(() => undefined);
     return fail(defense.error ?? {
       code: "instruction.defense_shape_invalid",
       message: "composed instruction failed injection-defense enforcement",
@@ -180,10 +195,36 @@ export async function invokeGovernedInstruction(
     });
   }
   const adapted = adaptComposedInstruction(composed, options);
-  if (!adapted.ok) return adapted;
+  if (!adapted.ok) {
+    await observer?.observeDispatch({
+      composed,
+      flags: defense.flags,
+      outcome: "rejected",
+      errorCode: adapted.error?.code as import("./records.js").InstructionRecordErrorCode | undefined,
+      actor: context.actor,
+    }).catch(() => undefined);
+    return adapted;
+  }
   const flagsMetadata = flagsToMetadata(defense.flags);
   const request = flagsMetadata
     ? { ...adapted.data, metadata: { ...adapted.data.metadata, ...flagsMetadata } as JsonObject }
     : adapted.data;
-  return runtime.generate(request, context);
+  const result = await runtime.generate(request, context);
+  // P8.7: observe the terminal outcome. `denied` = capability authority
+  // refused before provider contact; `provider_error` = dispatched but the
+  // governed runtime returned an error. Both remain observable failures
+  // without changing the pass-through QuackResult semantics.
+  if (observer) {
+    const outcome = result.ok ? "dispatched"
+      : result.error?.code === "model.permission_denied" ? "denied"
+      : "provider_error";
+    await observer.observeDispatch({
+      composed,
+      flags: defense.flags,
+      outcome,
+      ...(result.ok ? {} : { errorCode: "instruction.adaptation_invalid" as const }),
+      actor: context.actor,
+    }).catch(() => undefined);
+  }
+  return result;
 }

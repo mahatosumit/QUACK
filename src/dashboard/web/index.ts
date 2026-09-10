@@ -51,6 +51,17 @@ export interface DashboardHarnessView {
     readonly avgLatencyMs: number;
     readonly traceCount: number;
   };
+  /** P8.7: instruction dispatch telemetry aggregated from trace records (metadata only). */
+  readonly instruction: {
+    readonly dispatchCount: number;
+    readonly dispatchedCount: number;
+    readonly rejectedCount: number;
+    readonly deniedCount: number;
+    readonly providerErrorCount: number;
+    readonly injectionFlagCount: number;
+    /** Distinct missions with instruction dispatches (identity only). */
+    readonly missionCount: number;
+  };
 }
 
 export interface DashboardState {
@@ -83,6 +94,11 @@ export function buildDashboardState(input: {
   const avgLatencyMs = traceMetrics.length === 0
     ? 0
     : Math.round(traceMetrics.reduce((total, metrics) => total + metrics.executionLatencyMs, 0) / traceMetrics.length);
+
+  // P8.7: instruction dispatch telemetry from trace-attached records
+  // (metadata only — counts and mission identity, never content).
+  const instructionRecords = input.traces.flatMap((trace) => trace.instruction ?? []);
+  const instructionMissions = new Set(instructionRecords.flatMap((record) => [record.missionId]));
 
   return {
     generatedAt: new Date().toISOString(),
@@ -126,6 +142,15 @@ export function buildDashboardState(input: {
       latencyMetrics: {
         avgLatencyMs,
         traceCount: input.traces.length,
+      },
+      instruction: {
+        dispatchCount: instructionRecords.length,
+        dispatchedCount: instructionRecords.filter((record) => record.outcome === "dispatched").length,
+        rejectedCount: instructionRecords.filter((record) => record.outcome === "rejected").length,
+        deniedCount: instructionRecords.filter((record) => record.outcome === "denied").length,
+        providerErrorCount: instructionRecords.filter((record) => record.outcome === "provider_error").length,
+        injectionFlagCount: instructionRecords.reduce((total, record) => total + record.injectionFlagCount, 0),
+        missionCount: instructionMissions.size,
       },
     },
   };

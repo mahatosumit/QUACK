@@ -218,6 +218,24 @@ resistance, forged-identity rejection, determinism, and the
 compose→defense→adapt→record→evaluate pipeline. Remaining: P8.7
 observability, P8.8 Studio/CLI inspection, P8.9 research/SDK.
 
+### P8.7 — Instruction Observability (SHIPPED 2026-09-11)
+
+`src/instruction/observer.ts` + dispatch-seam wiring (ADR 0042
+implementation update). NO second event system: `instruction.dispatched`
+/ `instruction.rejected` join the existing `QuackEventType` union and
+flow on the existing EventBus, so SSE `/events` clients and dashboards
+see instruction telemetry without new transport. Payloads are
+metadata-only (identity, digest, outcome, counts) — never item data,
+prompt text, or matched injection content. `InstructionObserver` builds
+the P8.6 record at the dispatch seam (`invokeGovernedInstruction` optional
+observer), retains a bounded recent window, and never changes the
+dispatch decision (results identical with/without observer; observer or
+sink failures never break dispatch). Dashboard state aggregates
+`harness.instruction` counts from trace-attached records. 12 tests
+including SSE bus-passthrough, throwing-sink robustness, and
+content-leak resistance. Remaining: P8.8 Studio/CLI inspection, P8.9
+research/SDK.
+
 ## P9 — Semantic Memory / Knowledge
 
 - embeddings **through GovernedModelRuntime only** (they are provider calls)

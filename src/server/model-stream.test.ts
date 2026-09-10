@@ -74,6 +74,52 @@ test("stream chunks are redacted at the wire and broadcast on the event bus", as
   }
 });
 
+test("P8.7 instruction observability events reach the shared bus with metadata-only payloads", async () => {
+  const fixture = await createStreamFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+  const observed: { type: string; payload: Record<string, unknown> }[] = [];
+  const detach = fixture.system.events.onAny((event) => {
+    if (event.type === "instruction.dispatched" || event.type === "instruction.rejected") {
+      observed.push({ type: event.type, payload: event.payload as Record<string, unknown> });
+    }
+  });
+  try {
+    await server.start();
+    // Emit exactly what an InstructionObserver emits for a rejected
+    // dispatch — the bus is the transport; /events clients see it via the
+    // existing onAny SSE bridge.
+    const { InstructionObserver } = await import("../instruction/observer.js");
+    const observer = new InstructionObserver({ events: fixture.system.events });
+    await observer.observeDispatch({
+      composed: {
+        planVersion: 1,
+        missionId: "mission-p87-sse",
+        layers: [{ name: "identity", items: [{ id: "id-1", provenance: { source: "test", category: "system", trust: "TRUSTED_RUNTIME" }, data: { secret: "never-emit-me" } }] }],
+        outputContract: { kind: "plainResponse" },
+        failurePolicy: { allowedModes: [], preferAdmission: true },
+        budget: { maxInstructionChars: 1000, reservedOutputChars: 100 },
+        budgetReport: { totalChars: 1, budgetChars: 1000, withinBudget: true, omitted: [] },
+        digest: "a".repeat(64),
+      },
+      flags: [],
+      outcome: "rejected",
+      errorCode: "instruction.defense_digest_mismatch",
+      actor: "p87-test",
+    });
+    await fixture.system.events.drain();
+    assert.equal(observed.length, 1, "the instruction.rejected event crossed the shared bus");
+    assert.equal(observed[0].payload["outcome"], "rejected");
+    assert.equal(observed[0].payload["errorCode"], "instruction.defense_digest_mismatch");
+    assert.equal(observed[0].payload["missionId"], "mission-p87-sse");
+    const serialized = JSON.stringify(observed[0].payload);
+    assert.ok(!serialized.includes("never-emit-me"), "item data never enters the event payload");
+  } finally {
+    detach();
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
 /** Post a stream request and collect the raw response body. */
 async function postStream(url: string, body: unknown): Promise<string> {
   const response = await fetch(url, { method: "POST", headers: { "Content-Type": "application/json", "X-QUACK-CSRF": "1" }, body: JSON.stringify(body) });

@@ -82,6 +82,21 @@ export function distinctTrustClasses(record: GovernedInstructionRecord): readonl
 }
 
 /**
+ * P8.7 dispatch-observation seam: consumers (InstructionObserver) implement
+ * this to record/emit dispatch outcomes. Observation happens strictly
+ * AFTER the dispatch decision and never changes it.
+ */
+export interface InstructionDispatchObserver {
+  observeDispatch(input: {
+    readonly composed: ComposedInstruction;
+    readonly flags: readonly InjectionFlag[];
+    readonly outcome: InstructionDispatchOutcome;
+    readonly errorCode?: InstructionRecordErrorCode;
+    readonly actor?: string;
+  }): Promise<{ readonly eventEmitted: boolean }>;
+}
+
+/**
  * Build a metadata-only dispatch record from a composed instruction and its
  * defense result. Pure: derives census from `composed.layers`, budget facts
  * from `composed.budgetReport`, flags from the defense result. `recordId`

@@ -14,5 +14,6 @@ export { selectContext, DEFAULT_CATEGORY_LAYER, type ContextCandidate, type Sele
 export { admitContext, type FirewallAuthorities, type AdmissionInput, type AdmissionResult, type AdmissionRejection, type FirewallRejectionCode } from "./firewall.js";
 export { adaptComposedInstruction, invokeGovernedInstruction, type GovernedInvocationOptions, type GovernedInvocationContext, type GovernedDispatchRuntime } from "./model-adapter.js";
 export { enforceInstructionDefense, flagsToMetadata, assertDispatchable, type InstructionDefenseResult, type InstructionDefenseErrorCode, type InjectionFlag } from "./injection-defense.js";
-export { buildInstructionRecord, parseInstructionRecord, recordToJsonObject, distinctTrustClasses, type GovernedInstructionRecord, type InstructionDispatchOutcome, type InstructionRecordErrorCode, type InstructionLayerCensus } from "./records.js";
+export { buildInstructionRecord, parseInstructionRecord, recordToJsonObject, distinctTrustClasses, type GovernedInstructionRecord, type InstructionDispatchOutcome, type InstructionRecordErrorCode, type InstructionLayerCensus, type InstructionDispatchObserver } from "./records.js";
 export { scoreInstructionQuality, dominantTrustLane, type InstructionQualityDimensions, type InstructionQualityResult } from "./evaluator.js";
+export { InstructionObserver, type InstructionEventSink, type InstructionObservationSummary, type ObservedDispatch, summaryToJsonObject } from "./observer.js";
