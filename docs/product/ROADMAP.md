@@ -100,6 +100,79 @@ coverage: unauthorized audit (401), forged/traversal trace ids
   scheduler (ExecutionScheduler remains the only executor)
 - **Risk:** high (governance surface) — design review required before code.
 
+### P8.1 — QUACK Instruction Engine (QIE) foundation (SHIPPED 2026-09-10)
+
+Re-scoped first slice of P8 (ADR 0042): before automation can be reliable,
+small/cost-efficient models need correctly assembled instructions, context,
+and output contracts. QIE is a deterministic instruction/context compiler
+(`src/instruction/`) — NOT a model runtime, planner, memory system,
+capability broker, or second prompt registry. Ships: InstructionPlan
+contract (11 fixed layers, 13 context categories, 8 trust classes),
+fail-closed category↔trust validation (untrusted sources cannot claim
+authoritative runtime trust), documented trust precedence
+(SYSTEM_POLICY > TRUSTED_RUNTIME > USER_INPUT > EVIDENCE > SKILL > MEMORY >
+TOOL_OUTPUT > RETRIEVED_CONTEXT), char-based model-agnostic budget with
+recorded omissions and fail-closed core overflow, output-contract and
+failure-policy representation, deterministic composer with canonical-JSON
+digest (key-order-insensitive), PromptRegistry reuse via adapter. P8.2
+(context selection), P8.3 (integrations), P8.4 (model wiring) follow.
+
+### P8.2 — Context Selection & Deterministic Assembly (SHIPPED 2026-09-10)
+
+Deterministic selection layer over explicitly supplied candidates (ADR 0042
+scope; no new ADR needed — selection was already the documented P8.2
+boundary). `src/instruction/selector.ts`: RETRIEVAL PRODUCES CANDIDATES →
+SELECTOR SELECTS AND ASSEMBLES → P8.1 COMPOSER VALIDATES AND COMPOSES. The
+selector is a pure function — zero retrieval (no memory/filesystem/workspace/
+skills/MCP/tools/network/registry reads); every candidate arrives explicitly.
+Per-candidate intake with fail-closed eligibility (malformed shape, trust
+pairing, evidence status, item-size cap) and structured rejection reasons;
+duplicate ids fail the whole selection closed (never silently merged);
+deterministic ranking = P8.1 trust precedence + stable id ties (no scores,
+no clock, no randomness); the P8.1 composer stays the SINGLE budget authority
+(selector reuses its drop decision — no duplicated budget logic, no second
+constants table); selection report records selected/trimmed/rejected with
+metadata only (no content echo). Byte-for-byte deterministic across
+insertion orders.
+
+### P8.3 — PrivacyFirewall Activation (SHIPPED 2026-09-10)
+
+Admission boundary between QUACK governance sources and the P8.2 selector
+(`src/instruction/firewall.ts`, ADR 0042 implementation update). The
+firewall validates/admits context — it never composes, retrieves,
+rewrites content, or manages budget/precedence. Governance lanes keyed on
+the P8.1 trust class: SYSTEM_POLICY/TRUSTED_RUNTIME require an authorized
+runtime source; SKILL requires lifecycle backing (ADR 0041 admitted
+skills); MEMORY requires MemoryPolicy-passed record ids; EVIDENCE requires
+a valid status + an existing evidence record; capability-category items may
+only declare actually-granted capabilities. Sensitive content (existing
+ADR 0041 classifier reused) is rejected with class names only — never
+rewritten. Authority views are caller-supplied snapshots (zero I/O).
+Admitted candidates flow unchanged into P8.2; rejected candidates never
+reach selection. Fail-closed, deterministic, insertion-order independent.
+Remaining: P8.4 model adaptation/wiring, P8.5 full injection-defense
+enforcement, P8.6–P8.9.
+
+### P8.4 — Governed Model Adaptation (SHIPPED 2026-09-10)
+
+Model adaptation boundary (`src/instruction/model-adapter.ts`, ADR 0042
+implementation update; `src/models/*` and `src/providers/*` untouched).
+`adaptComposedInstruction` is a pure deterministic translator from the P8.1
+ComposedInstruction into the existing provider-neutral ModelRequest: prompt
+= byte-identical P8.1 rendered representation; the P8.1 instruction digest,
+mission/task identity, plan version, and output-contract kind ride in
+request metadata — the digest is preserved verbatim, never regenerated.
+`invokeGovernedInstruction` dispatches through the EXISTING
+GovernedModelRuntime (ADR 0036) with the full execution context, so
+provider.invoke authority resolves before provider contact; no retry, no
+ungoverned fallback path, denials/provider errors pass through existing
+QuackResult semantics. No provider role mapping was invented — QIE
+authority travels inside the rendered instruction ([TRUSTED]/[USER]/[DATA]
+labels + fixed layer order). Output contracts are carried honestly (prompt
+section + metadata), never claimed as schema enforcement the providers do
+not have. No model routing/benchmarking. Remaining: P8.5 injection-defense
+enforcement, P8.6 harness scoring, P8.7–P8.9.
+
 ## P9 — Semantic Memory / Knowledge
 
 - embeddings **through GovernedModelRuntime only** (they are provider calls)
