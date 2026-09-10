@@ -254,7 +254,19 @@ Browser / Studio
   → QuackRuntime
 ```
 
-`quack serve` starts the server (default `http://127.0.0.1:3000/dashboard`). Current areas: missions, skills, providers, agents, memory, settings, events. Provider credentials are never exposed to the browser. Studio inherits the runtime's single execution path, scheduler, broker, and verification — there is no UI-specific mission runtime.
+`quack serve` starts the server (default `http://127.0.0.1:3157/dashboard`). Current areas:
+
+- **Mission Control** — live lanes (active/queued, waiting-approval, failed, recent), submission with dry-run, cancel/resume
+- **Mission Detail** — capabilities, verification, evidence, event timeline, trace link
+- **Console** — conversational mission composer with live mission state over SSE and governed model streaming (broker-gated per call)
+- **Agent Workspace** — registry, capabilities, trust, assignment state, evaluation-dimension summaries
+- **Approval Center** — queue-backed human decisions (deny-on-expiry, fail-closed), action approvals
+- **Trace Center** — per-mission execution timelines from the durable trace repository (real events only, deterministic filters)
+- **Artifacts** — evidence-backed tool outputs with source mission and producing tool (no second store)
+- **Audit** — the security/governance record, redacted at the boundary, distinct from traces
+- **Operations/System** — providers, actions, integrations, health, bounded settings
+
+Provider credentials are never exposed to the browser. Studio inherits the runtime's single execution path, scheduler, broker, and verification — there is no UI-specific mission runtime.
 
 ## Configuration
 
