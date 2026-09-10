@@ -43,6 +43,13 @@ test("Control Room browser E2E passes keyboard and serious axe gates", { skip: !
     // P6 Agent workspace renders registry + assignment state.
     await page.getByRole("link", { name: "Agents", exact: true }).click();
     await page.getByRole("heading", { name: "Agent workspace" }).waitFor();
+    // P7 Trace Center + Audit render without client errors.
+    await page.getByRole("link", { name: "Traces", exact: true }).click();
+    await page.getByRole("heading", { name: "Trace Center", level: 2 }).waitFor();
+    await page.getByRole("link", { name: "Audit", exact: true }).click();
+    await page.getByRole("heading", { name: "Audit", level: 2 }).waitFor();
+    await page.getByRole("link", { name: "Artifacts", exact: true }).click();
+    await page.getByRole("heading", { name: "Artifacts", level: 2 }).waitFor();
     // P3 Console: conversational composer renders, accepts a mission, and
     // the conversation records the real accepted state.
     await page.getByRole("link", { name: "Console", exact: true }).click();

@@ -197,6 +197,10 @@ export class QuackHttpServer {
       await this.listTracesByMission(url.searchParams.get("missionId"), response);
       return;
     }
+    if (method === "GET" && path === "/audit") {
+      await this.getAuditTrail(url.searchParams.get("limit"), response);
+      return;
+    }
     if (method === "POST" && path === "/skills/import") {
       await this.importSkill(request, response);
       return;
@@ -534,6 +538,26 @@ export class QuackHttpServer {
     }
     const traces = await this.system.storage.traces.list({ missionId });
     this.writeJson(response, 200, { missionId, traces });
+  }
+
+  /**
+   * P7 Audit Center: the governance record, kept deliberately distinct from
+   * trace observability. Reads the real audit log through the existing
+   * AuditLog; payloads pass the same structural redaction as SSE so secrets
+   * never cross this boundary. Authentication is enforced by the server
+   * wrapper (same session as every other route — there is no anonymous
+   * audit path).
+   */
+  private async getAuditTrail(limitParam: string | null, response: ServerResponse): Promise<void> {
+    const limit = Math.max(1, Math.min(500, Number.parseInt(limitParam ?? "100", 10) || 100));
+    const events = await this.system.auditLog.readAll();
+    const recent = events.slice(-limit).reverse();
+    this.writeJson(response, 200, {
+      total: events.length,
+      returned: recent.length,
+      records: recent.map((event) => ({ ...event, payload: redactEventPayload(event.payload) })),
+      note: "Audit is the security/governance record; Trace Center covers mission observability.",
+    });
   }
 
   private async importSkill(request: IncomingMessage, response: ServerResponse): Promise<void> {

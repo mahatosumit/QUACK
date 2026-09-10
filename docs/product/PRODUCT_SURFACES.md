@@ -43,7 +43,12 @@ client of QUACK Core. It never executes anything itself and never
 fabricates streaming** — genuine model stream chunks arrive only when
 `GovernedModelRuntime.stream()` is wired (P4).
 
-## Agent Workspace — *P6*
+## Agent Workspace — *P6, SHIPPED 2026-09-10*
+
+Registry/roles/capabilities/current-work/evaluation summaries
+(`#agents`): registry facts from `/agents` joined with assignment state
+and stored evaluation dimensions. Registry state, never a
+live-execution claim.
 
 Agent visibility: registry (`src/agents`), roles/specializations, skills,
 capabilities, current work, delegation, execution history, evaluation results.
@@ -56,19 +61,29 @@ risk, reason, evidence/context, approve/deny, expiration. Reuses
 `RiskAwareApprovalPolicy` + `ApprovalCallback` — **no new permission system**.
 The UI requests authorization from the runtime; it can never grant by itself.
 
-## Trace Center — *P7*
+## Trace Center — *P7, SHIPPED 2026-09-10*
 
-Runtime observability: mission timelines, event streams, tool calls, model
-calls, capability decisions, failures, recovery, evidence. Data:
-`TraceRepository` (sqlite) + live SSE. Trace Center renders real traces; it
-does not invent them.
+Mission observability inside the Studio SPA (`#traces` / `#trace/{id}`):
+trace index + execution timeline with deterministic filters (event type,
+free text), capabilities, tool activity, verification, evidence chain,
+and receipt sections — all rendered from the durable
+`TraceRepository`. See [TRACE_MODEL.md](TRACE_MODEL.md). Real records
+only; nothing synthesized.
 
-## Artifact Center — *P7*
+## Artifact View — *P7, SHIPPED 2026-09-10*
 
-Affordances around **existing** receipt/evidence/workspace outputs. No second
-storage system. An artifact is presented with mission, execution, creator,
-timestamp, verification status, and provenance from the receipt/evidence
-chain.
+Evidence- and workspace-backed outputs (`#artifacts`): every row
+derives from a real successful tool output inside a stored trace,
+presented with its source mission and producing tool. **No second
+artifact store exists** — artifacts are a view over the
+receipt/evidence/workspace chain. See [TRACE_MODEL.md](TRACE_MODEL.md).
+
+## Audit — *P7, SHIPPED 2026-09-10*
+
+Security/governance record (`#audit`, `GET /audit`), deliberately
+distinct from trace observability: accountability, not execution
+inspection. Payloads are redacted at the boundary; the data stores are
+never merged (identifiers link them).
 
 ## System Health / Settings — *existing*
 

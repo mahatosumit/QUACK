@@ -1,116 +1,63 @@
 # QUACK API Reference
 
 **Version:** 1.0.0
-**Date:** 2026-07-04
+**Updated:** 2026-09-10 (P7 — duplicate desktop surface retired)
 
-## REST API
+QUACK exposes ONE canonical local HTTP surface: `QuackHttpServer`
+(`src/server/index.ts`), started with `quack serve`. It serves the QUACK
+Studio (the one GUI) at `/dashboard` and the Mission API on loopback with
+per-instance session authentication (Bearer or `quack_session` cookie,
+timing-safe compare), CSRF on writes, strict CSP, and default-deny
+outbound network. Contract details: [contracts/MISSION_API.md](contracts/MISSION_API.md).
 
-Base URL: `http://localhost:3157/api`
+The legacy DesktopServer (`:3157/api/*`, `gui/` SPA, `desktop-app.js`)
+was RETIRED in P7. It duplicated the HTTP surface and shipped
+hard-coded fake benchmark/evaluation numbers, violating the
+evidence-first product principle.
 
-### Health
+## Canonical REST API (QuackHttpServer)
 
-`GET /api/health` — System health check
-`GET /api/version` — Version information
-`GET /api/workspace` — Workspace configuration
+### Health / system
+- `GET /health` — server health summary
+- `GET /system/status` — setup, safety posture, action ledger counts
 
-### Agents
+### Missions (P0–P2)
+- `POST /missions` — submit `{ goal, actor, mode?, providerId?, model?, safetyMode?, dryRun? }`
+- `GET /missions` — mission records
+- `GET /missions/{id}` — record + trace/evaluation/task detail
+- `GET /missions/{id}/status` · `GET /missions/{id}/events`
+- `POST /missions/{id}/cancel` · `POST /missions/{id}/resume`
 
-`GET /api/agents` — List all agents
-`GET /api/agents/:id` — Agent details
-`GET /api/agents/health` — Agent health summary
-`GET /api/agents/bottlenecks` — Bottleneck analysis
-`GET /api/organization` — Full organization state
-`GET /api/workflows` — All workflows
-`GET /api/workflows/:id` — Workflow details
+### Traces (P1/P7)
+- `GET /traces/{loopId}` — full `MissionTrace`
+- `GET /traces?missionId=…` — traces for one mission
 
-### COS (Cognitive Operating System)
+### Approvals (P1)
+- `GET /approvals` · `POST /approvals/{id}/approve|deny` — queue-backed
+  human decisions (fail closed when no queued approver is configured)
 
-`GET /api/cos/goals` — All goals
-`GET /api/cos/goals/active` — Active goals
-`GET /api/cos/decisions` — Decision records
-`GET /api/cos/councils` — Council sessions
-`GET /api/cos/experiences` — Experience records
-`GET /api/cos/learning` — Learning records
-`GET /api/cos/metrics` — Metrics snapshot
-`GET /api/cos/organization` — Org intelligence
-`GET /api/cos/policies` — Governance policies
-`GET /api/cos/progress` — Progress tracker
-`GET /api/cos/proposals` — Skill evolution proposals
-`GET /api/cos/missions` — All missions
-`GET /api/cos/strategies` — All strategies
-`GET /api/cos/capabilities` — Capability inventories
-`GET /api/cos/evaluation` — Self-evaluation report
-`GET /api/cos/timeline` — Goal timelines
-`GET /api/cos/products` — Resource capacity plan
+### Models (P4)
+- `POST /models/stream` — governed model streaming (broker-gated per
+  call; denial fails closed before provider contact; SSE chunks)
 
-### Platform
+### Governance / observability (P7)
+- `GET /audit?limit=` — security/governance record (distinct from
+  traces; payloads redacted at the boundary)
+- `GET /dashboard/state` — Studio state: missions, agents, skills,
+  security events, traces, evaluations
 
-`GET /api/platform/info` — Platform detection
-`GET /api/platform/hardware` — Hardware info
-`GET /api/platform/cluster` — Cluster nodes
-`GET /api/platform/tasks` — Distributed tasks
-`GET /api/platform/containers` — Containers
-`GET /api/platform/ai` — Local AI runtimes
-`GET /api/platform/monitoring` — Monitoring
-`GET /api/platform/services` — Native services
-`GET /api/platform/notifications` — Notifications
-`GET /api/platform/secrets` — Secret vault
-`GET /api/platform/sandbox` — Sandbox policies
-`GET /api/platform/packages` — Packages
-`GET /api/platform/capabilities` — Capabilities
+### Providers / actions / integrations
+- `GET /providers` · `POST /providers/test`
+- `GET /actions` · `GET /mcp` · `GET /memory` · `GET /settings` (PATCH to update)
+- `GET /agents` · `GET /improvement/proposals` (+ decide)
 
-### AIRM (AI Runtime Manager)
+## Architecture components
 
-`GET /api/airm/dashboard` — Full dashboard
-`GET /api/airm/models` — Model registry
-`GET /api/airm/runtimes` — Runtime registry
-`GET /api/airm/capabilities` — Capability registry
-`GET /api/airm/pipelines` — Pipeline manager
-`GET /api/airm/profiles` — Profile manager
-`GET /api/airm/benchmarks` — Benchmark results
-`GET /api/airm/evaluations` — Evaluation results
-`GET /api/airm/downloads` — Active downloads
-`GET /api/airm/marketplace` — Marketplace packages
-`GET /api/airm/monitor` — Runtime monitor
-`GET /api/airm/embeddings` — Embedding models
-`GET /api/airm/vision` — Vision models
-`GET /api/airm/speech` — Speech models
-`GET /api/airm/rerankers` — Reranker models
-`GET /api/airm/gpu` — GPU scheduler
-`GET /api/airm/memory` — Memory manager
-`GET /api/airm/cache` — Cache stats
-
-### UCP (Universal Computer Use)
-
-`GET /api/computer/state` — Displays/safety/permissions
-`GET /api/computer/plan` — Plan history
-`GET /api/computer/recordings` — Session recordings
-`GET /api/computer/macros` — Registered macros
-`GET /api/computer/audit` — Audit log
-`GET /api/computer/memory` — Computer memory
-
-## TypeScript API
-
-### Core
-
-```typescript
-import { createQuackSystem } from "@quack/os";
-import { QuackClient } from "@quack/sdk";
-
-const system = createQuackSystem({ configOverrides: { workspaceRoot: "./my-project" } });
-const result = await system.runtime.submitGoal("analyze codebase");
-```
-
-### Key Classes
-
-| Class | Module | Description |
-|-------|--------|-------------|
-| QuackSystem | @quack/os | System composition root |
-| QuackRuntime | @quack/os | Goal execution runtime |
-| EventBus | @quack/os | Pub/sub event system |
-| ExecutiveBrain | @quack/os | Strategic orchestration |
-| AiRuntimeManager | @quack/os | AI execution orchestrator |
-| AgentLifecycleManager | @quack/os | Multi-agent lifecycle |
-| CognitiveOperatingSystem | @quack/os | Strategic intelligence |
-| DesktopServer | @quack/os | HTTP API server |
-| QuackClient | @quack/sdk | Client SDK |
+| Component | Module | Role |
+| --- | --- | --- |
+| QuackHttpServer | @quack/os | The one canonical local HTTP API + Studio host |
+| QuackRuntime | @quack/os | Mission execution kernel |
+| GovernedModelRuntime | @quack/os | Broker-gated model dispatch (generate/stream) |
+| TraceRepository | @quack/os | Durable mission traces (sqlite) |
+| MissionEvaluator | @quack/os | Trace-derived evaluation + dimensions |
+| AuditLog | @quack/os | Security/governance record (jsonl) |

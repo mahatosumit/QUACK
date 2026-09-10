@@ -75,15 +75,21 @@ summary cards averaged from stored evaluation dimensions. Honest
 labeling retained: registry state, never a live-execution claim. View
 code only — `/agents` + `/dashboard/state` endpoints unchanged.
 
-## P7 — Trace / Artifact / Operations Experience
+## P7 — Trace Center + Operations + Surface Consolidation (SHIPPED 2026-09-10)
 
-- Trace Center (render `TraceRepository` timelines)
-- Artifact affordances (receipt/evidence/workspace outputs only — no new store)
-- RETIRE `src/desktop/server.ts` (verify no consumers first; merge any needed
-  read-only routes into QuackHttpServer) and legacy
-  `dashboard/web/index.ts` `dashboardHtml()`
-- remove fake benchmark/evaluation endpoints with the retirement
-- **Risk:** medium (deletion — full regression after).
+Trace Center inside the Studio SPA (`#traces`/`#trace/{id}`): trace
+index + per-mission execution timeline (real TraceRepository events
+only, deterministic type/text filters), capabilities, tool activity,
+verification, evidence chain, receipt sections; Mission Detail gains
+"View Trace". Artifact View (`#artifacts`): evidence-backed tool
+outputs only — no second store. Audit Center (`#audit`, `GET /audit`):
+the governance record, distinct from traces, payloads redacted at the
+boundary. Retirement: duplicate DesktopServer + `gui/` SPA +
+`desktop-app.ts` + legacy `dashboardHtml()` deleted (one HTTP surface:
+QuackHttpServer; one GUI: Studio); fake `/api/benchmarks` +
+`/api/evaluation` hard-coded numbers removed with it. Adversarial
+coverage: unauthorized audit (401), forged/traversal trace ids
+(fail-closed 404), audit payload redaction, limit clamping.
 
 ## P8 — Automation
 

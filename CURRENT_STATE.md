@@ -1,6 +1,6 @@
 # QUACK Current State
 
-**Verified:** 2026-09-10 (P1–P6: Mission Ops, Mission Control, Console, Governed Streaming, Harness Expansion, Agent Workspace)
+**Verified:** 2026-09-10 (P1–P7: Mission Ops, Mission Control, Console, Governed Streaming, Harness Expansion, Agent Workspace, Trace Center + Consolidation)
 
 ## Baseline
 
@@ -74,6 +74,7 @@ historical architecture audits remain context, not proof of current behavior.
 
 | Check | Result |
 | --- | --- |
+| **P7 Trace Center + Consolidation gate, 2026-09-10** | **PASS: full gate below. Trace Center (real TraceRepository timelines, type/text filters, capabilities/tools/verification/evidence/receipt sections), Artifact View (evidence-backed tool outputs only), Audit Center (`GET /audit`, redacted, auth-enforced). RETIRED: duplicate DesktopServer + gui/ SPA + desktop-app.ts + legacy dashboardHtml + fake benchmark/evaluation routes (hard-coded 100% numbers deleted, evaluation truth = real MissionEvaluator history). Adversarial: unauthorized audit 401, forged/traversal ids fail-closed 404, audit redaction, limit clamping. One HTTP surface (QuackHttpServer), one GUI (Studio).** |
 | **P6 Agent Workspace gate, 2026-09-10** | **PASS: 1,531 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E (visits the Agent Workspace heading) pass. Studio Agents view joins registry (`/agents`) with assignment state + eval-dimension summary cards from `/dashboard/state` — view code only, endpoints unchanged, registry-not-execution honesty label retained.** |
 | **P5 Harness Expansion gate, 2026-09-10** | **PASS: 1,530 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E pass. Scenario pack v2 = 15 scenarios across 7 families; adversarial scenarios (injection/secret-leak/network-denial/malformed/forged-identity) pass only when the runtime fails closed. Evaluator v2 scores capability-discipline/recovery/planning/evidence-quality from the durable trace only (new metrics: recoveredDenials, evidenceCoverage). Studio Evidence view renders stored evaluation history from the existing `/dashboard/state`. Model-vs-model deferred until live providers exist (no fabrication on echo fixtures).** |
 | **P4 Governed Model Streaming gate, 2026-09-10** | **PASS: 1,528 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E pass. New `src/server/model-stream.test.ts`: broker denial fails closed before provider contact (terminal `denied: true` chunk), 400 on malformed requests, chunk text redacted at the wire AND on the shared event-bus broadcast (hostile `sk-…`/Bearer literals never survive). Studio contract test asserts the Console consumes the governed endpoint only.** |
@@ -145,6 +146,56 @@ historical architecture audits remain context, not proof of current behavior.
 | memory-compaction focused gate, 2026-09-06 | PASS: 37 memory/os/provider-binding/decision-memory/identity-memory/knowledge-graph tests, including 7 new compaction cases; 0 failures, skips, or cancellations. Independent verifier confirmed build, typecheck, and source semantics. |
 | memory-compaction root/SDK typechecks, build, and lint, 2026-09-06 | PASS. |
 | memory-compaction full repository suite, 2026-09-06 | PASS: 1,293 ordinary tests + 17 serial self-modification tests; 0 failures, skips, or cancellations. |
+
+## Latest continuation — 2026-09-10 (P7 Trace Center + Operations + Surface Consolidation)
+
+P7 shipped as exposure + consolidation (no new runtime, event system,
+trace system, or artifact store):
+
+- **Trace Center** (`#traces`, `#trace/{id}` in the Studio SPA): trace
+  index from the durable repository; per-mission detail renders
+  Overview, Capabilities, Tool activity, Verification, Evidence chain,
+  Receipt, and one chronological Timeline built ONLY from stored
+  `MissionTrace.events` (nothing synthesized), with deterministic
+  filters (event-type select + free text). Mission Detail gained a
+  "View Trace" button (`#trace/{traceId}`).
+- **Artifact View** (`#artifacts`): every row derives from a real
+  successful tool output inside a stored trace (source mission +
+  producing tool shown). Explicitly labeled "no separate artifact
+  store". No fabricated artifacts — empty state is honest.
+- **Audit Center** (`#audit`, new `GET /audit?limit=` on
+  QuackHttpServer): reads the real `AuditLog.readAll()`, payloads pass
+  the same structural redaction as SSE, limit clamped 1–500, session
+  authentication enforced (no anonymous path; 401 tested). Clearly
+  labeled as the governance record — distinct from trace
+  observability; stores never merged, identifiers link them.
+- **Retirement (one HTTP surface, one GUI)**:
+  - DELETED `src/desktop/server.ts` (+ server.test.ts, gui.test.ts,
+    index.ts, types.ts), `src/desktop-app.ts`, and the `gui/` SPA
+    (7 tracked files). `cli serve` already used QuackHttpServer;
+    `DEFAULT_PORT` moved to `src/server/constants.ts`;
+    `compatibility.ts` no longer re-exports the desktop surface.
+  - DELETED legacy `dashboardHtml()/dashboardStyles()/
+    dashboardScript()` from `dashboard/web/index.ts` (zero consumers;
+    `buildDashboardState` retained — server + Studio use it).
+  - DELETED fake `/api/benchmarks` + `/api/evaluation` hard-coded
+    numbers (100% completion rate, qualityScore 100, "14 evaluated
+    tasks") with the duplicate surface. Evaluation truth comes only
+    from the real `MissionEvaluator` history (P5 dimensions).
+  - Docs corrected: API_REFERENCE rewritten to the canonical
+    Mission API; GETTING_STARTED/DEPLOYMENT/website updated; ADR
+    0016 remains as history.
+- **Adversarial coverage** (`src/server/audit-and-retirement.test.ts`):
+  unauthorized audit → 401; forged/traversal trace ids
+  (`..%2F..%2Fpackage.json`, `%00`, nested slashes) → fail-closed 404
+  with structured errors (never file content); audit payload redaction
+  (sk-…/secret-keyed fields never survive); limit clamping incl.
+  negative/huge/garbage values.
+- **New docs**: `docs/product/TRACE_MODEL.md` (Trace vs Audit, Event
+  vs Evidence vs Verification vs Receipt, artifact-as-view,
+  timeline truthfulness, security boundaries) and
+  `docs/product/OPERATIONS_MODEL.md` (operations sources, health-state
+  honesty, provider status, consolidation record).
 
 ## Latest continuation — 2026-09-10 (P6 Agent Workspace)
 

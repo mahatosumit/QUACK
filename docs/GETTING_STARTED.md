@@ -48,30 +48,34 @@ This will:
 3. Execute the workspace filesystem tool
 4. Return the result
 
-### 2. Start the Desktop Server
+### 2. Start the Control Room (QUACK Studio)
 
 ```bash
-node dist/desktop-app.js
+quack serve
 ```
 
-The desktop server starts on `http://localhost:3157` with:
-- Real-time agent activity dashboard
-- System health monitoring
-- Workflow progress tracking
+The server starts on loopback (default port 3157) with:
+- QUACK Studio at `/dashboard` — Mission Control, Console, Approval
+  Center, Trace Center, Artifacts, Audit, Operations
+- Live event stream (SSE) with payload redaction
+- Session-authenticated Mission API
 
 Check it's running:
 
 ```bash
-curl http://localhost:3157/api/health
-# Returns: {"status":"ok","uptime":...}
+curl http://127.0.0.1:3157/health
+# Returns: {"ok":true,...}
 ```
+
+> The retired desktop server (`node dist/desktop-app.js`) was removed in
+> P7. `quack serve` is the one canonical local surface.
 
 ### 3. Explore the Architecture
 
-- **Agents:** `GET /api/agents` — view all 18 specialized agents
-- **Organization:** `GET /api/organization` — see the agent hierarchy
-- **Workflows:** `GET /api/workflows` — track task progress
-- **COS Dashboard:** `GET /api/cos/goals` — view system goals
+- **Agents:** `GET /agents` — registered specialists and assignment state
+- **Missions:** `GET /missions` — durable mission records
+- **Traces:** `GET /traces/{id}` — execution timelines
+- **Audit:** `GET /audit` — governance record
 
 ### 4. Run Tests
 

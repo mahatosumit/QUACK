@@ -32,7 +32,7 @@ npx quack start "refactor the main module"
 
 ```bash
 npx quack serve
-# Listening on http://localhost:3157
+# QUACK Studio + Mission API on http://127.0.0.1:3157/dashboard
 ```
 
 ### Docker Mode
@@ -59,8 +59,8 @@ Environment variables:
 
 1. Build: `npm run build`
 2. Configure: Set environment variables
-3. Start: `npx quack serve --port 3157 --headless`
-4. Monitor: `curl http://localhost:3157/api/health`
+3. Start: `npx quack serve --port 3157`
+4. Monitor: `curl http://127.0.0.1:3157/health`
 
 ## Platform Support
 

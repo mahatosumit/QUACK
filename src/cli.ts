@@ -1,9 +1,9 @@
 #!/usr/bin/env node
-import { createQuackSystem } from "./distributions/swe-system.js";
 import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { DEFAULT_PORT } from "./desktop/types.js";
+import { createQuackSystem } from "./distributions/swe-system.js";
+import { DEFAULT_PORT } from "./server/constants.js";
 import { createQuackBackup, restoreQuackBackup } from "./recovery/index.js";
 import { cpus, release, totalmem } from "node:os";
 import { execFile } from "node:child_process";

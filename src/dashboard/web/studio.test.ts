@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { STUDIO_API, studioHtml, studioScript, studioStyles } from "./studio.js";
 
 test("QUACK Control Room renders every required solo-production surface", () => {
@@ -109,4 +110,45 @@ test("P6 agent workspace renders registry + assignment state + eval summaries", 
   // Agent-quality summaries derive from stored evaluation dimensions.
   assert.match(script, /capabilityDiscipline/);
   assert.match(script, /Across /);
+});
+
+test("P7 Trace Center renders repository traces with filtering and detail navigation", () => {
+  const script = studioScript();
+  assert.match(script, /Trace Center/);
+  assert.match(script, /renderTraces/);
+  assert.match(script, /renderTraceDetail/);
+  // Timeline entries come from real trace events only.
+  assert.match(script, /const timeline=events\.map/);
+  assert.match(script, /no fabricated|Real records only/);
+  // Deterministic filters: event type + text, applied client-side.
+  assert.match(script, /trace-type-filter/);
+  assert.match(script, /trace-text-filter/);
+  // Mission detail links into the Trace Center.
+  assert.match(script, /View Trace/);
+  // Distinguishes evidence vs verification vs receipt explicitly.
+  assert.match(script, /Verification/);
+  assert.match(script, /Evidence chain/);
+  assert.match(script, /Receipt/);
+});
+
+test("P7 Artifact view is evidence-backed with no fabricated artifacts", () => {
+  const script = studioScript();
+  assert.match(script, /renderArtifacts/);
+  // Every artifact row derives from a real tool output in a stored trace.
+  assert.match(script, /call\.success&&call\.output/);
+  assert.match(script, /no separate artifact store/);
+});
+
+test("P7 Audit view reads the real audit log and is distinct from traces", () => {
+  const script = studioScript();
+  assert.match(script, /renderAudit/);
+  assert.match(script, /api\.audit/);
+  assert.match(script, /distinct from trace observability/);
+  assert.match(script, /redacted at this boundary/);
+});
+
+test("P7 legacy surfaces stay retired", () => {
+  assert.equal(existsSync("dist/desktop"), false, "no desktop HTTP server ships in the build");
+  assert.equal(existsSync("gui"), false, "the duplicate gui/ SPA stays retired");
+  assert.equal(existsSync("src/desktop"), false, "no desktop server sources remain");
 });

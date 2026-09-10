@@ -1,4 +1,4 @@
-import { describe, it } from "node:test";
+﻿import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { AgentRegistry, AgentCommunicationBus, OrganizationalMemory, AgentMetricsCollector, AgentLifecycleManager } from "../organization/index.js";
 import {
@@ -623,7 +623,7 @@ describe("COS — createCos factory", () => {
   });
 });
 
-describe("COS — DesktopServer integration (via constructor)", () => {
+describe("COS - organization dependencies attached via constructor", () => {
   it("creates COS with organization dependencies attached", () => {
     const deps = createDeps();
     const cos = createCos(deps);

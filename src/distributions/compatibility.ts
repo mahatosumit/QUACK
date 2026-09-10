@@ -79,7 +79,8 @@ export { AgentRegistry as CoreAgentRegistry } from "../core/agents/agent-registr
 export { AgentMonitor as CoreAgentMonitor, type AgentHealthReport } from "../core/agents/agent-monitor.js";
 export { LifecycleManager } from "../core/agents/lifecycle-manager.js";
 export * from "../computer/index.js";
-export * from "../desktop/index.js";
+// P7: the duplicate DesktopServer surface is retired; QUACK Studio
+// (QuackHttpServer) is the one canonical local HTTP/GUI surface.
 export * from "../platform/index.js";
 export * from "../security/approval-controller.js";
 export * from "../security/capability-broker.js";
