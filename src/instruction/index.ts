@@ -13,3 +13,4 @@ export { composeInstructionPlan, renderComposedText, canonicalJson, type Compose
 export { selectContext, DEFAULT_CATEGORY_LAYER, type ContextCandidate, type SelectionInput, type SelectionResult, type SelectionReport, type SelectedEntry, type TrimmedEntry, type RejectedEntry, type SelectionRejectionCode } from "./selector.js";
 export { admitContext, type FirewallAuthorities, type AdmissionInput, type AdmissionResult, type AdmissionRejection, type FirewallRejectionCode } from "./firewall.js";
 export { adaptComposedInstruction, invokeGovernedInstruction, type GovernedInvocationOptions, type GovernedInvocationContext, type GovernedDispatchRuntime } from "./model-adapter.js";
+export { enforceInstructionDefense, flagsToMetadata, assertDispatchable, type InstructionDefenseResult, type InstructionDefenseErrorCode, type InjectionFlag } from "./injection-defense.js";

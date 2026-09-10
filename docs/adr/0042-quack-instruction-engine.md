@@ -210,6 +210,62 @@ WHETHER/HOW it reaches a model; providers own protocol transport only.
   caller options (no model routing added).
 - `src/models/*` and `src/providers/*` are untouched. 25 tests.
 
+## Implementation update — P8.5 Injection Defense Enforcement (2026-09-10)
+
+`src/instruction/injection-defense.ts`: the final pre-dispatch tripwire
+between the composed instruction (P8.1) and the governed model runtime
+(P8.4). The security property is structural, not textual:
+
+> P8.5 prevents untrusted context from acquiring instruction authority
+> through the QIE execution boundary. Data remains data.
+
+Two clearly separated mechanisms:
+
+**Structural enforcement (fail-closed rejections).** Every dispatch
+(`invokeGovernedInstruction`) re-verifies the composed instruction before
+adaptation: digest correspondence (the P8.1 canonical SHA-256 is recomputed
+over layers/identity/output-contract/failure-policy — any post-composition
+mutation breaks correspondence and is rejected), trust/category pairing,
+evidence status validity, duplicate ids, provenance shape, and render-safe
+item ids. Item ids are the only raw-rendered field in the model-facing
+text; an id that could forge rendered structure (newlines, headers, trust
+tags) is rejected — never rewritten. Violations never reach the runtime,
+and there is no fallback path: one rejection, zero retries, zero ungoverned
+alternates. Rejected instructions produce structured, metadata-safe
+errors (`instruction.defense_*` codes) that never echo payload content.
+
+**Heuristic detection (defense-in-depth flags).** A small deterministic
+pattern family (fixed vocabulary of kinds: instruction_override,
+authority_claim, policy_claim, capability_claim, privilege_claim,
+verification_claim, role_marker, runtime_bypass, secret_disclosure) scans
+item data. Flags are metadata-only (item id, trust, category, kind names —
+never matched content) and ride in request metadata under `injectionFlags`.
+A match changes NOTHING: content is preserved byte-identically, trust and
+precedence are untouched, and the instruction still dispatches. Detection
+is NOT trust: "looks like an injection attempt" never means "therefore
+trusted" or "therefore deleted". The ADR 0041 PrivacyFirewall classifier
+is NOT reused here — it classifies sensitive data classes (secrets, keys)
+with different semantics, and P8.3 already applies it at admission.
+
+Digest integrity: enforcement recomputes but never replaces the P8.1
+digest; passing instructions retain exact digest/content correspondence.
+No second digest, timestamp, or random id is introduced.
+
+Provider bypass: `invokeGovernedInstruction` remains the only QIE
+execution path to a model; enforcement is inlined ahead of adaptation, so
+no QIE dispatch can skip it. Providers and `src/models/*` are unchanged
+and remain pure protocol transport.
+
+Limitations (honest): P8.5 does not and cannot guarantee that a model
+will never *comply* with instruction-like data content — the
+model-facing text still contains the (labeled, JSON-escaped) payload.
+What it guarantees is that such content never *acquires authority*:
+trust lanes, precedence, capability grants, policy, and instruction
+identity are all structural and unaffected by payload language. Semantic
+prompt-injection hardening of model behavior itself (e.g., structured
+role channels) is a provider-contract question deferred with P8.4's
+role-mapping decision. 52 adversarial tests.
+
 ## Consequences
 
 Positive: one canonical home for instruction assembly; deterministic and

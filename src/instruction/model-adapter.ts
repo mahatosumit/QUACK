@@ -2,6 +2,7 @@ import { fail, ok, type JsonObject, type QuackResult } from "../core/types.js";
 import type { ModelRequest, ModelResponse, ModelStreamChunk } from "../models/runtime.js";
 import type { ModelCapability } from "../models/types.js";
 import { renderComposedText } from "./composer.js";
+import { enforceInstructionDefense, flagsToMetadata } from "./injection-defense.js";
 import { INSTRUCTION_PLAN_VERSION, type ComposedInstruction, type InstructionOutputKind } from "./types.js";
 
 /**
@@ -143,13 +144,16 @@ export function adaptComposedInstruction(
 
 /**
  * Dispatch a composed instruction through an existing governed runtime.
- * The instruction is validated, adapted, and sent with the full execution
- * context so `provider.invoke` authority (and cancellation) is resolved by
- * the governed layer before any provider contact. The P8.1 digest travels
- * in request metadata and the governed layer appends its dispatch
- * provenance — instruction identity is never mutated. No fallback, no
- * retry, no retrieval: a denial or provider error fails closed with the
- * existing `QuackResult` error semantics.
+ * The instruction is first enforced by the P8.5 injection-defense boundary
+ * (structural validation + digest correspondence; violations fail closed
+ * and never reach the runtime), then validated, adapted, and sent with the
+ * full execution context so `provider.invoke` authority (and
+ * cancellation) is resolved by the governed layer before any provider
+ * contact. The P8.1 digest travels in request metadata — instruction
+ * identity is never mutated. Heuristic detection flags (defense-in-depth,
+ * metadata-only) ride in request metadata under `injectionFlags`. No
+ * fallback, no retry, no retrieval: a denial or provider error fails
+ * closed with the existing `QuackResult` error semantics.
  */
 export async function invokeGovernedInstruction(
   runtime: GovernedDispatchRuntime,
@@ -165,7 +169,21 @@ export async function invokeGovernedInstruction(
       recoverable: false,
     });
   }
+  // P8.5: structural enforcement before adaptation/dispatch.
+  const defense = enforceInstructionDefense(composed);
+  if (!defense.ok) {
+    return fail(defense.error ?? {
+      code: "instruction.defense_shape_invalid",
+      message: "composed instruction failed injection-defense enforcement",
+      category: "validation",
+      recoverable: false,
+    });
+  }
   const adapted = adaptComposedInstruction(composed, options);
   if (!adapted.ok) return adapted;
-  return runtime.generate(adapted.data, context);
+  const flagsMetadata = flagsToMetadata(defense.flags);
+  const request = flagsMetadata
+    ? { ...adapted.data, metadata: { ...adapted.data.metadata, ...flagsMetadata } as JsonObject }
+    : adapted.data;
+  return runtime.generate(request, context);
 }

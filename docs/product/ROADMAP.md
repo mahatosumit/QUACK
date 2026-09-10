@@ -173,6 +173,29 @@ section + metadata), never claimed as schema enforcement the providers do
 not have. No model routing/benchmarking. Remaining: P8.5 injection-defense
 enforcement, P8.6 harness scoring, P8.7–P8.9.
 
+### P8.5 — Injection Defense Enforcement (SHIPPED 2026-09-10)
+
+Final pre-dispatch tripwire (`src/instruction/injection-defense.ts`, ADR
+0042 implementation update). Structural enforcement before P8.4
+adaptation/dispatch: digest correspondence recomputed and verified (any
+post-composition mutation fails closed), trust/category pairing,
+evidence status, duplicate ids, provenance shape, and render-safe item
+ids (ids are the only raw-rendered field — structure-forging ids are
+rejected, never rewritten). Fail-closed with structured metadata-safe
+`instruction.defense_*` errors; no ungoverned fallback, zero retries.
+Heuristic detection (fixed-vocabulary pattern family) runs as
+defense-in-depth: metadata-only `injectionFlags` in request metadata —
+never rewriting content, never changing trust, never blocking dispatch.
+DATA REMAINS DATA: untrusted content cannot acquire instruction
+authority by containing instruction-like language. 52 adversarial tests
+covering trust immutability, role/delimiter confusion, override and
+escalation resistance, capability/policy/memory/evidence/skill/retrieval
+injection, digest integrity, provenance integrity, provider and fallback
+bypass resistance, determinism, purity, and the full end-to-end
+firewall→selector→composer→defense→adapter→governed-runtime flow.
+Remaining: P8.6 harness scoring, P8.7 observability, P8.8 Studio/CLI
+inspection, P8.9 research/SDK.
+
 ## P9 — Semantic Memory / Knowledge
 
 - embeddings **through GovernedModelRuntime only** (they are provider calls)
