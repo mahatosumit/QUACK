@@ -47,18 +47,24 @@ turns; honest rejection/denial/empty states. Redaction + fail-closed +
 Context management deepening (mission vs session context) and
 model-comparison groundwork land with P5 harness expansion.
 
-## P5 — QUACK Harness Expansion
+## P5 — QUACK Harness Expansion (SHIPPED 2026-09-10)
 
-- scenario pack v2 (~15 scenarios): reasoning, tool selection, allowed/denied
-  capability, malformed tool request, prompt-injection resistance, secret
-  redaction, network denial, multi-step, recovery, forged identity
-- agent evaluation dimensions: capability discipline, recovery, planning,
-  evidence quality
-- runtime evaluation: recovery/replay/determinism/event + receipt integrity
-- model-vs-model over governed providers → existing sqlite evaluation history
-- evaluation history views in Studio
-- **Affected:** `src/harness/scenarios.ts`, `evaluator.ts`, Studio views.
-  **Risk:** medium.
+Scenario pack v2: 15 scenarios across 7 families (reasoning,
+tool-selection, capability allowed/denied, malformed tool request,
+prompt-injection resistance, secret-redaction resistance, network
+denial, multi-step, recovery after denial, forged identity, evidence
+chain). Adversarial scenarios pass only when the runtime fails closed —
+their payloads are declared expectations, never actionable data.
+
+Agent evaluation dimensions: `MissionEvaluator` now scores capability
+discipline, recovery, planning, and evidence quality (0–100 each) from
+the durable trace alone; new metrics `recoveredDenials` and
+`evidenceCoverage`. Studio Evidence view renders the stored evaluation
+history (score + dimension badges) from the existing
+`/dashboard/state` — no new endpoint.
+
+Model-vs-model comparison lands when live governed providers are
+configured (needs real inference; not fabricated on echo fixtures).
 
 ## P6 — Agent Workspace
 

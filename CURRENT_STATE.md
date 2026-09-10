@@ -1,6 +1,6 @@
 # QUACK Current State
 
-**Verified:** 2026-09-10 (P1–P4: Mission Operations, Mission Control, Console, Governed Model Streaming)
+**Verified:** 2026-09-10 (P1–P5: Mission Operations, Mission Control, Console, Governed Streaming, Harness Expansion)
 
 ## Baseline
 
@@ -74,6 +74,7 @@ historical architecture audits remain context, not proof of current behavior.
 
 | Check | Result |
 | --- | --- |
+| **P5 Harness Expansion gate, 2026-09-10** | **PASS: 1,530 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E pass. Scenario pack v2 = 15 scenarios across 7 families; adversarial scenarios (injection/secret-leak/network-denial/malformed/forged-identity) pass only when the runtime fails closed. Evaluator v2 scores capability-discipline/recovery/planning/evidence-quality from the durable trace only (new metrics: recoveredDenials, evidenceCoverage). Studio Evidence view renders stored evaluation history from the existing `/dashboard/state`. Model-vs-model deferred until live providers exist (no fabrication on echo fixtures).** |
 | **P4 Governed Model Streaming gate, 2026-09-10** | **PASS: 1,528 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E pass. New `src/server/model-stream.test.ts`: broker denial fails closed before provider contact (terminal `denied: true` chunk), 400 on malformed requests, chunk text redacted at the wire AND on the shared event-bus broadcast (hostile `sk-…`/Bearer literals never survive). Studio contract test asserts the Console consumes the governed endpoint only.** |
 | **P3 Console gate, 2026-09-10** | **PASS: 1,524 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build pass. Control Room E2E exercises the console flow (submit mission → conversation shows real accepted state) under a11y + console-error gates. Studio contract test asserts the P3 boundary: composer posts only through the Mission API; no fabricated model streaming (`model.stream.chunk` absent; guarded).** |
 | **P2 Mission Control (Studio) gate, 2026-09-10** | **PASS: 1,523 ordinary + 17 serial tests; 0 failures. Root/SDK typechecks, build, lint + static guards pass. Control Room browser E2E (Edge, a11y serious/critical + console-error gates) covers the new Mission Control lanes, Mission Detail, and Approval Center surfaces with the queued approver wired. Studio contract tests assert lanes/cancel/resume/approval-queue/SSE wiring.** |
@@ -143,6 +144,35 @@ historical architecture audits remain context, not proof of current behavior.
 | memory-compaction focused gate, 2026-09-06 | PASS: 37 memory/os/provider-binding/decision-memory/identity-memory/knowledge-graph tests, including 7 new compaction cases; 0 failures, skips, or cancellations. Independent verifier confirmed build, typecheck, and source semantics. |
 | memory-compaction root/SDK typechecks, build, and lint, 2026-09-06 | PASS. |
 | memory-compaction full repository suite, 2026-09-06 | PASS: 1,293 ordinary tests + 17 serial self-modification tests; 0 failures, skips, or cancellations. |
+
+## Latest continuation — 2026-09-10 (P5 QUACK Harness Expansion)
+
+P5 shipped as honest evaluation infrastructure — every score derives from
+the durable trace; nothing fabricated:
+
+- **Scenario pack v2** (`src/harness/scenarios.ts`): 15 scenarios across
+  7 families (reasoning, tool-selection, capability allowed/denied,
+  adversarial, recovery, multi-step, evidence). Five adversarial
+  scenarios — prompt-injection resistance, secret-redaction resistance,
+  network denial, malformed tool request, forged identity — carry their
+  hostile payloads as DECLARED EXPECTATIONS with
+  `expectedOutcome: "failure"`: they pass only when the runtime fails
+  closed; the payload text is never actionable mission data.
+- **Evaluator v2** (`src/harness/evaluator.ts`): every
+  `MissionEvaluationResult` now carries `dimensions` —
+  capabilityDiscipline (denied share vs recovered-by-degrading share),
+  recovery (recoverable failures matched by later successful
+  iterations), planning (plan invocations + iteration progress, no
+  doom-loop credit), evidenceQuality (successful tool calls with
+  captured output + verification citations) — each bounded 0–100.
+  New metrics `recoveredDenials` + `evidenceCoverage`
+  (`metrics-collector.ts`).
+- **Studio Evidence view** renders the stored evaluation history (score
+  badge + C/R/P/E dimension badges per evaluation, newest first) from
+  the EXISTING `/dashboard/state` harness data — no new endpoint, no
+  second store.
+- **Model-vs-model comparison deliberately deferred**: it needs live
+  governed providers; echo fixtures would fabricate the comparison.
 
 ## Latest continuation — 2026-09-10 (P4 Governed Model Streaming)
 

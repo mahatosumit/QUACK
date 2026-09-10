@@ -82,3 +82,12 @@ test("P4 governed streaming: Console consumes broker-gated streams, never fabric
   // Fabrication guard: no client-side synthetic chunk emission.
   assert.doesNotMatch(script, /setTimeout\([^)]*\)\.text/);
 });
+
+test("P5 evaluation history renders stored evaluator results with dimensions", () => {
+  const script = studioScript();
+  assert.match(script, /Evaluation history/);
+  assert.match(script, /capabilityDiscipline/);
+  assert.match(script, /evidenceQuality/);
+  // The evidence view reads the dashboard state harness evaluations.
+  assert.match(script, /async function renderEvidence\(\)\{const \[data,state\]=await Promise\.all\(\[request\(api\.memory\),request\(api\.dashboardState\)\]\)/);
+});

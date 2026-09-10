@@ -156,6 +156,9 @@ function sampleEvaluation() {
       iterationCount: 1,
       toolCallCount: 0,
       capabilityCheckCount: 0,
+      recoveredDenials: 0,
+      evidenceCoverage: 0,
     },
+    dimensions: { capabilityDiscipline: 100, recovery: 100, planning: 70, evidenceQuality: 20 },
   };
 }

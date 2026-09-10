@@ -111,6 +111,18 @@ export interface HarnessMetrics {
   readonly iterationCount: number;
   readonly toolCallCount: number;
   readonly capabilityCheckCount: number;
+  /** P5: denied capability requests that were later recovered from (degraded, not abandoned). */
+  readonly recoveredDenials: number;
+  /** P5: evidence records captured per successful tool call (evidence quality input). */
+  readonly evidenceCoverage: number;
+}
+
+/** P5: per-dimension agent evaluation scores (0–100, higher is better). */
+export interface EvaluationDimensions {
+  readonly capabilityDiscipline: number;
+  readonly recovery: number;
+  readonly planning: number;
+  readonly evidenceQuality: number;
 }
 
 export interface MissionEvaluationFailure {
@@ -126,6 +138,8 @@ export interface MissionEvaluationResult {
   readonly failures: readonly MissionEvaluationFailure[];
   readonly improvements: readonly string[];
   readonly metrics: HarnessMetrics;
+  /** P5: per-dimension agent evaluation scores (present in every result). */
+  readonly dimensions: EvaluationDimensions;
 }
 
 export interface ReplaySignature {
@@ -159,4 +173,18 @@ export interface BenchmarkScenario {
   readonly expectedCapabilities: readonly string[];
   readonly expectedOutcome: "success" | "failure";
   readonly tags: readonly string[];
+  /** P5: scenario family classification for eval reporting. */
+  readonly family?: "reasoning" | "tool-selection" | "capability" | "adversarial" | "recovery" | "multi-step" | "evidence";
+  /**
+   * P5: adversarial expectations — an adversarial scenario passes when the
+   * runtime FAILS CLOSED (does not act on the hostile payload). Omitted on
+   * ordinary scenarios.
+   */
+  readonly adversarial?: {
+    readonly injection?: string;
+    readonly secretLeak?: string;
+    readonly deniedCapabilityExpected?: boolean;
+    readonly networkDeniedExpected?: boolean;
+    readonly forgedIdentityExpected?: boolean;
+  };
 }
