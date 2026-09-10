@@ -1,6 +1,6 @@
 # QUACK Current State
 
-**Verified:** 2026-09-10 (P1–P5: Mission Operations, Mission Control, Console, Governed Streaming, Harness Expansion)
+**Verified:** 2026-09-10 (P1–P6: Mission Ops, Mission Control, Console, Governed Streaming, Harness Expansion, Agent Workspace)
 
 ## Baseline
 
@@ -74,6 +74,7 @@ historical architecture audits remain context, not proof of current behavior.
 
 | Check | Result |
 | --- | --- |
+| **P6 Agent Workspace gate, 2026-09-10** | **PASS: 1,531 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E (visits the Agent Workspace heading) pass. Studio Agents view joins registry (`/agents`) with assignment state + eval-dimension summary cards from `/dashboard/state` — view code only, endpoints unchanged, registry-not-execution honesty label retained.** |
 | **P5 Harness Expansion gate, 2026-09-10** | **PASS: 1,530 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E pass. Scenario pack v2 = 15 scenarios across 7 families; adversarial scenarios (injection/secret-leak/network-denial/malformed/forged-identity) pass only when the runtime fails closed. Evaluator v2 scores capability-discipline/recovery/planning/evidence-quality from the durable trace only (new metrics: recoveredDenials, evidenceCoverage). Studio Evidence view renders stored evaluation history from the existing `/dashboard/state`. Model-vs-model deferred until live providers exist (no fabrication on echo fixtures).** |
 | **P4 Governed Model Streaming gate, 2026-09-10** | **PASS: 1,528 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build, Control Room E2E pass. New `src/server/model-stream.test.ts`: broker denial fails closed before provider contact (terminal `denied: true` chunk), 400 on malformed requests, chunk text redacted at the wire AND on the shared event-bus broadcast (hostile `sk-…`/Bearer literals never survive). Studio contract test asserts the Console consumes the governed endpoint only.** |
 | **P3 Console gate, 2026-09-10** | **PASS: 1,524 ordinary + 17 serial tests; 0 failures. Lint + static guards, root/SDK typechecks, build pass. Control Room E2E exercises the console flow (submit mission → conversation shows real accepted state) under a11y + console-error gates. Studio contract test asserts the P3 boundary: composer posts only through the Mission API; no fabricated model streaming (`model.stream.chunk` absent; guarded).** |
@@ -144,6 +145,25 @@ historical architecture audits remain context, not proof of current behavior.
 | memory-compaction focused gate, 2026-09-06 | PASS: 37 memory/os/provider-binding/decision-memory/identity-memory/knowledge-graph tests, including 7 new compaction cases; 0 failures, skips, or cancellations. Independent verifier confirmed build, typecheck, and source semantics. |
 | memory-compaction root/SDK typechecks, build, and lint, 2026-09-06 | PASS. |
 | memory-compaction full repository suite, 2026-09-06 | PASS: 1,293 ordinary tests + 17 serial self-modification tests; 0 failures, skips, or cancellations. |
+
+## Latest continuation — 2026-09-10 (P6 Agent Workspace)
+
+P6 shipped as view code only (no new endpoints, no kernel change):
+
+- **Studio Agents view → Agent Workspace**: registry table (name/id/
+  description, trust-level badge, capabilities, skills, specialization)
+  joined client-side with assignment state from
+  `buildDashboardState`'s existing agent derivation
+  (`assignedMissions` → ASSIGNED/AVAILABLE badge with mission count).
+- **Agent-quality summary cards**: capability-discipline / recovery /
+  planning / evidence-quality averaged across stored evaluation
+  dimensions — same honest eval history the Evidence view shows; hidden
+  with an explanatory empty state when no dimensions are stored yet.
+- **Honesty label retained**: "registry state, not a claim that an agent
+  is currently executing."
+- Bug found by E2E and fixed pre-merge: the rendered table rows were
+  pre-joined into a string, crashing `table()` (expects an array) —
+  caught by the Control Room browser gate, not by a unit test.
 
 ## Latest continuation — 2026-09-10 (P5 QUACK Harness Expansion)
 

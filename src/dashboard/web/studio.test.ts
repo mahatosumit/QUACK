@@ -91,3 +91,22 @@ test("P5 evaluation history renders stored evaluator results with dimensions", (
   // The evidence view reads the dashboard state harness evaluations.
   assert.match(script, /async function renderEvidence\(\)\{const \[data,state\]=await Promise\.all\(\[request\(api\.memory\),request\(api\.dashboardState\)\]\)/);
 });
+
+test("P6 agent workspace renders registry + assignment state + eval summaries", () => {
+  const script = studioScript();
+  assert.match(script, /Agent workspace/);
+  // Registry facts come from /agents; assignment state from /dashboard/state.
+  assert.match(script, /async function renderAgents\(\)\{const \[registry,state\]=await Promise\.all\(\[request\(api\.agents\),request\(api\.dashboardState\)\]\)/);
+  // Trust levels, capabilities, skills, specialization, and current work are shown.
+  assert.match(script, /a\.trustLevel/);
+  assert.match(script, /a\.capabilities\.join/);
+  assert.match(script, /a\.skills\.join/);
+  assert.match(script, /a\.specialization\.join/);
+  assert.match(script, /ASSIGNED.*AVAILABLE|AVAILABLE.*ASSIGNED/);
+  assert.match(script, /assignedMissions/);
+  // Registry state is honestly labeled — no live-execution claim.
+  assert.match(script, /not a claim that an agent is currently executing/);
+  // Agent-quality summaries derive from stored evaluation dimensions.
+  assert.match(script, /capabilityDiscipline/);
+  assert.match(script, /Across /);
+});

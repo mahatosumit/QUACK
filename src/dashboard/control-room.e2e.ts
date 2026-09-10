@@ -40,6 +40,9 @@ test("Control Room browser E2E passes keyboard and serious axe gates", { skip: !
     await page.getByRole("heading", { name: "Approval queue" }).waitFor();
     await page.getByRole("link", { name: "Missions", exact: true }).click();
     await page.getByRole("heading", { name: "Mission Control" }).waitFor();
+    // P6 Agent workspace renders registry + assignment state.
+    await page.getByRole("link", { name: "Agents", exact: true }).click();
+    await page.getByRole("heading", { name: "Agent workspace" }).waitFor();
     // P3 Console: conversational composer renders, accepts a mission, and
     // the conversation records the real accepted state.
     await page.getByRole("link", { name: "Console", exact: true }).click();

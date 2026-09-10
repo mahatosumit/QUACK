@@ -66,10 +66,14 @@ history (score + dimension badges) from the existing
 Model-vs-model comparison lands when live governed providers are
 configured (needs real inference; not fabricated on echo fixtures).
 
-## P6 — Agent Workspace
+## P6 — Agent Workspace (SHIPPED 2026-09-10)
 
-- agent registry/roles/capabilities/current work/history/evaluation results
-- **Affected:** Studio view over `src/agents` + `/agents`. **Risk:** low.
+Studio Agents view is now the Agent Workspace: registry table (identity,
+trust level, capabilities, skills, specialization) joined with
+assignment state (`buildDashboardState` derivation), plus agent-quality
+summary cards averaged from stored evaluation dimensions. Honest
+labeling retained: registry state, never a live-execution claim. View
+code only — `/agents` + `/dashboard/state` endpoints unchanged.
 
 ## P7 — Trace / Artifact / Operations Experience
 
