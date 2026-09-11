@@ -147,6 +147,53 @@ test("P7 Audit view reads the real audit log and is distinct from traces", () =>
   assert.match(script, /redacted at this boundary/);
 });
 
+test("P8.8 Trace Detail renders governed-instruction records with metadata only", () => {
+  const script = studioScript();
+  assert.match(script, /Governed instructions/);
+  // Records come from the trace payload (trace.instruction) — no second store.
+  assert.match(script, /trace\.instruction/);
+  // Per-record columns: digest prefix, outcome, census, counts.
+  assert.match(script, /r\.digest/);
+  assert.match(script, /r\.outcome/);
+  assert.match(script, /r\.layerCensus/);
+  assert.match(script, /r\.injectionFlagCount/);
+  // Honest labeling: metadata only, never content.
+  assert.match(script, /Metadata-only dispatch records \(P8\.6\)/);
+  assert.match(script, /Instruction content is never stored or rendered here/);
+  // Honest empty state.
+  assert.match(script, /No governed-instruction dispatches recorded for this trace/);
+  // Defense error codes surface when a dispatch was rejected.
+  assert.match(script, /r\.errorCode/);
+});
+
+test("P8.8 Evidence view renders instruction telemetry from the dashboard aggregate", () => {
+  const script = studioScript();
+  assert.match(script, /Instruction telemetry/);
+  // Consumes the P8.7 harness.instruction aggregate — counts only.
+  assert.match(script, /state\.harness&&state\.harness\.instruction/);
+  assert.match(script, /instruction\.dispatchCount/);
+  assert.match(script, /instruction\.dispatchedCount/);
+  assert.match(script, /instruction\.rejectedCount/);
+  assert.match(script, /instruction\.injectionFlagCount/);
+  // Honest labeling + empty state.
+  assert.match(script, /identity and counts only, never content/);
+  assert.match(script, /No governed-instruction dispatches recorded yet/);
+});
+
+test("P8.8 instruction dimensions render in evaluation history rows", () => {
+  const script = studioScript();
+  // The instruction (I) dimension badge appears only when present.
+  assert.match(script, /e\.result\.dimensions\.instruction/);
+  assert.match(script, /instructionIntegrity/);
+});
+
+test("P8.8 instruction events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  assert.match(script, /"instruction\.dispatched","instruction\.rejected"/);
+  // Evidence and trace surfaces re-render on instruction telemetry updates.
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace"\]/);
+});
+
 test("P7 legacy surfaces stay retired", () => {
   assert.equal(existsSync("dist/desktop"), false, "no desktop HTTP server ships in the build");
   assert.equal(existsSync("gui"), false, "the duplicate gui/ SPA stays retired");

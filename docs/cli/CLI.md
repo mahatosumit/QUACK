@@ -85,6 +85,15 @@ with `recovery.ownership_conflict` if another live process owns it.
 
 Shows effective configuration, its sources, priority order, and env allowlist.
 
+### quack instructions [--mission \<id\>]
+
+Lists governed-instruction dispatch records (P8.6, metadata-only: outcome,
+digest, trust census, budget, defense-flag counts) from the stored trace
+repository. `--mission <id>` filters via the existing trace-by-mission
+lookup. `--json` emits machine-readable output. Records that fail
+validation are excluded and counted — tampered records never render as
+trustworthy. Instruction content is never stored or displayed.
+
 ### quack update
 
 Compares installed version against the npm registry (read-only `npm view`,

@@ -8,7 +8,7 @@ import { createQuackBackup, restoreQuackBackup } from "./recovery/index.js";
 import { cpus, release, totalmem } from "node:os";
 import { execFile } from "node:child_process";
 import { redactSecrets } from "./security/secret-provider.js";
-import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas } from "./cli/commands.js";
+import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas, commandInstructions } from "./cli/commands.js";
 import { loadCliConfig } from "./cli/config.js";
 
 interface CliOptions {
@@ -21,6 +21,8 @@ interface CliOptions {
   providerAction?: "list" | "doctor" | "test";
   /** Provider id for `provider test`. */
   providerTarget?: string;
+  /** P8.8: mission id filter for `quack instructions --mission <id>`. */
+  instructionMissionId?: string;
   headless: boolean;
   port?: number;
   backupPath?: string;
@@ -72,6 +74,9 @@ Commands:
   skills disable <id>
                        Disable an installed skill package
   personas           List agent personas (style-only reasoning modes)
+  instructions [--mission <id>]
+                       Inspect governed-instruction dispatch records (metadata
+                       only) from stored traces
   provider list      List registered providers and credential status
   provider doctor   Live health check of every registered provider
   provider test <id>
@@ -191,6 +196,12 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
         break;
       case "personas":
         command = "personas";
+        break;
+      case "instructions":
+        command = "instructions";
+        break;
+      case "--mission":
+        options.instructionMissionId = args[++i];
         break;
       case "provider":
         command = "provider";
@@ -449,6 +460,10 @@ async function main(): Promise<void> {
   }
   if (command === "personas") {
     process.exit(await commandPersonas(commandContext));
+    return;
+  }
+  if (command === "instructions") {
+    process.exit(await commandInstructions(commandContext, options.instructionMissionId));
     return;
   }
   if (command === "provider") {

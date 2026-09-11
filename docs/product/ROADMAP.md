@@ -236,6 +236,22 @@ including SSE bus-passthrough, throwing-sink robustness, and
 content-leak resistance. Remaining: P8.8 Studio/CLI inspection, P8.9
 research/SDK.
 
+### P8.8 — Studio/CLI Instruction Inspection (SHIPPED 2026-09-11)
+
+Inspection surfaces over P8.6/P8.7 metadata — no new routes, endpoints,
+or stores (ADR 0042 implementation update). Studio Trace Detail renders
+`trace.instruction` records in a "Governed instructions" panel (digest
+prefix, outcome, census, budget/flag counts; honest empty state; explicit
+never-content labeling); the Evidence view renders the P8.7
+`harness.instruction` telemetry aggregate and instruction (I) dimension
+badges; live SSE refresh covers `instruction.dispatched/rejected`. CLI
+gains `quack instructions [--mission <id>]` over the existing trace
+repository: records pass fail-closed parsing before rendering —
+tampered records are excluded and counted, never shown as trustworthy.
+`--json` machine output; `docs/cli/CLI.md` documents the command. 8
+tests (studio contract + CLI behavior incl. tamper exclusion, mission
+filtering). Remaining: P8.9 research/SDK.
+
 ## P9 — Semantic Memory / Knowledge
 
 - embeddings **through GovernedModelRuntime only** (they are provider calls)

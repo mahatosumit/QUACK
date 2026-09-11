@@ -336,6 +336,34 @@ system and NO second record shape:
 12 tests: `src/instruction/observer.test.ts` (10) + dashboard
 aggregation (2).
 
+## Implementation update — P8.8 Studio/CLI Inspection (2026-09-11)
+
+Inspection surfaces over the P8.6/P8.7 metadata-only records — no new
+routes, endpoints, or stores:
+
+- Studio Trace Detail gains a "Governed instructions" panel rendering
+  `trace.instruction` records (digest prefix, outcome badge, defense
+  error code, per-layer census, item/omission/flag counts, dispatch
+  time) with an honest empty state; the panel states explicitly that
+  instruction content is never stored or rendered. The Evidence view
+  gains an "Instruction telemetry" section consuming the P8.7
+  `harness.instruction` dashboard aggregate (dispatch/dispatched/
+  rejected/denied/provider-error/flag counts + mission count) with the
+  same metadata-only labeling; the evaluation-history dimension badges
+  now include the instruction (I) dimension when present. Live SSE
+  refresh subscribes to `instruction.dispatched`/`instruction.rejected`
+  and re-renders the evidence/trace surfaces on telemetry updates.
+- CLI: `quack instructions [--mission <id>]` lists the same records
+  from the EXISTING trace repository (no new store). Every stored
+  record passes through the P8.6 fail-closed `parseInstructionRecord`
+  before rendering: tampered records are excluded and counted
+  (`invalidRecordCount`), never rendered as trustworthy. `--json`
+  emits the full metadata; human output shows digest prefixes only.
+- `docs/cli/CLI.md` documents the new command.
+
+Tests: studio contract regexes (6) + CLI parse/behavior (2, including
+tamper exclusion and mission filtering).
+
 ## Consequences
 
 Positive: one canonical home for instruction assembly; deterministic and

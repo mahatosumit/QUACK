@@ -187,6 +187,76 @@ export async function commandSkillsSearch(context: CommandContext, query: string
 }
 
 // ---------------------------------------------------------------------------
+// quack instructions [--mission <id>] (P8.8) — inspect governed-instruction records
+// ---------------------------------------------------------------------------
+
+/**
+ * P8.8 instruction inspection: lists metadata-only governed-instruction
+ * dispatch records (P8.6) from the EXISTING trace repository. No new
+ * store, no content — records carry identity, census, budget, and defense
+ * facts only. `--mission <id>` filters through the existing trace-by-
+ * mission lookup; `--json` emits machine-readable output. Records that
+ * fail fail-closed validation are reported as invalid and never silently
+ * rendered as if trustworthy.
+ */
+export async function commandInstructions(context: CommandContext, missionId?: string): Promise<number> {
+  const system = createQuackSystem({ dataDir: context.config.dataDir, workspaceRoot: context.config.workspaceRoot });
+  try {
+    const traces = await system.storage.traces.list(missionId ? { missionId } : undefined);
+    const { parseInstructionRecord } = await import("../instruction/records.js");
+
+    const valid: import("../instruction/records.js").GovernedInstructionRecord[] = [];
+    let invalidCount = 0;
+    for (const trace of traces) {
+      for (const raw of trace.instruction ?? []) {
+        const parsed = parseInstructionRecord(raw as unknown as Record<string, unknown>);
+        if (parsed.ok) valid.push(parsed.data);
+        else invalidCount += 1;
+      }
+    }
+
+    if (context.json) {
+      out(context, {
+        missionId: missionId ?? null,
+        traceCount: traces.length,
+        recordCount: valid.length,
+        invalidRecordCount: invalidCount,
+        records: valid.map((record) => ({
+          recordId: record.recordId,
+          missionId: record.missionId,
+          ...(record.taskId ? { taskId: record.taskId } : {}),
+          digest: record.digest,
+          outcome: record.outcome,
+          ...(record.errorCode ? { errorCode: record.errorCode } : {}),
+          totalItems: record.totalItems,
+          omittedItemCount: record.omittedItemCount,
+          withinBudget: record.withinBudget,
+          injectionFlagCount: record.injectionFlagCount,
+          layerCensus: record.layerCensus,
+          dispatchedAt: record.dispatchedAt,
+        })),
+      });
+    } else {
+      console.log(`Governed instruction dispatches${missionId ? ` for mission ${missionId}` : ""} (from ${traces.length} trace(s)):`);
+      if (valid.length === 0 && invalidCount === 0) {
+        console.log("  No instruction dispatch records stored yet.");
+        console.log("  Records appear when missions dispatch composed instructions through the governed runtime.");
+      }
+      for (const record of valid) {
+        console.log(`  ${record.dispatchedAt}  ${record.missionId}${record.taskId ? ` / ${record.taskId}` : ""}  ${record.outcome.padEnd(14)} digest ${record.digest.slice(0, 12)}…  ${record.totalItems} item(s), ${record.omittedItemCount} omitted, ${record.injectionFlagCount} flag(s)${record.errorCode ? `  [${record.errorCode}]` : ""}`);
+      }
+      if (invalidCount > 0) console.log(`  ${invalidCount} stored record(s) failed validation and were excluded — inspect the data directory for tampering.`);
+    }
+    await system.events.drain();
+    return 0;
+  } catch (error) {
+    if (context.json) out(context, { error: String(error) });
+    else console.error("Instructions inspection failed:", error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
 // quack provider list|doctor|test <id>
 // ---------------------------------------------------------------------------
 
