@@ -252,6 +252,26 @@ tampered records are excluded and counted, never shown as trustworthy.
 tests (studio contract + CLI behavior incl. tamper exclusion, mission
 filtering). Remaining: P8.9 research/SDK.
 
+### P8.9 — Research/SDK Surface (SHIPPED 2026-09-11)
+
+Final P8 phase (ADR 0042 implementation update): the QIE contract
+becomes a public export surface. `src/index.ts` (`@quack/os` root)
+re-exports the full `src/instruction` surface — contract constants,
+validation, deterministic composition, selection, firewall, governed
+adaptation/dispatch, injection defense, records/scoring, observer —
+with no model runtime, planner, memory, or authority exports (QIE
+stays a compiler; the dispatch seam takes a caller-supplied governed
+runtime). `@quack/sdk` re-exports functions + types;
+`sdk/README.md` documents the surface;
+`docs/research/INSTRUCTION_ENGINE_RESEARCH_SURFACE.md` (packaged) defines
+the research integration pattern: deterministic compose→defense→adapt→
+dispatch→score loops, digest-based replay verification, and
+metadata-only scoring so research datasets never ship prompt text.
++2 SDK contract tests (exported-surface coverage, end-to-end
+determinism incl. tamper rejection through the package path).
+
+**P8 (QIE) is COMPLETE: P8.1–P8.9 all shipped.**
+
 ## P9 — Semantic Memory / Knowledge
 
 - embeddings **through GovernedModelRuntime only** (they are provider calls)

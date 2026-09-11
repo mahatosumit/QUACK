@@ -26,3 +26,8 @@ export * from "./skills/types.js";
 export * from "./skills/registry.js";
 export type { JsonObject } from "./core/types.js";
 export * from "./memory/knowledge-graph.js";
+// P8.9: QUACK Instruction Engine (QIE) public contract (ADR 0042) — the
+// deterministic instruction/context compiler surface for research
+// harnesses and external consumers. Pure composition/selection/defense
+// primitives; no runtime side effects.
+export * from "./instruction/index.js";

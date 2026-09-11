@@ -364,6 +364,39 @@ routes, endpoints, or stores:
 Tests: studio contract regexes (6) + CLI parse/behavior (2, including
 tamper exclusion and mission filtering).
 
+## Implementation update — P8.9 Research/SDK Surface (2026-09-11)
+
+Final P8 phase: the QIE contract becomes a public export surface for
+external research harnesses and SDK consumers.
+
+- `src/index.ts` (the `@quack/os` package root) re-exports the full
+  `src/instruction/index.js` surface — contract constants
+  (`INSTRUCTION_PLAN_VERSION`, `INSTRUCTION_LAYER_ORDER`,
+  `TRUST_CLASS_PRECEDENCE`, `CATEGORY_TRUST_PAIRING`), validation,
+  composition/rendering, selection, firewall admission, governed
+  adaptation/dispatch, injection defense, P8.6 records/scoring, and the
+  P8.7 observer. Name-collision-free (verified by typecheck). What is
+  deliberately NOT exported: no model runtime, no planner, no memory,
+  no capability authority, no prompt-registry mutation — QIE stays an
+  instruction compiler; `invokeGovernedInstruction` takes a
+  caller-supplied governed runtime so research harnesses keep backend
+  control.
+- `sdk/src/index.ts` re-exports the same surface (functions + full type
+  list) through `@quack/sdk`; `sdk/README.md` documents it;
+  `docs/research/INSTRUCTION_ENGINE_RESEARCH_SURFACE.md` (new) defines
+  the research integration pattern (deterministic compose→defense→
+  adapt→dispatch→score loop, digest-based replay verification,
+  metadata-only scoring so datasets never ship prompt text). The
+  research doc is added to the packaged docs allowlists
+  (`package.json`, `packaging/public-files.json`).
+- SDK contract tests (`sdk/test/client.test.mjs`, +2): exported-surface
+  coverage and end-to-end determinism through the published package
+  path (digest equality on cloned plans, defense pass, verbatim digest
+  in adapted metadata, record scoring, tamper rejection).
+
+Verification: root typecheck + `typecheck --workspace @quack/sdk` clean;
+root suite 1700+17 pass / 0 fail; SDK tests 5/5.
+
 ## Consequences
 
 Positive: one canonical home for instruction assembly; deterministic and

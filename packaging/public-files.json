@@ -135,6 +135,7 @@
     "docs/production/WINDOWS_PORTABLE.md",
     "docs/research/ACTION_ECOSYSTEM_COMPARISON.md",
     "docs/research/AGENT_COMPANY_RUNTIME_COMPARISON.md",
+    "docs/research/INSTRUCTION_ENGINE_RESEARCH_SURFACE.md",
     "docs/research/LOOP_HARNESS_CONVERGENCE.md",
     "docs/research/PROVIDER_RUNTIME_COMPARISON.md",
     "docs/rfc/RFC-0001-domain-neutrality-extraction.md",
