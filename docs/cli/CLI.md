@@ -107,6 +107,33 @@ success, 1 operational failure, 2 usage error, 3 not found / access
 denied. Records that fail validation are excluded — tampered records never
 render as trustworthy.
 
+### quack extension [list|inspect|validate|install|enable|disable|remove]
+
+Manages the governed extension ecosystem catalog (P10, ADR 0044) — a
+declarative package registry, NOT an execution surface. Package content is
+never executed, printed, or loaded by these commands.
+
+- `list` — installed extensions with lifecycle, signature state, and
+  integrity digest prefixes (metadata only); honest empty state
+- `inspect <id>@<version>` — one extension with provenance, declared
+  capabilities/permissions (declarations grant nothing), and integrity
+  state
+- `validate <dir>` — validates a package (`manifest.json` + content)
+  against the fail-closed manifest contract and sha256 integrity
+- `install <dir>` — installs a package through the broker-governed,
+  transactional path (all-or-nothing; duplicate installs fail closed).
+  `plugin.install` is HIGH-RISK policy, so install prompts the operator
+  for approval before writing anything — a denial writes nothing.
+- `enable|disable <id>@<version>` — explicit lifecycle transitions
+  (invalid transitions fail closed)
+- `remove <id>@<version>` — removes the extension and its registry entry
+  (REMOVED is terminal; no ghost records)
+
+Exit codes: 0 success, 1 operational failure (validation failure,
+duplicate install, invalid transition), 2 usage error, 3 not found / access
+denied. `--json` machine output on every action. Read-only commands
+(`list`, `inspect`, `validate`) never prompt for approval.
+
 ### quack update
 
 Compares installed version against the npm registry (read-only `npm view`,

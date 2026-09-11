@@ -204,6 +204,48 @@ export type {
   ObservedDispatch,
 } from "@quack/os";
 
+// Ecosystem (P10, ADR 0044) — governed extension catalog contracts.
+// Metadata/manifest/lifecycle/resolution primitives only: no registry
+// file paths, no broker internals, no package content, no execution.
+export {
+  EXTENSION_KINDS,
+  EXTENSION_LIFECYCLE_STATES,
+  validateExtensionManifest,
+  parseExtensionManifest,
+  canonicalManifestForm,
+  packageDigest,
+  manifestDigest,
+  verifyPackageIntegrity,
+  extensionTrustView,
+  validateLifecycleTransition,
+  isTerminalState,
+  isResolvableState,
+  resolveDependencies,
+  dependencyList,
+  scoreEcosystemQuality,
+} from "@quack/os";
+export type {
+  ExtensionKind,
+  ExtensionDependencyDeclaration,
+  ExtensionPublisher,
+  ExtensionSourceProvenance,
+  ExtensionManifestV2,
+  ExtensionIntegrityDeclaration,
+  ManifestErrorCode,
+  ManifestRejection,
+  ExtensionSignatureState,
+  ExtensionTrustView,
+  ExtensionLifecycleState,
+  LifecycleTransition,
+  RegistryRecord,
+  RegistryErrorCode,
+  ResolvedDependencyNode,
+  DependencyResolutionResult,
+  DependencyErrorCode,
+  EcosystemQualityDimensions,
+  EcosystemEvaluationEvidence,
+} from "@quack/os";
+
 // Workspace
 
 

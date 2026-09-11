@@ -12,6 +12,7 @@ import { type MemoryStore } from "../memory/memory.js";
 import { MemoryManager } from "../memory/os.js";
 import { InMemoryKnowledgeGraphStore } from "../memory/knowledge-graph.js";
 import { SemanticMemoryService } from "../memory/semantic/service.js";
+import { EcosystemService } from "../ecosystem/service.js";
 import { EchoProvider, ProviderRegistry } from "../providers/provider.js";
 import { OpenAiCompatibleProvider, createOllamaProvider, createVllmProvider } from "../providers/openai.js";
 import { ProviderFallbackRouter } from "../providers/router.js";
@@ -243,6 +244,13 @@ export interface QuackSystem {
    * QIE candidates. Memory stays DATA: no authority surface here.
    */
   readonly semanticMemory: SemanticMemoryService;
+  /**
+   * P10 ecosystem foundation (ADR 0044): governed extension package
+   * catalog — discovery/manifest/integrity/install/lifecycle over the SAME
+   * capability broker; declared capabilities are data, never grants, and
+   * package content is never executed here.
+   */
+  readonly ecosystem: EcosystemService;
   readonly workflowLoader: WorkflowLoader;
   readonly coreAgentRegistry: CoreAgentRegistry;
   readonly coreAgentMonitor: CoreAgentMonitor;
@@ -648,6 +656,16 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
     registry: agentRegistry,
     grants: capabilityGrants,
   });
+  // P10 ecosystem foundation (ADR 0044): declarative package catalog BEFORE
+  // runtime admission — discovery/manifest/integrity/install/lifecycle are
+  // broker-governed (plugin.install / workspace.read); declared capabilities
+  // grant nothing and package content is NEVER executed here.
+  const ecosystem = new EcosystemService({
+    dataDir: config.dataDir,
+    events,
+    broker: capabilityBroker,
+    actor: "operator",
+  });
   const actionRuntime = new ActionRuntime(actionProviders, {
     ledger: storage.actionExecutions,
     validateExecutionContext: (context) => {
@@ -959,10 +977,11 @@ const agentLoop = new AgentLoop({
             capabilityBroker,
             capabilityGrants,
             companyRuntime,
-            evaluator,
-            knowledgePipeline,
-            semanticMemory,
-            workflowLoader,
+      evaluator,
+      knowledgePipeline,
+      semanticMemory,
+      ecosystem,
+      workflowLoader,
             coreAgentRegistry,
                                     coreAgentMonitor,
                                     coreLifecycle,

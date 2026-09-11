@@ -8,7 +8,7 @@ import { createQuackBackup, restoreQuackBackup } from "./recovery/index.js";
 import { cpus, release, totalmem } from "node:os";
 import { execFile } from "node:child_process";
 import { redactSecrets } from "./security/secret-provider.js";
-import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas, commandInstructions, commandMemory } from "./cli/commands.js";
+import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas, commandInstructions, commandMemory, commandExtension } from "./cli/commands.js";
 import { loadCliConfig } from "./cli/config.js";
 
 interface CliOptions {
@@ -26,6 +26,9 @@ interface CliOptions {
   /** P9.24: semantic-memory subcommand action + target id/query. */
   memoryAction?: "list" | "inspect" | "search" | "delete";
   memoryTarget?: string;
+  /** P10.13: ecosystem extension subcommand action + target id@version/path. */
+  extensionAction?: "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove";
+  extensionTarget?: string;
   headless: boolean;
   port?: number;
   backupPath?: string;
@@ -87,6 +90,17 @@ Commands:
                         Semantic search over admitted memory (requires
                         an embedding-capable governed provider)
   memory delete <id> Delete a record and its derived index entries
+  extension list    List installed ecosystem extensions (metadata only)
+  extension inspect <id>@<version>
+                        Inspect one extension with provenance + integrity
+  extension validate <dir>
+                        Validate a package manifest + content integrity
+  extension install <dir>
+                        Install a package (broker-governed, no execution)
+  extension enable|disable <id>@<version>
+                        Toggle extension lifecycle explicitly
+  extension remove <id>@<version>
+                        Remove an extension and its registry entry
   provider list      List registered providers and credential status
   provider doctor   Live health check of every registered provider
   provider test <id>
@@ -219,6 +233,15 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
           options.memoryAction = args[++i] as "list" | "inspect" | "search" | "delete";
           if (options.memoryAction !== "list" && args[i + 1] && !args[i + 1].startsWith("-")) {
             options.memoryTarget = args[++i];
+          }
+        }
+        break;
+      case "extension":
+        command = "extension";
+        if (["list", "inspect", "validate", "install", "enable", "disable", "remove"].includes(args[i + 1] ?? "")) {
+          options.extensionAction = args[++i] as "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove";
+          if (options.extensionAction !== "list" && args[i + 1] && !args[i + 1].startsWith("-")) {
+            options.extensionTarget = args[++i];
           }
         }
         break;
@@ -488,6 +511,11 @@ async function main(): Promise<void> {
   if (command === "memory") {
     const action = options.memoryAction ?? "list";
     process.exit(await commandMemory(commandContext, action, options.memoryTarget));
+    return;
+  }
+  if (command === "extension") {
+    const action = options.extensionAction ?? "list";
+    process.exit(await commandExtension(commandContext, action, options.extensionTarget));
     return;
   }
   if (command === "provider") {

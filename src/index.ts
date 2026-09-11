@@ -30,6 +30,10 @@ export * from "./memory/knowledge-graph.js";
 // context source — retrieval feeds QIE candidates; embeddings dispatch
 // through the governed model path; no second authority.
 export * from "./memory/semantic/index.js";
+// P10: governed ecosystem foundation (ADR 0044). Declarative package
+// catalog BEFORE runtime admission — manifests/integrity/lifecycle are
+// data; declared capabilities grant nothing; no execution surface here.
+export * from "./ecosystem/index.js";
 // P8.9: QUACK Instruction Engine (QIE) public contract (ADR 0042) — the
 // deterministic instruction/context compiler surface for research
 // harnesses and external consumers. Pure composition/selection/defense

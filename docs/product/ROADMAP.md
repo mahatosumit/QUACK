@@ -326,10 +326,75 @@ file writes follow the one-process-per-data-dir constraint.
 
 **P9 is COMPLETE: all phases shipped.**
 
-## P10 — Ecosystem / Marketplace
+## P10 — Ecosystem / Marketplace (SHIPPED 2026-09-11, foundation)
 
-- skill/MCP discovery UX, package management, templates — over the existing
-  quarantine-first lifecycle. **Risk:** medium.
+Governed extension ecosystem FOUNDATION (ADR 0044): A PACKAGE MANIFEST IS
+DATA, NEVER AUTHORITY. One declarative, broker-governed package catalog —
+BEFORE any runtime admission or execution. LOCAL PACKAGE → manifest
+validation (fail-closed: unknown fields rejected, entry traversal rejected,
+publisher signatureState only UNSIGNED/UNVERIFIED — no self-asserted
+verification) → sha256 integrity (packageDigest over content,
+manifestDigest over the CANONICAL manifest form — key order never changes
+identity; no signature verification exists, states are honest) →
+exact-version dependency resolution (no "latest", no ranges, no network;
+cycles and conflicts fail closed) → transactional install (validate ->
+resolve -> duplicate pre-check -> all-or-nothing register with rollback;
+duplicate identity fails closed, never a silent no-op) → deterministic
+registry (one fail-closed-parsed record per extension; tampered records
+are excluded on load, never coerced; listing sorted id+version, insertion
+order never decides; REMOVED deletes the record — no ghosts) → explicit
+8-state lifecycle (DISCOVERED/VALIDATED/ADMITTED/INSTALLED/ENABLED/
+DISABLED/QUARANTINED/REMOVED; frozen transition table; REMOVED terminal)
+→ metadata-only evaluation (manifestIntegrity, lifecycleConsistency,
+dependencyCompleteness, provenanceExplicitness — deterministic) → nine
+`extension.*` metadata-only events on the EXISTING EventBus. Capability
+governance: declared capabilities/permissions grant NOTHING — the existing
+CapabilityBroker is the only authority (catalog mutations resolve
+plugin.install — HIGH-RISK, human-approved; reads resolve workspace.read;
+per-capability checks resolve through the same broker). EXECUTION BOUNDARY:
+P10 executes nothing — no code loading, no child_process, no dynamic
+import; extensions are REGISTERED/ADMITTED/NOT-EXECUTABLE records and every
+surface says so. Surfaces: `quack extension list|inspect|validate|install|
+enable|disable|remove` CLI (exit codes 0/1/2/3, `--json`, install prompts
+the operator — a denial writes nothing); `GET /extensions` server route
+(metadata-only, redacted, fail-closed honest empty); Studio Ecosystem
+panel (identity/kind/lifecycle/signature/integrity/declared capabilities/
+dependency count; honest empty state; SSE refresh for `extension.*`
+events); SDK exports the manifest/integrity/lifecycle/resolution/
+evaluation contracts (no registry paths, no broker internals, no package
+content, no execution surface). Structural security (21-test adversarial
+matrix): malformed/forged manifests, tampered records (digest
+correspondence), duplicate identities, dependency cycles/conflicts,
+capability self-escalation text granting nothing, broker-denied
+mutations, transactional rollback, lifecycle ghosts, event content-leak
+resistance, execution-boundary honesty, determinism.
+
+NOT in P10 (explicitly): no marketplace, no remote fetching, no remote
+execution, no production sandbox, no extension code execution, no
+cryptographic signature verification. **Risk realized:** medium (catalog
+governance only; no new authority surface).
+
+### P10 phases
+
+- **P10.1** strict fail-closed manifest validation — SHIPPED
+- **P10.2/P10.3** identity + honest sha256 integrity — SHIPPED
+- **P10.4** local discovery (read-only, no network) — SHIPPED
+- **P10.5/P10.6** transactional install + rollback — SHIPPED
+- **P10.7** capability governance through the existing broker — SHIPPED
+- **P10.8** execution-boundary honesty (nothing executes) — SHIPPED
+- **P10.9** exact-version dependency resolution (cycles/conflicts fail) — SHIPPED
+- **P10.10** deterministic 8-state lifecycle — SHIPPED
+- **P10.11** nine `extension.*` events on the existing EventBus — SHIPPED
+- **P10.12** metadata-only deterministic evaluation — SHIPPED
+- **P10.13** CLI extension commands — SHIPPED
+- **P10.14** Studio Ecosystem panel + SSE refresh — SHIPPED
+- **P10.15** SDK contract exports — SHIPPED
+- **P10.16** adversarial security matrix — SHIPPED
+- **P10.17** deterministic registry behavior — SHIPPED
+- **P10.18** full verification gates — SHIPPED
+
+**P10 FOUNDATION is COMPLETE: all phases shipped. Extension execution,
+marketplace, sandboxing, and signature verification remain future work.**
 
 ## Dependencies
 

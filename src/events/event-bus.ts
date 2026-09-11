@@ -151,7 +151,17 @@ export type QuackEventType =
   | "memory.indexed"
   | "memory.retrieved"
   | "memory.deleted"
-  | "memory.compacted";
+  | "memory.compacted"
+  /** P10 ecosystem observability (metadata-only; ADR 0044). */
+  | "extension.discovered"
+  | "extension.validated"
+  | "extension.admitted"
+  | "extension.installed"
+  | "extension.enabled"
+  | "extension.disabled"
+  | "extension.quarantined"
+  | "extension.removed"
+  | "extension.rejected";;
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

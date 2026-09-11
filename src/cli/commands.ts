@@ -15,6 +15,13 @@ import { loadCliConfig, defaultConfigFilePath, type CliConfig } from "./config.j
 export interface CommandContext {
   readonly json: boolean;
   readonly config: CliConfig;
+  /**
+   * P10.13: optional approval callback for broker-governed HIGH-RISK
+   * mutations (plugin.install). Defaults to the interactive console
+   * prompt; hosts/tests may inject their own approver. This never
+   * bypasses the broker — it IS the human-approval half of the policy.
+   */
+  readonly approver?: import("../security/approval-controller.js").ApprovalCallback;
 }
 
 function out(context: CommandContext, value: unknown): void {
@@ -368,6 +375,144 @@ function recordView(record: import("../memory/semantic/records.js").SemanticMemo
     updatedAt: record.updatedAt,
     admission: record.admission,
     embedding: record.embedding ? { providerId: record.embedding.providerId, model: record.embedding.model, embeddingVersion: record.embedding.embeddingVersion, dimensions: record.embedding.dimensions } : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// quack extension list|inspect|validate|install|enable|disable|remove (P10.13)
+// ---------------------------------------------------------------------------
+
+/**
+ * P10.13 extension CLI: every command operates on the governed ecosystem
+ * catalog through the SAME broker path as production. Metadata only —
+ * package content is never printed. Exit codes: 0 success, 1 operational
+ * failure, 2 usage error, 3 not found / access denied.
+ *
+ * Catalog mutations (install/enable/disable/remove) resolve plugin.install
+ * through the broker. plugin.install is HIGH-RISK by policy, so mutations
+ * run with the operator as the human approver: `quack extension install`
+ * asks before anything is written (denied => nothing happens). list/
+ * inspect/validate stay read-only and never prompt.
+ */
+export async function commandExtension(
+  context: CommandContext,
+  action: "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove",
+  target?: string,
+): Promise<number> {
+  const mutates = action === "install" || action === "enable" || action === "disable" || action === "remove";
+  const { ConsoleApprovalCallback } = await import("../security/approval-controller.js");
+  const system = createQuackSystem({
+    dataDir: context.config.dataDir,
+    workspaceRoot: context.config.workspaceRoot,
+    permissions: mutates ? ["plugin.install"] : undefined,
+    ...(mutates ? { approver: context.approver ?? new ConsoleApprovalCallback() } : {}),
+  });
+  const ecosystem = system.ecosystem;
+  try {
+    await ecosystem.ensureLayout();
+    if (action === "list") {
+      const records = await ecosystem.list();
+      if (context.json) {
+        out(context, { extensionCount: records.length, extensions: records.map(extensionView) });
+      } else {
+        console.log(`Ecosystem extensions (${records.length}):`);
+        if (records.length === 0) console.log("  No extensions installed yet. Packages appear when an authorized actor installs one explicitly.");
+        for (const record of records) {
+          console.log(`  ${record.id}@${record.version}  ${record.manifest.kind.padEnd(13)} ${record.lifecycle.padEnd(11)} ${record.signatureState.padEnd(10)} ${record.packageDigest.slice(0, 12)}…`);
+        }
+      }
+      await system.events.drain();
+      return 0;
+    }
+    if (action === "validate") {
+      if (!target) { console.error("quack extension validate requires a package directory."); return 2; }
+      const paths = packagePaths(target);
+      const result = await ecosystem.validatePackage(paths);
+      if (!result.ok) {
+        if (context.json) out(context, { error: result.error.code, message: result.error.message });
+        else console.error(`Package validation failed: ${result.error.message}`);
+        return 1;
+      }
+      if (context.json) out(context, { valid: true, id: result.data.manifest.id, version: result.data.manifest.version, integrityState: result.data.integrityState });
+      else console.log(`Package valid: ${result.data.manifest.id}@${result.data.manifest.version} (integrity ${result.data.integrityState}).`);
+      await system.events.drain();
+      return 0;
+    }
+    if (action === "install") {
+      if (!target) { console.error("quack extension install requires a package directory."); return 2; }
+      const paths = packagePaths(target);
+      const result = await ecosystem.install(paths);
+      if (!result.ok) {
+        if (context.json) out(context, { error: result.error.code, message: result.error.message });
+        else console.error(`Install failed: ${result.error.message}`);
+        return result.error.code === "extension.capability_denied" || result.error.code === "extension.registry_not_found" ? 3 : 1;
+      }
+      if (context.json) out(context, { installed: true, id: result.data.record.id, version: result.data.record.version, lifecycle: result.data.record.lifecycle });
+      else console.log(`Installed ${result.data.record.id}@${result.data.record.version} (${result.data.record.lifecycle}).`);
+      await system.events.drain();
+      return 0;
+    }
+    // inspect / enable / disable / remove all need id@version
+    if (!target || !target.includes("@")) {
+      console.error(`quack extension ${action} requires an id in <id>@<version> form.`);
+      return 2;
+    }
+    const at = target.lastIndexOf("@");
+    const id = target.slice(0, at);
+    const version = target.slice(at + 1);
+    if (action === "inspect") {
+      const result = await ecosystem.inspect(id, version);
+      if (!result.ok) {
+        if (context.json) out(context, { error: result.error.code });
+        else console.error(`Extension ${target} not found.`);
+        return 3;
+      }
+      out(context, { extension: extensionView(result.data.record) });
+      await system.events.drain();
+      return 0;
+    }
+    const transition = action === "enable" ? "ENABLED" : action === "disable" ? "DISABLED" : "REMOVED";
+    const result = await ecosystem.transition(id, version, transition);
+    if (!result.ok) {
+      if (context.json) out(context, { error: result.error.code, message: result.error.message });
+      else console.error(`Extension ${target}: ${result.error.message}`);
+      return result.error.code === "extension.registry_not_found" ? 3 : 1;
+    }
+    if (context.json) out(context, { id, version, lifecycle: transition === "REMOVED" ? "REMOVED" : result.data.record.lifecycle });
+    else console.log(transition === "REMOVED" ? `Removed ${target}.` : `${target} is now ${transition}.`);
+    await system.events.drain();
+    return 0;
+  } catch (error) {
+    if (context.json) out(context, { error: String(error) });
+    else console.error("Extension command failed:", error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+/** Resolve manifest.json + the entry content path for a package directory. */
+function packagePaths(directory: string): { manifestPath: string; contentPath: string } {
+  return { manifestPath: join(directory, "manifest.json"), contentPath: join(directory, "content.txt") };
+}
+
+/** Metadata-only extension view (no package content, no entry file bodies). */
+function extensionView(record: import("../ecosystem/registry.js").RegistryRecord): Record<string, unknown> {
+  return {
+    id: record.id,
+    version: record.version,
+    kind: record.manifest.kind,
+    name: record.manifest.name,
+    description: record.manifest.description,
+    lifecycle: record.lifecycle,
+    signatureState: record.signatureState,
+    publisher: record.manifest.publisher,
+    declaredCapabilities: record.manifest.capabilities,
+    declaredPermissions: record.manifest.permissions,
+    dependencies: record.manifest.dependencies,
+    manifestDigest: record.manifestDigest,
+    packageDigest: record.packageDigest,
+    integrityState: record.packageDigest === record.manifest.integrity.digest ? "MATCHED" : "MISMATCHED",
+    provenance: { kind: record.provenance.kind },
+    installedAt: record.installedAt,
   };
 }
 

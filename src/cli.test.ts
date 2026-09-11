@@ -1,6 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { parseArgs, runQuackDoctor } from "./cli.js";
@@ -248,4 +248,104 @@ test("P9.24 commandMemory search reports honest unavailability without embedding
   const result = await commandMemory({ json: false, config }, "search", "anything");
   assert.equal(result, 1, "search without an embedding provider is an operational failure, not a crash");
   assert.ok(lines.join("\n").includes("Semantic search unavailable"));
+});
+
+test("P10.13 CLI parseArgs parses extension command with actions and targets", async () => {
+  const { parseArgs } = await import("./cli.js") as { parseArgs: (argv: string[]) => { command: string; options: { extensionAction?: string; extensionTarget?: string } } };
+  const bare = parseArgs(["node", "cli.js", "extension"]);
+  assert.equal(bare.command, "extension");
+  assert.equal(bare.options.extensionAction, undefined, "bare extension defaults to list at dispatch time");
+  const listed = parseArgs(["node", "cli.js", "extension", "list"]);
+  assert.equal(listed.options.extensionAction, "list");
+  const installed = parseArgs(["node", "cli.js", "extension", "install", "C:\\pkg\\demo"]);
+  assert.equal(installed.options.extensionAction, "install");
+  assert.equal(installed.options.extensionTarget, "C:\\pkg\\demo");
+  const enabled = parseArgs(["node", "cli.js", "extension", "enable", "demo.tool@1.0.0"]);
+  assert.equal(enabled.options.extensionAction, "enable");
+  assert.equal(enabled.options.extensionTarget, "demo.tool@1.0.0");
+  const removed = parseArgs(["node", "cli.js", "extension", "remove", "demo.tool@1.0.0"]);
+  assert.equal(removed.options.extensionAction, "remove");
+  assert.equal(removed.options.extensionTarget, "demo.tool@1.0.0");
+});
+
+test("P10.13 commandExtension validates, installs, and lifecycle-manages extensions", async (context) => {
+  const { commandExtension } = await import("./cli/commands.js");
+  const { loadCliConfig } = await import("./cli/config.js");
+  const { packageDigest } = await import("./ecosystem/index.js");
+  const root = await mkdtemp(join(tmpdir(), "quack-extension-cli-test-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const dataDir = join(root, "state");
+  await mkdir(join(root, "state"), { recursive: true }).catch(() => undefined);
+  const packDir = join(root, "demo-tool");
+  await mkdir(packDir, { recursive: true });
+  const content = "exports.run = () => 1;";
+  await writeFile(join(packDir, "manifest.json"), JSON.stringify({
+    id: "demo.tool", name: "Demo Tool", version: "1.0.0", kind: "tool",
+    description: "demo", quackContractVersion: "1.0.0",
+    publisher: { name: "demo-publisher" }, compatibleWith: "1.0.0",
+    entry: "main.js", capabilities: ["filesystem.read"], dependencies: [],
+    permissions: ["workspace.read"],
+    integrity: { algorithm: "sha256", digest: packageDigest(content) },
+  }, null, 2), "utf8");
+  await writeFile(join(packDir, "content.txt"), content, "utf8");
+
+  const config = loadCliConfig({ cli: { dataDir, workspaceRoot: root } });
+  const lines: string[] = [];
+  context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });
+  context.mock.method(console, "error", (message: unknown) => { lines.push(String(message)); });
+  // Catalog mutations resolve plugin.install through the broker (HIGH-RISK);
+  // the test host approves each prompt itself instead of the console prompt.
+  const approvals: string[] = [];
+  const approver = { requestApproval: async (prompt: string) => { approvals.push(prompt); return true; } };
+  const mut = { json: false, config, approver } as const;
+  const mutJson = { json: true, config, approver } as const;
+
+  const validated = await commandExtension({ json: false, config }, "validate", packDir);
+  assert.equal(validated, 0, "validate exits 0");
+  assert.ok(lines.join("\n").includes("Package valid"));
+
+  lines.length = 0;
+  const emptyList = await commandExtension({ json: false, config }, "list");
+  assert.equal(emptyList, 0);
+  assert.ok(lines.join("\n").includes("No extensions installed yet."), "honest empty state");
+  const promptsBeforeInstall: number = approvals.length;
+  assert.equal(promptsBeforeInstall, 0, "read-only commands never prompt");
+
+  lines.length = 0;
+  const installed = await commandExtension(mutJson, "install", packDir);
+  assert.equal(installed, 0, "install exits 0");
+  const installResult = JSON.parse(lines.join("\n")) as { installed: boolean; id: string; version: string };
+  assert.equal(installResult.installed, true);
+  assert.equal(installResult.id, "demo.tool");
+  const installPrompts: number = approvals.length - promptsBeforeInstall;
+  assert.ok(installPrompts === 1 && approvals[0].includes("plugin.install"), "install prompted the approver exactly once");
+
+  lines.length = 0;
+  const duplicate = await commandExtension(mutJson, "install", packDir);
+  assert.equal(duplicate, 1, "duplicate install is an operational failure");
+  const duplicateResult = JSON.parse(lines.join("\n")) as { error: string };
+  assert.equal(duplicateResult.error, "extension.registry_duplicate");
+
+  lines.length = 0;
+  const enabled = await commandExtension(mut, "enable", "demo.tool@1.0.0");
+  assert.equal(enabled, 0);
+  assert.ok(lines.join("\n").includes("ENABLED"));
+
+  lines.length = 0;
+  const badTransition = await commandExtension(mut, "enable", "demo.tool@1.0.0");
+  assert.equal(badTransition, 1, "invalid transition (ENABLED -> ENABLED) fails");
+
+  lines.length = 0;
+  const missingUsage = await commandExtension(mut, "remove", "absent.tool@9.9.9");
+  assert.equal(missingUsage, 3, "not-found exits 3");
+
+  lines.length = 0;
+  const removed = await commandExtension(mut, "remove", "demo.tool@1.0.0");
+  assert.equal(removed, 0);
+  assert.ok(lines.join("\n").includes("Removed demo.tool@1.0.0"));
+
+  lines.length = 0;
+  const afterRemove = await commandExtension({ json: false, config }, "list");
+  assert.equal(afterRemove, 0);
+  assert.ok(lines.join("\n").includes("No extensions installed yet."), "removal leaves no ghost");
 });

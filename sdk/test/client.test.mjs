@@ -31,6 +31,12 @@ import {
   pipelineMemoryToQie, scoreMemoryQuality,
   SemanticMemoryService,
 } from '@quack/sdk';
+import {
+  EXTENSION_KINDS, EXTENSION_LIFECYCLE_STATES,
+  validateExtensionManifest, canonicalManifestForm,
+  packageDigest, manifestDigest, verifyPackageIntegrity,
+  validateLifecycleTransition, resolveDependencies, scoreEcosystemQuality,
+} from '@quack/sdk';
 
 test('SDK package exports resolve to the public implementation', () => {
   assert.equal(QuackClient, SubpathClient);
@@ -234,4 +240,57 @@ test('P9.25 SDK semantic-memory service round-trips through the package path', a
   } finally {
     await rm(root, { recursive: true, force: true });
   }
+});
+
+test('P10.15 SDK exports the governed ecosystem catalog surface with stable contracts', () => {
+  // Kind + lifecycle vocabularies are contract constants.
+  assert.deepEqual([...EXTENSION_KINDS], [
+    'skill', 'knowledge-pack', 'agent', 'connector', 'tool', 'workflow',
+    'provider', 'model-adapter', 'ui',
+  ]);
+  assert.deepEqual([...EXTENSION_LIFECYCLE_STATES], [
+    'DISCOVERED', 'VALIDATED', 'ADMITTED', 'INSTALLED', 'ENABLED', 'DISABLED', 'QUARANTINED', 'REMOVED',
+  ]);
+
+  // Strict manifest validation is available through the package path.
+  const content = 'exports.run = () => 1;';
+  const manifestObject = {
+    id: 'demo.tool', name: 'Demo Tool', version: '1.0.0', kind: 'tool',
+    description: 'demo', quackContractVersion: '1.0.0',
+    publisher: { name: 'demo-publisher' }, compatibleWith: '1.0.0',
+    entry: 'main.js', capabilities: ['filesystem.read'], dependencies: [],
+    permissions: ['workspace.read'],
+    integrity: { algorithm: 'sha256', digest: packageDigest(content) },
+  };
+  const parsed = validateExtensionManifest(manifestObject);
+  assert.equal(parsed.ok, true);
+  if (parsed.ok) {
+    // Canonical form + digest are deterministic.
+    assert.equal(canonicalManifestForm(parsed.data.manifest), canonicalManifestForm(parsed.data.manifest));
+    assert.equal(manifestDigest(parsed.data.manifest).length, 64);
+  }
+
+  // Integrity verification fails closed on mismatch.
+  assert.equal(verifyPackageIntegrity({ algorithm: 'sha256', digest: packageDigest('other') }, content).ok, false);
+  assert.equal(verifyPackageIntegrity({ algorithm: 'sha256', digest: packageDigest(content) }, content).ok, true);
+
+  // Lifecycle transitions validate fail-closed.
+  assert.equal(validateLifecycleTransition('DISCOVERED', 'ENABLED').ok, false);
+  assert.equal(validateLifecycleTransition('INSTALLED', 'ENABLED').ok, true);
+
+  // Dependency resolution is deterministic and available through the SDK.
+  const lib = validateExtensionManifest({ ...manifestObject, id: 'demo.lib' });
+  const app = validateExtensionManifest({ ...manifestObject, id: 'demo.app', dependencies: [{ id: 'demo.lib', version: '1.0.0' }] });
+  assert.equal(lib.ok && app.ok, true);
+  if (lib.ok && app.ok) {
+    const resolved = resolveDependencies(app.data.manifest, new Map([['demo.lib', [lib.data.manifest]]]));
+    assert.equal(resolved.ok, true);
+    if (resolved.ok) {
+      assert.deepEqual(resolved.data.order.map((node) => node.id), ['demo.lib', 'demo.app']);
+    }
+  }
+
+  // Evaluation dimensions score from metadata-only evidence.
+  const scored = scoreEcosystemQuality({ records: [], registeredVersions: {} });
+  assert.equal(scored.dimensions.manifestIntegrity, 100);
 });

@@ -273,6 +273,10 @@ export class QuackHttpServer {
       await this.getMemory(response);
       return;
     }
+    if (method === "GET" && path === "/extensions") {
+      await this.getExtensions(response);
+      return;
+    }
     if (method === "GET" && path === "/settings") {
       this.writeJson(response, 200, this.settings());
       return;
@@ -773,6 +777,36 @@ export class QuackHttpServer {
     response.write(formatSse({ id: createId("event"), type: "model.stream.chunk", timestamp: new Date().toISOString(), actor,
       payload: { providerId: "runtime", model: body.model ?? "auto", text: "", done: true, ...(missionId ? { missionId } : {}), ...(lastError ? { error: redactSecrets(lastError) } : {}), ...(chunksEmitted === 0 && lastError ? { denied: true } : {}) } } as unknown as QuackEvent));
     response.end();
+  }
+
+  private async getExtensions(response: ServerResponse): Promise<void> {
+    // P10.14 server surface: metadata-only extension catalog. Package
+    // content, entry file bodies, and secrets never cross this boundary;
+    // records are redacted at the wire like every other surface.
+    try {
+      const records = await this.system.ecosystem.list();
+      this.writeJson(response, 200, {
+        readOnly: true,
+        extensions: records.map((record) => JSON.parse(redactSecrets(JSON.stringify({
+          id: record.id,
+          version: record.version,
+          kind: record.manifest.kind,
+          name: record.manifest.name,
+          lifecycle: record.lifecycle,
+          signatureState: record.signatureState,
+          provenance: { kind: record.provenance.kind },
+          declaredCapabilities: record.manifest.capabilities,
+          declaredPermissions: record.manifest.permissions,
+          dependencyCount: record.manifest.dependencies.length,
+          integrityState: record.packageDigest === record.manifest.integrity.digest ? "MATCHED" : "MISMATCHED",
+          installedAt: record.installedAt,
+        }))) as JsonObject),
+      });
+    } catch {
+      // Malformed registry state fails closed — honest empty surface, never
+      // a fabricated catalog.
+      this.writeJson(response, 200, { readOnly: true, extensions: [] });
+    }
   }
 
   private async getMemory(response: ServerResponse): Promise<void> {

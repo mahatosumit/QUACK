@@ -57,6 +57,29 @@ through the existing QIE pipeline, embeddings dispatch through a
 caller-supplied governed runtime, and no vector-database internals,
 storage paths, provider clients, or policy objects are exported.
 
+## Ecosystem surface
+
+The SDK exports the governed extension-ecosystem contracts (P10, ADR
+0044) — the declarative package catalog foundation: `EXTENSION_KINDS` and
+`EXTENSION_LIFECYCLE_STATES` (contract vocabularies),
+`validateExtensionManifest`/`parseExtensionManifest` (fail-closed manifest
+validation with unknown-field rejection),
+`canonicalManifestForm`/`manifestDigest` (deterministic identity over the
+canonical manifest form — key order never changes identity),
+`packageDigest`/`verifyPackageIntegrity` (sha256 content integrity,
+honest UNSIGNED/UNVERIFIED signature states),
+`extensionTrustView` (reports exactly what was verified — digests — and
+nothing more), `validateLifecycleTransition`/`isTerminalState`/
+`isResolvableState` (the frozen 8-state lifecycle table; REMOVED is
+terminal), `resolveDependencies`/`dependencyList` (exact-version
+local-only resolution; cycles and conflicts fail closed; no "latest"),
+and `scoreEcosystemQuality` (metadata-only deterministic evaluation
+dimensions), plus the manifest/integrity/lifecycle/registry/resolution/
+evaluation types. A package manifest is data, never authority: declared
+capabilities grant nothing, package content is never executed, and no
+registry file paths, broker internals, package content, or execution
+surfaces are exported.
+
 ## Requirements
 
 - Node.js 20+

@@ -190,8 +190,9 @@ test("P8.8 instruction dimensions render in evaluation history rows", () => {
 test("P8.8 instruction events refresh live surfaces over SSE", () => {
   const script = studioScript();
   assert.match(script, /"instruction\.dispatched","instruction\.rejected"/);
-  // Evidence and trace surfaces re-render on instruction telemetry updates.
-  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace"\]/);
+  // Evidence and trace surfaces re-render on instruction telemetry updates
+  // (P10.14 added the ecosystem route to the same re-render list).
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem"\]/);
 });
 
 test("P9.22 Evidence view renders the governed semantic memory panel", () => {
@@ -225,6 +226,47 @@ test("P9.22 memory events refresh live surfaces over SSE", () => {
   for (const type of ["memory.admitted", "memory.persisted", "memory.embedding.completed", "memory.indexed", "memory.retrieved", "memory.deleted", "memory.compacted"]) {
     assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`));
   }
+});
+
+test("P10.14 Ecosystem panel renders the governed extension catalog, metadata only", () => {
+  const script = studioScript();
+  const html = studioHtml();
+  // The route is reachable from the nav and dispatched by the router.
+  assert.match(html, /href="#ecosystem" data-route="ecosystem"/);
+  assert.match(script, /ecosystem:\["Ecosystem"/);
+  assert.match(script, /renderEcosystem\(\)/);
+  assert.match(script, /request\(api\.extensions\)/);
+  assert.match(script, /extensions:"\/extensions"/);
+  assert.equal(STUDIO_API.extensions, "/extensions");
+  // Metadata-only columns: identity, kind, lifecycle, signature, integrity,
+  // declared capabilities, dependency count — never package content.
+  assert.match(script, /x\.signatureState/);
+  assert.match(script, /x\.integrityState/);
+  assert.match(script, /x\.dependencyCount/);
+  assert.match(script, /metadata only, never package content/);
+  // Declared capabilities grant nothing — the honesty contract on the panel.
+  assert.match(script, /Declared capabilities grant nothing/);
+  // Honest empty state (no fabricated catalog).
+  assert.match(script, /No extensions installed yet/);
+});
+
+test("P10.14 Ecosystem panel leaks no package content or secrets into the surface", () => {
+  const script = studioScript();
+  // The panel reads only the redacted /extensions projection: no entry
+  // file bodies, no content paths, no manifest bodies cross this boundary.
+  assert.doesNotMatch(script, /extensionContent|packageContent|entryBody/);
+  // The panel never claims execution: extensions are catalog records.
+  assert.match(script, /package content is never executed/);
+});
+
+test("P10.14 ecosystem events refresh the panel live over SSE", () => {
+  const script = studioScript();
+  // The full extension lifecycle refreshes the Ecosystem route.
+  for (const type of ["extension.discovered", "extension.validated", "extension.installed", "extension.enabled", "extension.disabled", "extension.quarantined", "extension.removed", "extension.rejected"]) {
+    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`));
+  }
+  // The ecosystem route is in the SSE re-render list.
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem"\]/);
 });
 
 test("P7 legacy surfaces stay retired", () => {
