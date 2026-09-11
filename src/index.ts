@@ -26,6 +26,10 @@ export * from "./skills/types.js";
 export * from "./skills/registry.js";
 export type { JsonObject } from "./core/types.js";
 export * from "./memory/knowledge-graph.js";
+// P9: governed semantic memory / knowledge (ADR 0043). Memory stays a
+// context source — retrieval feeds QIE candidates; embeddings dispatch
+// through the governed model path; no second authority.
+export * from "./memory/semantic/index.js";
 // P8.9: QUACK Instruction Engine (QIE) public contract (ADR 0042) — the
 // deterministic instruction/context compiler surface for research
 // harnesses and external consumers. Pure composition/selection/defense

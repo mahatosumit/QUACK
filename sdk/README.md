@@ -40,6 +40,23 @@ which takes a caller-supplied governed runtime. See
 `docs/research/INSTRUCTION_ENGINE_RESEARCH_SURFACE.md` for the research
 integration pattern.
 
+## Semantic Memory surface
+
+The SDK exports the governed semantic-memory contracts (P9, ADR 0043):
+`SemanticMemoryService` (the composition facade over admission ->
+persistence -> governed embedding -> derived index -> retrieval),
+`admitSemanticMemory`, `parseSemanticMemoryRecord`, `chunkSemanticMemory`,
+`semanticContentHash`, `retrieveSemanticMemory`, `resolveKnowledgeSource`,
+`memoryCandidate`/`memoryCandidatesFromRetrieval`/
+`semanticMemoryAuthorities`/`pipelineMemoryToQie` (QIE integration in the
+MEMORY trust lane), and `scoreMemoryQuality` (evaluation dimensions from
+metadata-only evidence), plus the record/retrieval/knowledge-source types
+and the `SEMANTIC_MEMORY_SCOPES`/`SEMANTIC_MEMORY_BOUNDS` constants.
+Memory is data, never authority: retrieval supplies context candidates
+through the existing QIE pipeline, embeddings dispatch through a
+caller-supplied governed runtime, and no vector-database internals,
+storage paths, provider clients, or policy objects are exported.
+
 ## Requirements
 
 - Node.js 20+

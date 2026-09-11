@@ -776,12 +776,16 @@ export class QuackHttpServer {
   }
 
   private async getMemory(response: ServerResponse): Promise<void> {
-    const [missionMemory, evidenceMemory, identityMemory, tasks] = await Promise.all([
+    const [missionMemory, evidenceMemory, identityMemory, tasks, semantic] = await Promise.all([
       this.system.memory.search({ limit: 100 }),
       this.system.learningExperiences.list(),
       this.system.identityMemory.search(undefined, 100),
       this.system.storage.tasks.list(),
+      this.system.semanticMemory ? this.system.semanticMemory.list().then((records) => records.slice(0, 100)) : Promise.resolve([]),
     ]);
+    // P9.23: semantic memory inspection is metadata + content by explicit
+    // record (same authority as the canonical store); payloads redacted at
+    // the boundary like every other memory surface.
     this.writeJson(response, 200, {
       readOnly: true,
       mission: missionMemory,
@@ -792,6 +796,26 @@ export class QuackHttpServer {
       recipes: this.system.recipes.listRecipes(),
       identity: identityMemory,
       tasks,
+      semantic: {
+        records: semantic.map((record) => JSON.parse(redactSecrets(JSON.stringify({
+          memoryId: record.memoryId,
+          scope: record.scope,
+          owner: record.owner,
+          contentPreview: record.content.length > 200 ? `${record.content.slice(0, 200)}...` : record.content,
+          contentHash: record.contentHash,
+          provenance: record.provenance,
+          lifecycle: record.lifecycle,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          embedding: record.embedding ? {
+            providerId: record.embedding.providerId,
+            model: record.embedding.model,
+            embeddingVersion: record.embedding.embeddingVersion,
+            dimensions: record.embedding.dimensions,
+          } : null,
+        }))) as JsonObject),
+        stats: this.system.semanticMemory ? JSON.parse(redactSecrets(JSON.stringify(this.system.semanticMemory.stats()))) as JsonObject : { recordCount: 0, embeddingsEnabled: false },
+      },
     });
   }
 

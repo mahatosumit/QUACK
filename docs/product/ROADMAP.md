@@ -272,12 +272,59 @@ determinism incl. tamper rejection through the package path).
 
 **P8 (QIE) is COMPLETE: P8.1–P8.9 all shipped.**
 
-## P9 — Semantic Memory / Knowledge
+## P9 — Semantic Memory / Knowledge (SHIPPED 2026-09-11)
 
-- embeddings **through GovernedModelRuntime only** (they are provider calls)
-- retrieval upgrades over the existing scope model; knowledge-source
-  permissions; explicit user-approved persistence
-- **Risk:** medium (privacy boundary).
+Governed semantic memory/knowledge (ADR 0043): MEMORY IS DATA, NOT AUTHORITY.
+One pipeline — SOURCE → ADMISSION (fail-closed: shape/scope/owner/
+provenance/bounds/duplicates/sensitive-content via the ADR 0041 classifier)
+→ CANONICAL RECORD (sha256 content hash, fail-closed parse; tampered files
+load excluded, never coerced) → EXPLICIT PERSISTENCE (authorized actor only;
+a model saying "remember this" persists nothing) → EMBEDDING THROUGH
+GovernedModelRuntime ONLY (`embed` joins the provider contract as an
+optional discovered operation; broker resolves provider.invoke before
+provider contact; no fallback — a failed embedding is a structured error;
+provider-neutral contracts, no credentials) → DERIVED INDEX (validated
+vector cache; entries re-checked against canonical chunks on every load —
+interrupted writes/tampering/deleted memories never surface) → GOVERNED
+RETRIEVAL (scope+owner+lifecycle policy BEFORE ranking; deterministic
+score/chunkId/memoryId ordering; insertion order never decides) → QIE
+CANDIDATES (trust MEMORY) → P8.3 firewall (admittedMemory backing) → P8.2
+selector → P8.1 composer (single budget authority) → P8.5 defense → P8.4
+adapter → governed runtime. Deletion propagates (record → index → cache;
+recovery sweeps orphans both directions); compaction reuses the ADR 0030
+engine; evaluation gains scopeCorrectness/provenanceCompleteness/
+deletionCorrectness dimensions (absent without memory — P5 contract
+preserved); ten `memory.*` events on the existing EventBus with
+metadata-only payloads; Studio Evidence panel + M dimension badge + SSE
+refresh; `quack memory list|inspect|search|delete` CLI (fail-closed exit
+codes, `--json`); `@quack/sdk` exports the stable contracts (no vector-DB
+internals, storage paths, or policy objects). Knowledge sources: inline +
+workspace files (traversal-guarded) only — URLs/repositories/crawling
+UNSUPPORTED. Poisoning defense is STRUCTURAL (17-test adversarial matrix:
+escalation, cross-scope, forged provenance/verification, high-relevance
+hostility, stale vectors, provider denial, QIE bypass resistance) — no
+blacklist. Scopes stay the existing MemoryScope vocabulary. Multi-process
+file writes follow the one-process-per-data-dir constraint.
+
+### P9 phases
+
+- **P9.1/P9.7** canonical record + deterministic chunking — SHIPPED
+- **P9.2** scope isolation over the existing vocabulary — SHIPPED
+- **P9.3/P9.6** explicit persistence + store — SHIPPED
+- **P9.4/P9.5** admission + content-vs-metadata separation — SHIPPED
+- **P9.8/P9.9** governed embedding + provider-neutral contracts — SHIPPED
+- **P9.10** derived index — SHIPPED
+- **P9.11/P9.12/P9.16** governed deterministic retrieval + provenance — SHIPPED
+- **P9.13/P9.14** QIE integration + trust preservation — SHIPPED
+- **P9.15** poisoning adversarial suite — SHIPPED
+- **P9.18/P9.19/P9.20** deletion/compaction/recovery — SHIPPED
+- **P9.21** evaluation dimensions (existing evaluator) — SHIPPED
+- **P9.22** observability (existing EventBus) — SHIPPED
+- **P9.23/P9.24/P9.25** Studio/CLI/SDK surfaces — SHIPPED
+- **P9.26** knowledge sources (inline + workspace files) — SHIPPED
+- **P9.27/P9.28/P9.29** security matrix + bounds + no-second-authority — SHIPPED
+
+**P9 is COMPLETE: all phases shipped.**
 
 ## P10 — Ecosystem / Marketplace
 

@@ -42,6 +42,13 @@ export function collectMetrics(trace: MissionTrace): HarnessMetrics {
   const instructionRejected = instructionRecords.filter((record) => record.outcome === "rejected").length;
   const instructionInjectionFlags = instructionRecords.reduce((total, record) => total + record.injectionFlagCount, 0);
 
+  // P9.21: semantic-memory census (metadata only). Absent evidence reports
+  // zeros and the memory dimensions stay absent from evaluation.
+  const semanticMemory = trace.semanticMemory;
+  const semanticMemoryRecordCount = semanticMemory?.records.length ?? 0;
+  const semanticMemoryRetrievalCount = semanticMemory?.retrievals.length ?? 0;
+  const semanticMemoryDeletionCount = semanticMemory?.deletedIds.length ?? 0;
+
   return {
     taskSuccessRate: trace.finalOutcome.success ? 1 : 0,
     toolFailureRate: toolCallCount === 0 ? 0 : failedTools / toolCallCount,
@@ -57,6 +64,9 @@ export function collectMetrics(trace: MissionTrace): HarnessMetrics {
     instructionDispatchedCount: instructionDispatched,
     instructionRejectedCount: instructionRejected,
     instructionInjectionFlagCount: instructionInjectionFlags,
+    semanticMemoryRecordCount,
+    semanticMemoryRetrievalCount,
+    semanticMemoryDeletionCount,
   };
 }
 

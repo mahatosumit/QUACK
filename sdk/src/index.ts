@@ -24,6 +24,55 @@ export type { Task } from "@quack/os";
 export { InMemoryMemoryStore, JsonFileMemoryStore } from "@quack/os";
 export type { MemoryScope, MemoryRecord, MemoryStore } from "@quack/os";
 
+// Semantic Memory (P9, ADR 0043) — governed semantic memory / knowledge.
+// Stable contracts only: record/admission/retrieval/QIE-candidate shapes and
+// the service facade. No vector-database internals, no storage paths, no
+// provider clients, no policy objects. Memory is data, never authority.
+export {
+  SemanticMemoryService,
+  SEMANTIC_MEMORY_SCOPES,
+  SEMANTIC_MEMORY_BOUNDS,
+  semanticContentHash,
+  chunkSemanticMemory,
+  parseSemanticMemoryRecord,
+  admitSemanticMemory,
+  cosineSimilarity,
+  retrieveSemanticMemory,
+  resolveKnowledgeSource,
+  memoryCandidate,
+  memoryCandidatesFromRetrieval,
+  semanticMemoryAuthorities,
+  pipelineMemoryToQie,
+  scoreMemoryQuality,
+} from "@quack/os";
+export type {
+  SemanticMemoryScope,
+  SemanticMemorySourceKind,
+  SemanticMemoryLifecycle,
+  SemanticMemoryProvenance,
+  SemanticEmbeddingMetadata,
+  SemanticMemoryRecord,
+  SemanticMemoryChunk,
+  SemanticMemoryAdmissionRequest,
+  SemanticAdmissionRejection,
+  EmbedGatewayOptions,
+  EmbeddingRuntimeSurface,
+  GovernedEmbedResult,
+  SemanticRetrievalQuery,
+  SemanticRetrievalHit,
+  SemanticRetrievalResult,
+  KnowledgeSourceRequest,
+  KnowledgeSourceResult,
+  MemoryQiePipelineInput,
+  MemoryQiePipelineResult,
+  SemanticMemoryServiceOptions,
+  RememberRequest,
+  RememberResult,
+  RecallRequest,
+  MemoryQualityDimensions,
+  MemoryEvaluationEvidence,
+} from "@quack/os";
+
 // Knowledge Graph
 export { InMemoryKnowledgeGraphStore, InMemoryKnowledgeGraphStore as InMemoryKnowledgeGraph } from "@quack/os";
 export type { KnowledgeNode, KnowledgeEdge, KnowledgeHyperedge, KnowledgeHyperedge as HyperEdge, GraphQueryResult, GraphQueryResult as QueryResult } from "@quack/os";

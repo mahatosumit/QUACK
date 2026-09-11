@@ -140,7 +140,18 @@ export type QuackEventType =
   | "model.stream.chunk"
   /** P8.7 instruction observability (metadata-only; ADR 0042). */
   | "instruction.dispatched"
-  | "instruction.rejected";
+  | "instruction.rejected"
+  /** P9 semantic-memory observability (metadata-only; ADR 0043). */
+  | "memory.admitted"
+  | "memory.rejected"
+  | "memory.persisted"
+  | "memory.embedding.requested"
+  | "memory.embedding.completed"
+  | "memory.embedding.failed"
+  | "memory.indexed"
+  | "memory.retrieved"
+  | "memory.deleted"
+  | "memory.compacted";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

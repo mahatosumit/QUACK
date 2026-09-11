@@ -1,6 +1,7 @@
 import { type EventBus } from "../events/event-bus.js";
 import { createId, now } from "../core/types.js";
 import { scoreInstructionQuality } from "../instruction/evaluator.js";
+import { scoreMemoryQuality } from "../memory/semantic/evaluation.js";
 import { collectMetrics, MetricsCollector } from "./metrics-collector.js";
 import { type EvaluationRepository } from "../storage/sqlite.js";import {
   type EvaluationDimensions,
@@ -168,7 +169,13 @@ function evaluateDimensions(trace: MissionTrace, metrics: ReturnType<typeof coll
     ? scoreInstructionQuality(trace.instruction).dimensions
     : undefined;
 
-  return { capabilityDiscipline, recovery, planning, evidenceQuality, ...(instruction ? { instruction } : {}) };
+  // P9.21: semantic-memory quality dimensions from metadata-only evidence.
+  // Absent when the mission used no semantic memory — never fabricated.
+  const memory = trace.semanticMemory && trace.semanticMemory.records.length > 0
+    ? scoreMemoryQuality(trace.semanticMemory).dimensions
+    : undefined;
+
+  return { capabilityDiscipline, recovery, planning, evidenceQuality, ...(instruction ? { instruction } : {}), ...(memory ? { memory } : {}) };
 }
 
 function clamp(value: number): number {

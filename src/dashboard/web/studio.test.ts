@@ -194,6 +194,39 @@ test("P8.8 instruction events refresh live surfaces over SSE", () => {
   assert.match(script, /\["missions","mission","overview","approvals","evidence","trace"\]/);
 });
 
+test("P9.22 Evidence view renders the governed semantic memory panel", () => {
+  const script = studioScript();
+  // The panel consumes the /memory semantic surface — records plus stats.
+  assert.match(script, /renderSemanticMemoryPanel/);
+  assert.match(script, /data\.semantic/);
+  // Honest unavailable state when the composition has no semantic memory.
+  assert.match(script, /Semantic memory is not available in this composition/);
+  // Honest empty state.
+  assert.match(script, /No semantic memory stored yet/);
+  // Metadata columns only: identity, scope, owner, provenance, embedding state, lifecycle.
+  assert.match(script, /r\.provenance\?\.sourceKind/);
+  assert.match(script, /r\.embedding\?badge\("EMBEDDED"\):badge\("PLAIN"\)/);
+  assert.match(script, /memory is data, never authority/);
+  // Stats come from the governed store, not fabricated client-side.
+  assert.match(script, /stats\.recordCount/);
+  assert.match(script, /stats\.embeddingsEnabled/);
+});
+
+test("P9.22 memory dimension (M) renders in evaluation history rows", () => {
+  const script = studioScript();
+  // The memory (M) dimension badge appears only when present.
+  assert.match(script, /e\.result\.dimensions\.memory/);
+  assert.match(script, /scopeCorrectness/);
+});
+
+test("P9.22 memory events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  // The full governed memory lifecycle refreshes the Evidence view.
+  for (const type of ["memory.admitted", "memory.persisted", "memory.embedding.completed", "memory.indexed", "memory.retrieved", "memory.deleted", "memory.compacted"]) {
+    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`));
+  }
+});
+
 test("P7 legacy surfaces stay retired", () => {
   assert.equal(existsSync("dist/desktop"), false, "no desktop HTTP server ships in the build");
   assert.equal(existsSync("gui"), false, "the duplicate gui/ SPA stays retired");

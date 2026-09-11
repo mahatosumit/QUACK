@@ -6,7 +6,9 @@ export type ModelCapability =
   | "web"
   | "retrieval"
   | "balanced"
-  | "ops";
+  | "ops"
+  /** P9: embedding-capable models (ADR 0043). */
+  | "embedding";
 
 export interface ModelInfo {
   readonly id: string;

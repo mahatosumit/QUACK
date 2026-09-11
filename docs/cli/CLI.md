@@ -94,6 +94,19 @@ lookup. `--json` emits machine-readable output. Records that fail
 validation are excluded and counted — tampered records never render as
 trustworthy. Instruction content is never stored or displayed.
 
+### quack memory [list|inspect \<id\>|search \<query\>|delete \<id\>]
+
+Inspects governed semantic memory (P9, ADR 0043) through the same
+admission/authorization path as production. `list` shows records (scope,
+owner, provenance, embedding state); `inspect` prints one record with full
+provenance and a bounded content preview; `search` performs governed
+semantic retrieval (requires an embedding-capable governed provider —
+reported honestly otherwise); `delete` removes a record and its derived
+index entries. `--json` machine output on every action. Exit codes: 0
+success, 1 operational failure, 2 usage error, 3 not found / access
+denied. Records that fail validation are excluded — tampered records never
+render as trustworthy.
+
 ### quack update
 
 Compares installed version against the npm registry (read-only `npm view`,

@@ -99,3 +99,44 @@ Vector and graph stores remain valid provider implementations when they
 preserve these contracts. Provider discovery marketplaces, credential flows,
 plugin hook execution, cross-process recovery, and automatic reconciliation of
 ambiguous writes remain outside this binding.
+
+## P9 semantic memory (ADR 0043)
+
+P9 adds governed semantic memory/knowledge in `src/memory/semantic/` as a
+second layer over the SAME authority components — not a second authority:
+
+```text
+SOURCE (user / mission / workspace file)
+  -> admission (fail-closed: shape, scope, owner, provenance, bounds,
+     duplicates, sensitive content via the ADR 0041 classifier)
+  -> canonical SemanticMemoryRecord (sha256 content hash; fail-closed parse)
+  -> explicit persistence (authorized actor only; a model output persists
+     nothing)
+  -> embedding through GovernedModelRuntime ONLY (optional discovered
+     provider `embed`; broker resolves provider.invoke before contact; no
+     fallback; provider-neutral contracts)
+  -> derived vector index (cache entries re-validated against canonical
+     chunks on every load)
+  -> governed retrieval (scope/owner/lifecycle policy before ranking;
+     deterministic score/chunkId/memoryId ordering)
+  -> QIE ContextCandidates (trust MEMORY)
+  -> P8.3 firewall (admittedMemory backing) -> P8.2 selector
+  -> P8.1 composer (single budget authority) -> P8.5 defense
+  -> P8.4 adapter -> GovernedModelRuntime
+```
+
+MEMORY IS DATA, NOT AUTHORITY. Content never rewrites scope, owner,
+lifecycle, trust, or policy fields; retrieval relevance and embedding
+scores are never authority. Poisoning defense is structural — the
+adversarial suite proves escalation/override/forgery payloads stay inert
+data in the MEMORY lane, and no blacklist is the defense.
+
+Knowledge sources are inline text and workspace-local files (traversal
+fails closed). URLs, remote repositories, and crawling are UNSUPPORTED.
+Deletion propagates record -> index -> cache; restart recovery re-validates
+the cache against canonical records so interrupted writes and tampering can
+never surface as retrievable. Compaction reuses the ADR 0030 engine. The
+SWE composition authorizes reads/writes/deletes through the capability
+broker (`memory.read`/`memory.write`) and enables embeddings only when the
+governed runtime exposes `embed`. Multi-process file writes follow the
+one-process-per-data-dir constraint.

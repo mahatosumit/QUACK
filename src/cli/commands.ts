@@ -257,6 +257,121 @@ export async function commandInstructions(context: CommandContext, missionId?: s
 }
 
 // ---------------------------------------------------------------------------
+// quack memory list|inspect|search|delete (P9.24) — governed semantic memory inspection
+// ---------------------------------------------------------------------------
+
+/**
+ * P9.24 memory inspection: every command operates on the canonical
+ * semantic-memory store through the SAME admission/authorization path as
+ * production (the service authorize hook resolves memory.read/write via
+ * the capability broker). Exit codes: 0 success, 1 operational failure,
+ * 2 usage error, 3 not found / access denied (fail-closed, meaningful).
+ */
+export async function commandMemory(
+  context: CommandContext,
+  action: "list" | "inspect" | "search" | "delete",
+  target?: string,
+): Promise<number> {
+  const system = createQuackSystem({ dataDir: context.config.dataDir, workspaceRoot: context.config.workspaceRoot });
+  const memory = system.semanticMemory;
+  try {
+    await memory.recover();
+    if (action === "list") {
+      const records = await memory.list();
+      if (context.json) {
+        out(context, {
+          recordCount: records.length,
+          records: records.map(recordView),
+        });
+      } else {
+        console.log(`Semantic memory records (${records.length}):`);
+        if (records.length === 0) console.log("  No semantic memory stored yet. Records appear when an authorized actor remembers content explicitly.");
+        for (const record of records) {
+          console.log(`  ${record.memoryId}  ${record.scope.padEnd(9)} ${record.owner.padEnd(12)} ${record.provenance.sourceKind.padEnd(10)} ${record.contentHash.slice(0, 12)}… ${record.embedding ? "embedded" : "plain"}`);
+        }
+      }
+      await system.events.drain();
+      return 0;
+    }
+    if (action === "inspect") {
+      if (!target) { console.error("quack memory inspect requires a memory id."); return 2; }
+      const record = await memory.inspect(target);
+      if (!record.ok) {
+        if (context.json) out(context, { error: record.error.code });
+        else console.error(`Memory ${target} not found.`);
+        return 3;
+      }
+      out(context, { record: recordView(record.data) });
+      await system.events.drain();
+      return 0;
+    }
+    if (action === "delete") {
+      if (!target) { console.error("quack memory delete requires a memory id."); return 2; }
+      const result = await memory.forget(target, { actor: "cli" });
+      if (!result.ok) {
+        if (context.json) out(context, { error: result.error.code });
+        else console.error(`Memory ${target} could not be deleted: ${result.error.message}`);
+        return 3;
+      }
+      if (context.json) out(context, { memoryId: target, deleted: result.data.deleted, sweptChunks: result.data.sweptChunks });
+      else console.log(result.data.deleted ? `Deleted ${target} (${result.data.sweptChunks} index chunk(s) swept).` : `Memory ${target} was already absent.`);
+      await system.events.drain();
+      return 0;
+    }
+    // search
+    if (!target) { console.error("quack memory search requires a query string."); return 2; }
+    const result = await memory.recall({
+      text: target,
+      scope: "global",
+      owner: "cli",
+      limit: 20,
+      context: { actor: "cli" },
+    });
+    if (!result.ok) {
+      if (context.json) out(context, { error: result.error.code });
+      else console.error(`Semantic search unavailable: ${result.error.message}`);
+      return 1;
+    }
+    if (context.json) {
+      out(context, {
+        query: target,
+        hitCount: result.data.hits.length,
+        hits: result.data.hits.map((hit) => ({ memoryId: hit.memory.memoryId, score: hit.score, matchedChunkId: hit.matchedChunkId, scope: hit.memory.scope, owner: hit.memory.owner })),
+      });
+    } else {
+      console.log(`Semantic search for "${target}" (${result.data.hits.length} hit(s)):`);
+      if (result.data.hits.length === 0) console.log("  No semantically relevant memory in the global scope.");
+      for (const hit of result.data.hits) {
+        console.log(`  ${hit.memory.memoryId}  score ${hit.score.toFixed(3)}  ${hit.memory.scope}/${hit.memory.owner}`);
+      }
+    }
+    await system.events.drain();
+    return 0;
+  } catch (error) {
+    if (context.json) out(context, { error: String(error) });
+    else console.error("Memory command failed:", error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+/** Metadata + bounded content preview for CLI output (no secrets by construction; admission rejected them). */
+function recordView(record: import("../memory/semantic/records.js").SemanticMemoryRecord): Record<string, unknown> {
+  return {
+    memoryId: record.memoryId,
+    scope: record.scope,
+    owner: record.owner,
+    contentPreview: record.content.length > 200 ? `${record.content.slice(0, 200)}...` : record.content,
+    contentHash: record.contentHash,
+    provenance: record.provenance,
+    lifecycle: record.lifecycle,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    admission: record.admission,
+    embedding: record.embedding ? { providerId: record.embedding.providerId, model: record.embedding.model, embeddingVersion: record.embedding.embeddingVersion, dimensions: record.embedding.dimensions } : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // quack provider list|doctor|test <id>
 // ---------------------------------------------------------------------------
 

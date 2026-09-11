@@ -100,6 +100,12 @@ export interface MissionTrace {
   readonly events: readonly MissionTraceEvent[];
   /** P8.6: metadata-only governed-instruction dispatch records (absent when the mission used no QIE dispatch). */
   readonly instruction?: readonly import("../instruction/records.js").GovernedInstructionRecord[];
+  /**
+   * P9.21: metadata-only semantic-memory evaluation evidence (absent when
+   * the mission used no semantic memory). Trace-attached like P8.6 records;
+   * never memory content.
+   */
+  readonly semanticMemory?: import("../memory/semantic/evaluation.js").MemoryEvaluationEvidence;
   readonly startedAt: string;
   readonly completedAt: string;
 }
@@ -125,6 +131,12 @@ export interface HarnessMetrics {
   readonly instructionRejectedCount: number;
   /** P8.6: metadata-only injection flags across all dispatch attempts (defense-in-depth signal). */
   readonly instructionInjectionFlagCount: number;
+  /** P9.21: semantic-memory records observed for the mission (0 when none). */
+  readonly semanticMemoryRecordCount: number;
+  /** P9.21: semantic-memory retrieval observations (0 when none). */
+  readonly semanticMemoryRetrievalCount: number;
+  /** P9.21: semantic-memory deletions observed (0 when none). */
+  readonly semanticMemoryDeletionCount: number;
 }
 
 /** P5: per-dimension agent evaluation scores (0–100, higher is better). */
@@ -135,6 +147,8 @@ export interface EvaluationDimensions {
   readonly evidenceQuality: number;
   /** P8.6: instruction quality dimensions; absent when the mission used no QIE dispatch. */
   readonly instruction?: import("../instruction/evaluator.js").InstructionQualityDimensions;
+  /** P9.21: semantic-memory quality dimensions; absent when the mission used no semantic memory. */
+  readonly memory?: import("../memory/semantic/evaluation.js").MemoryQualityDimensions;
 }
 
 export interface MissionEvaluationFailure {

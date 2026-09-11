@@ -2,7 +2,7 @@ import { createId, fail, type JsonObject, type QuackResult } from "../core/types
 import { buildToolCapabilityRequest, type CapabilityBroker } from "../security/capability-broker.js";
 import type { Permission } from "../security/permissions.js";
 import type { ModelInfo } from "./types.js";
-import type { ModelRequest, ModelResponse, ModelRuntime, ModelStreamChunk } from "./runtime.js";
+import type { EmbeddingRequest, EmbeddingResponse, ModelRequest, ModelResponse, ModelRuntime, ModelStreamChunk } from "./runtime.js";
 
 /**
  * Governed model dispatch (ADR 0036).
@@ -64,6 +64,41 @@ export class GovernedModelRuntime {
     if (!decision.ok) throw new Error(decision.error.message);
     if (context.signal?.aborted) throw new Error("Model generation was cancelled before dispatch.");
     yield* this.inner.stream({ ...request, metadata: withGovernedProvenance(request.metadata) });
+  }
+
+  /**
+   * P9 governed embedding dispatch (ADR 0043): resolves `provider.invoke`
+   * through the capability broker BEFORE any provider contact, exactly like
+   * generation. Denial fails closed with `model.permission_denied`; the
+   * wrapped runtime must expose `embed` (embedding-capable providers only).
+   */
+  async embed(
+    request: EmbeddingRequest,
+    context: {
+      readonly missionId?: string;
+      readonly taskId?: string;
+      readonly agentId?: string;
+      readonly skillId?: string;
+      readonly actor: string;
+      readonly signal?: AbortSignal;
+    },
+  ): Promise<QuackResult<EmbeddingResponse>> {
+    if (typeof (this.inner as { embed?: unknown }).embed !== "function") {
+      return fail({
+        code: "model.embed_unsupported",
+        message: "The governed runtime does not expose an embedding path.",
+        category: "provider",
+        recoverable: false,
+      });
+    }
+    const authorityRequest = { ...request, capability: "embedding" as const };
+    const decision = await this.resolveAuthority(authorityRequest as ModelRequest, context);
+    if (!decision.ok) return decision as QuackResult<EmbeddingResponse>;
+    if (context.signal?.aborted) {
+      return fail(this.cancelled());
+    }
+    return (this.inner as unknown as { embed(request: EmbeddingRequest): Promise<QuackResult<EmbeddingResponse>> })
+      .embed({ ...request, metadata: withGovernedProvenance(request.metadata) });
   }
 
   private async resolveAuthority(
@@ -174,5 +209,17 @@ export function governModelRuntime(inner: ModelRuntime, capabilityBroker: Capabi
     },
     configurable: false, enumerable: true, writable: false,
   });
+  if (typeof gated.embed === "function") {
+    Object.defineProperty(gated, "embed", {
+      value: (request: import("./runtime.js").EmbeddingRequest, context: Parameters<GovernedModelRuntime["embed"]>[1]) =>
+        context ? governed.embed(request, context) : Promise.resolve(fail({
+          code: "model.execution_context_required",
+          message: "Governed embedding requires an execution context (mission/task/actor) for capability resolution.",
+          category: "permission",
+          recoverable: false,
+        })),
+      configurable: false, enumerable: true, writable: false,
+    });
+  }
   return gated;
 }

@@ -151,3 +151,101 @@ test("P8.8 commandInstructions lists valid records, filters by mission, and excl
   assert.equal(parsed.invalidRecordCount, 1, "the tampered record is counted as invalid");
   assert.equal(parsed.records[0].outcome, "rejected");
 });
+
+test("P9.24 CLI parseArgs parses memory command with actions and targets", () => {
+  const bare = parseArgs(["node", "cli.js", "memory"]);
+  assert.equal(bare.command, "memory");
+  assert.equal(bare.options.memoryAction, undefined, "bare memory defaults to list at dispatch time");
+
+  const explicit = parseArgs(["node", "cli.js", "memory", "list"]);
+  assert.equal(explicit.command, "memory");
+  assert.equal(explicit.options.memoryAction, "list");
+
+  const inspect = parseArgs(["node", "cli.js", "memory", "inspect", "smem_1"]);
+  assert.equal(inspect.command, "memory");
+  assert.equal(inspect.options.memoryAction, "inspect");
+  assert.equal(inspect.options.memoryTarget, "smem_1");
+
+  const search = parseArgs(["node", "cli.js", "memory", "search", "deploy checklist"]);
+  assert.equal(search.options.memoryAction, "search");
+  assert.equal(search.options.memoryTarget, "deploy checklist");
+
+  const remove = parseArgs(["node", "cli.js", "memory", "delete", "smem_2"]);
+  assert.equal(remove.options.memoryAction, "delete");
+  assert.equal(remove.options.memoryTarget, "smem_2");
+});
+
+test("P9.24 commandMemory lists, inspects, and deletes governed semantic memory", async (context) => {
+  const { commandMemory } = await import("./cli/commands.js");
+  const { loadCliConfig } = await import("./cli/config.js");
+  const root = await mkdtemp(join(tmpdir(), "quack-memory-cli-test-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const dataDir = join(root, "state");
+
+  const system = createQuackSystem({ workspaceRoot: root, dataDir });
+  const remembered = await system.semanticMemory.remember({
+    content: "operator prefers plain-text summaries in mission reports",
+    scope: "global",
+    owner: "operator",
+    actor: "operator",
+    context: { actor: "operator" },
+  });
+  assert.ok(remembered.ok);
+  const memoryId = remembered.data.record.memoryId;
+  await system.events.drain();
+
+  const config = loadCliConfig({ cli: { dataDir, workspaceRoot: root } });
+  const lines: string[] = [];
+  context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });
+  context.mock.method(console, "error", (message: unknown) => { lines.push(String(message)); });
+
+  const listed = await commandMemory({ json: false, config }, "list");
+  assert.equal(listed, 0);
+  assert.ok(lines.join("\n").includes(memoryId), "record id listed");
+  assert.ok(lines.join("\n").includes("No semantic memory stored yet.") === false || lines.join("\n").includes(memoryId));
+
+  lines.length = 0;
+  const inspected = await commandMemory({ json: false, config }, "inspect", memoryId);
+  assert.equal(inspected, 0);
+  assert.ok(lines.join("\n").includes(memoryId));
+
+  lines.length = 0;
+  const inspectJson = await commandMemory({ json: true, config }, "inspect", memoryId);
+  assert.equal(inspectJson, 0);
+  const parsed = JSON.parse(lines.join("\n")) as { record: { provenance: { sourceKind: string } } };
+  assert.equal(parsed.record.provenance.sourceKind, "user");
+
+  lines.length = 0;
+  const missing = await commandMemory({ json: false, config }, "inspect", "smem_absent");
+  assert.equal(missing, 3, "not-found exits with the dedicated code");
+
+  lines.length = 0;
+  const deleted = await commandMemory({ json: true, config }, "delete", memoryId);
+  assert.equal(deleted, 0);
+  const deleteResult = JSON.parse(lines.join("\n")) as { deleted: boolean };
+  assert.equal(deleteResult.deleted, true);
+
+  lines.length = 0;
+  const afterDelete = await commandMemory({ json: false, config }, "list");
+  assert.equal(afterDelete, 0);
+  assert.ok(!lines.join("\n").includes(memoryId), "deleted record no longer listed");
+});
+
+test("P9.24 commandMemory search reports honest unavailability without embeddings", async (context) => {
+  const { commandMemory } = await import("./cli/commands.js");
+  const { loadCliConfig } = await import("./cli/config.js");
+  const root = await mkdtemp(join(tmpdir(), "quack-memory-cli-search-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const dataDir = join(root, "state");
+  const system = createQuackSystem({ workspaceRoot: root, dataDir });
+  await system.events.drain();
+
+  const config = loadCliConfig({ cli: { dataDir, workspaceRoot: root } });
+  const lines: string[] = [];
+  context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });
+  context.mock.method(console, "error", (message: unknown) => { lines.push(String(message)); });
+
+  const result = await commandMemory({ json: false, config }, "search", "anything");
+  assert.equal(result, 1, "search without an embedding provider is an operational failure, not a crash");
+  assert.ok(lines.join("\n").includes("Semantic search unavailable"));
+});

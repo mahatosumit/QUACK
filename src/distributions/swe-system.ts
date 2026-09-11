@@ -11,6 +11,7 @@ import { EventBus } from "../events/event-bus.js";
 import { type MemoryStore } from "../memory/memory.js";
 import { MemoryManager } from "../memory/os.js";
 import { InMemoryKnowledgeGraphStore } from "../memory/knowledge-graph.js";
+import { SemanticMemoryService } from "../memory/semantic/service.js";
 import { EchoProvider, ProviderRegistry } from "../providers/provider.js";
 import { OpenAiCompatibleProvider, createOllamaProvider, createVllmProvider } from "../providers/openai.js";
 import { ProviderFallbackRouter } from "../providers/router.js";
@@ -236,6 +237,12 @@ export interface QuackSystem {
   readonly companyRuntime: MissionCompanyRuntime;
   readonly evaluator: EvaluatorAgent;
   readonly knowledgePipeline: KnowledgeIngestionPipeline;
+  /**
+   * P9 governed semantic memory (ADR 0043): admission → explicit
+   * persistence → governed embedding → derived index → governed retrieval →
+   * QIE candidates. Memory stays DATA: no authority surface here.
+   */
+  readonly semanticMemory: SemanticMemoryService;
   readonly workflowLoader: WorkflowLoader;
   readonly coreAgentRegistry: CoreAgentRegistry;
   readonly coreAgentMonitor: CoreAgentMonitor;
@@ -608,6 +615,33 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   const governedModelRuntime = new GovernedModelRuntime(modelRuntime, capabilityBroker);
   const gatedModelRuntime = governModelRuntime(modelRuntime, capabilityBroker);
   const governedProviderRouter = new GovernedProviderRouter(capabilityRouter, capabilityBroker);
+  // P9 semantic memory (ADR 0043): embeddings dispatch through the SAME
+  // governed model runtime (provider.invoke resolved before provider
+  // contact); reads/writes/deletes resolve memory.read/memory.write through
+  // the SAME capability broker. Disabled by default until an embedding
+  // provider is registered; the service still supports remember/list/
+  // inspect/forget without embeddings.
+  const semanticMemory = new SemanticMemoryService({
+    dataDir: config.dataDir,
+    workspaceRoot: config.workspaceRoot,
+    events,
+    ...(typeof (governedModelRuntime as { embed?: unknown }).embed === "function" ? {
+      embeddingsEnabled: true,
+      embeddingRuntime: governedModelRuntime as unknown as import("../memory/semantic/embedding.js").EmbeddingRuntimeSurface,
+    } : {}),
+    authorize: async ({ actor, operation, scope, owner }) => {
+      const permission = operation === "write" || operation === "delete" ? "memory.write" as const : "memory.read" as const;
+      const decision = await capabilityBroker.resolve(buildToolCapabilityRequest({
+        actor, toolId: `semantic-memory:${operation}`,
+        permission,
+        input: { operation, scope, owner } as import("../core/types.js").JsonObject,
+        reason: `Semantic memory ${operation} requires ${permission}.`,
+      }));
+      return decision.granted
+        ? { ok: true as const, data: undefined }
+        : { ok: false as const, error: { code: "memory.policy_denied", message: decision.reason, category: "permission" as const, recoverable: true } };
+    },
+  });
   const companyRuntime = new MissionCompanyRuntime({
     repository: storage.missionCompanies,
     lifecycle: orgManager,
@@ -927,6 +961,7 @@ const agentLoop = new AgentLoop({
             companyRuntime,
             evaluator,
             knowledgePipeline,
+            semanticMemory,
             workflowLoader,
             coreAgentRegistry,
                                     coreAgentMonitor,
