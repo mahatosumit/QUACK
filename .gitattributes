@@ -1,0 +1,37 @@
+# QUACK line-ending policy: deterministic, cross-platform.
+# Index and canonical source are LF; Windows-native scripts are CRLF.
+# Individual developer core.autocrlf must not create noisy diffs.
+
+* text=auto
+
+# Source
+*.ts     text eol=lf
+*.tsx    text eol=lf
+*.js     text eol=lf
+*.jsx    text eol=lf
+*.mjs    text eol=lf
+*.cjs    text eol=lf
+
+# Configuration / data
+*.json   text eol=lf
+*.yaml   text eol=lf
+*.yml    text eol=lf
+*.toml   text eol=lf
+*.html   text eol=lf
+*.css    text eol=lf
+
+# Documentation
+*.md     text eol=lf
+
+# Unix shell
+*.sh     text eol=lf
+
+# Windows-native scripts
+*.ps1    text eol=crlf
+*.bat    text eol=crlf
+*.cmd    text eol=crlf
+
+# Extensionless files commonly text
+CODEOWNERS text eol=lf
+CNAME      text eol=lf
+VERSION    text eol=lf
