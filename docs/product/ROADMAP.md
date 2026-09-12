@@ -435,6 +435,60 @@ verification beyond the existing conservative harness behavior, execution of
 P10 extension packages (still REGISTERED/ADMITTED/NOT-EXECUTABLE), and any
 P12+ functionality.**
 
+## P12 - Secure Execution & Isolation (SHIPPED 2026-09-12, ADR 0046)
+
+A POLICY-ENFORCEMENT layer over the existing governed path — zero new
+authorities, zero new execution surfaces. The honest answer to "what happens
+when execution is not actually isolated?" is DENY, never "execute anyway".
+
+- **P12.1** canonical ExecutionPolicy — server-derived (risk tier,
+  descriptor timeout, deployer config), deterministic, digest-stabilized,
+  fail-closed parse; proposal payloads never feed it — SHIPPED
+- **P12.2** honest IsolationState contract — POLICY_RESTRICTED (default,
+  broker policy, never labeled a sandbox), PROCESS_ISOLATED/OS_ISOLATED
+  (require a real backend; none wired), FAILED_CLOSED on unavailable
+  requirements — no silent downgrade — SHIPPED
+- **P12.3** capability-bound execution — unknown capability, missing
+  authorization, and isolation unavailability all DENY before dispatch — SHIPPED
+- **P12.4** enforced containment — wall-clock timeout (ENFORCED),
+  output bytes (ENFORCED, dropped-never-previewed), attempts=1 (ENFORCED),
+  concurrency (ENFORCED in-process), memory (ADVISORY, serialized null) — SHIPPED
+- **P12.5** cancellation — operator signal into harness, settlement awaited,
+  AMBIGUOUS journal state, re-run refused — SHIPPED
+- **P12.6** runtime-owned timeout — proposal.timeoutMs no longer consulted;
+  deterministic failure; no hidden retry after timeout — SHIPPED
+- **P12.7** output containment — boundary clamp, oversized output dropped
+  and flagged, output stays data — SHIPPED
+- **P12.8** ExecutionState classification — VERIFIED vs COMPLETED vs FAILED
+  vs TIMED_OUT vs CANCELLED vs DENIED vs AMBIGUOUS; success without runtime
+  verification is never VERIFIED — SHIPPED
+- **P12.9** at-most-once dispatch journal — durable (mission, step,
+  capability) reservation; timeout/crash/cancel reconcile to AMBIGUOUS and
+  are never re-dispatched; exactly-once NOT claimed — SHIPPED
+- **P12.10** crash-window recovery — DISPATCHING orphans reconcile on run();
+  fail-closed record validation (identity mismatch, tamper) — SHIPPED
+- **P12.11** adversarial matrix — 26 behavior-proving tests (escalation,
+  forgery, replay, containment, injection, bypass, isolation failure,
+  cross-mission isolation, journal tampering) — SHIPPED
+- **P12.12** portability — pure TypeScript over Node built-ins; no
+  platform-specific isolation claims; platform detection via existing
+  capability matrix when needed — SHIPPED
+- **P12.13** extensions remain NOT-EXECUTABLE — extension ids fail at the
+  parser as unknown capabilities — SHIPPED
+- **P12.14** observability — execution.policy.resolved / execution.denied /
+  execution.timeout / execution.cancelled on the existing EventBus,
+  metadata-only — SHIPPED
+- **P12.15** surfaces — CLI/Server/Studio expose executionState + isolation
+  state (metadata-only); SDK exports the provider-neutral policy/journal
+  contracts; no privileged primitives — SHIPPED
+
+**P12 COMPLETE. Explicitly NOT in P12: OS-level/container/VM isolation (no
+backend exists; POLICY_RESTRICTED is broker-policy enforcement of registered
+host functions, never a sandbox claim), enforced memory limits (advisory
+null), probe-runner verification (IRREVERSIBLE execution still fails
+closed), cross-process concurrency coordination beyond journal reservation,
+and any P13+ functionality.**
+
 ## Dependencies
 
 P1 → P2 → P3 → P4 → P5 (Console and streaming enable harness eval UX);

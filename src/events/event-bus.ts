@@ -169,7 +169,12 @@ export type QuackEventType =
   | "mission.action.proposed"
   | "mission.action.denied"
   | "mission.action.completed"
-  | "mission.action.failed";
+  | "mission.action.failed"
+  /** P12 secure execution observability (metadata-only; ADR 0046). */
+  | "execution.policy.resolved"
+  | "execution.denied"
+  | "execution.timeout"
+  | "execution.cancelled";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

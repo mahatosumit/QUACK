@@ -473,6 +473,43 @@ test("P11 governed mission surface exposes metadata-only runs and redacts at the
   }
 });
 
+test("P12 governed mission surface carries execution/isolation state, metadata-only", async () => {
+  const fixture = await createFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+  try {
+    await server.start();
+    // Seed a run record with a P12-classified step observation.
+    const { createLoopRun, appendIteration } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const { createIterationId } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const base = createLoopRun({
+      missionId: "gov_server_p12", goal: "p12 surface test", actor: "server-test",
+      budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+    });
+    const run = appendIteration(base, {
+      runId: base.runId, missionId: "gov_server_p12", iterationId: createIterationId(), index: 0,
+      startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), phase: "ACT", goal: "p12",
+      observations: { capability: "core.echo", status: "SUCCEEDED", executionState: "EXECUTION_COMPLETED", isolation: "POLICY_RESTRICTED" },
+      workingContext: {}, candidateActions: [],
+    });
+    await fixture.system.governedMissionRunStore.save({ ...run, currentState: "SUCCEEDED", stopReason: "STOP_GOAL_ACHIEVED" });
+
+    const response = await getJson<{ runs: { missionId: string; steps: { executionState: string | null; isolation: string | null }[] }[] }>(`${server.address().url}/governed-missions`);
+    assert.equal(response.status, 200);
+    const found = response.body.runs.find((entry) => entry.missionId === "gov_server_p12");
+    assert.ok(found, "persisted P12 run visible");
+    const step = found.steps[0]!;
+    assert.equal(step.executionState, "EXECUTION_COMPLETED", "honest execution state on the wire");
+    assert.equal(step.isolation, "POLICY_RESTRICTED", "honest isolation state on the wire — policy, not sandbox");
+    // Metadata only: the P12 fields never widen the payload surface.
+    const wire = JSON.stringify(response.body);
+    assert.ok(!wire.includes("\"prompt\""), "no prompt text");
+    assert.ok(!wire.includes("\"arguments\""), "no arguments");
+  } finally {
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
 async function createFixture() {
   const workspaceRoot = join(tmpdir(), createId("quack_server_workspace"));
   const dataDir = join(tmpdir(), createId("quack_server_data"));

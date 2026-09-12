@@ -279,6 +279,15 @@ test("P11 governed mission events refresh live surfaces over SSE", () => {
   assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem"\]/);
 });
 
+test("P12 secure execution events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  // Execution policy/denial/timeout/cancellation events are metadata-only
+  // and refresh mission surfaces.
+  for (const type of ["execution.policy.resolved", "execution.denied", "execution.timeout", "execution.cancelled"]) {
+    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`), `${type} is in liveTypes`);
+  }
+});
+
 test("P7 legacy surfaces stay retired", () => {
   assert.equal(existsSync("dist/desktop"), false, "no desktop HTTP server ships in the build");
   assert.equal(existsSync("gui"), false, "the duplicate gui/ SPA stays retired");

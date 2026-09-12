@@ -67,3 +67,36 @@ export {
   type ParseProposalOptions,
   type ProposalErrorCode,
 } from "./runtime/mission-lifecycle/proposal-parser.js";
+// P12: secure execution & isolation (ADR 0046) — the canonical execution
+// policy, honest isolation classification, at-most-once step dispatch, and
+// runtime-evidence execution states. Provider-neutral composition surface;
+// no broker internals, no privileged execution primitives.
+export {
+  EXECUTION_POLICY_VERSION,
+  DEFAULT_RISK_TIMEOUTS,
+  DEFAULT_MAX_OUTPUT_BYTES,
+  DEFAULT_MAX_CONCURRENT_STEPS,
+  resolveExecutionPolicy,
+  resolveIsolationState,
+  serializeExecutionPolicy,
+  parseExecutionPolicy,
+  policyDigest,
+  classifyExecutionState,
+  journalStateForExecution,
+  clampOutputBytes,
+  type ExecutionPolicy,
+  type ExecutionPolicyInput,
+  type IsolationState,
+  type ExecutionState,
+  type ExecutionStateEvidence,
+  type RiskLevelTimeouts,
+} from "./runtime/mission-lifecycle/execution-policy.js";
+export {
+  STEP_ATTEMPT_JOURNAL_VERSION,
+  stepAttemptKey,
+  InMemoryStepAttemptJournal,
+  JsonFileStepAttemptJournal,
+  type StepAttemptJournal,
+  type StepAttemptRecord,
+  type StepAttemptState,
+} from "./runtime/mission-lifecycle/step-attempt-journal.js";

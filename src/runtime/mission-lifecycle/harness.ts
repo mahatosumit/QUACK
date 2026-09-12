@@ -15,11 +15,23 @@ import { type CapabilityBroker, type CapabilityRequest, type CapabilityDecision,
 import { type Permission } from "../../security/permissions.js";
 import { type ToolRegistry } from "../../tools/tool.js";
 import { type EventBus } from "../../events/event-bus.js";
+import {
+  resolveExecutionPolicy,
+  clampOutputBytes,
+  type ExecutionPolicy,
+} from "./execution-policy.js";
 
 /** Result of harness execution. */
 export interface HarnessResult {
   readonly outcome: ActionOutcome;
   readonly verification: ResultVerification;
+  /** P12 runtime-observed settlement evidence (never provider-claimed). */
+  readonly evidence: {
+    readonly timedOut: boolean;
+    readonly cancelled: boolean;
+  };
+  /** P12 resolved policy when the execution reached policy resolution. */
+  readonly policy?: ExecutionPolicy;
 }
 
 /** Harness execution context from the executive loop. */
@@ -60,7 +72,12 @@ export interface HarnessConfig {
   /** Whether to require verification strategies for irreversible actions. */
   readonly requireVerificationForIrreversible: boolean;
   readonly executeTool?: (toolId: string, input: JsonObject, options: import("../runtime.js").RuntimeAccessOptions) => Promise<QuackResult<JsonObject>>;
-
+  /** P12 (ADR 0046): trusted isolation requirement from deployer configuration. */
+  readonly requiredIsolation?: import("../../isolation/contract.js").IsolationLevel;
+  /** P12: isolation backend available to this composition, when any. */
+  readonly isolationBackend?: import("../../isolation/contract.js").IsolationBackend;
+  /** P12: trusted containment overrides (deployer configuration), never proposal data. */
+  readonly policyOverrides?: { readonly maxOutputBytes?: number; readonly timeoutCeilingMs?: number };
 }
 
 /** Timeout configuration per risk level. */
@@ -127,6 +144,9 @@ export class DefaultExecutionHarness implements ExecutionHarness {
     this.activeExecutions.set(executionId, controller);
 
     let actionDescriptor: ActionDescriptorV1 | undefined;
+    let policy: ExecutionPolicy | undefined;
+    // P12 runtime-observed settlement evidence — never taken from provider output.
+    const evidence = { timedOut: false, cancelled: false };
 
     try {
       proposal = structuredClone(proposal);
@@ -162,18 +182,57 @@ export class DefaultExecutionHarness implements ExecutionHarness {
         }
       }
 
+      // Step 3b (P12): resolve the canonical execution policy from TRUSTED
+      // inputs only (descriptor risk/timeout + trusted isolation config).
+      // Proposal-supplied timeout/risk/sandbox never feed the policy.
+      policy = resolveExecutionPolicy({
+        capability: proposal.capability,
+        providerKind: resolution.providerId === "core.tools" ? "CORE_TOOL" : "ACTION_PROVIDER",
+        riskLevel: actionDescriptor
+          ? this.mapRiskClassToExecutionRiskLevel(actionDescriptor.riskClass)
+          : "REVERSIBLE",
+        ...(actionDescriptor ? { descriptorTimeoutMs: actionDescriptor.timeoutMs } : {}),
+        ...(this.config.requiredIsolation ? { requiredIsolation: this.config.requiredIsolation } : {}),
+        ...(this.config.isolationBackend ? { isolationBackend: this.config.isolationBackend } : {}),
+        ...(this.config.policyOverrides ? { overrides: this.config.policyOverrides } : {}),
+      });
+      await this.eventBus.emit("execution.policy.resolved", {
+        executionId, missionId: context.missionId, capability: proposal.capability,
+        riskLevel: policy.riskLevel, timeoutMs: policy.timeoutMs,
+        isolation: policy.isolation.state, policyDigest: policy.digest,
+      }, { actor: "harness" }).catch(() => undefined);
+      if (policy.isolation.state === "FAILED_CLOSED") {
+        // Required isolation unavailable: durable denial, no fallback, no
+        // silent downgrade to a weaker mode.
+        await this.eventBus.emit("execution.denied", {
+          executionId, missionId: context.missionId, capability: proposal.capability,
+          reason: `required isolation '${policy.isolation.requiredLevel}' unavailable`,
+        }, { actor: "harness" }).catch(() => undefined);
+        const outcome = this.createDeniedOutcome(
+          proposal, executionId, context,
+          `Required isolation level '${policy.isolation.requiredLevel}' is unavailable on this runtime; execution fails closed.`,
+        );
+        return { outcome, verification: this.createSkippedVerification(proposal, "Isolation requirement unavailable"), evidence, policy };
+      }
+
       // Step 4: Authorize through capability broker
       const capabilityDecision = await this.authorize(proposal, context, resolution, actionDescriptor, authorizedRequests);
       if (!capabilityDecision.granted) {
+        await this.eventBus.emit("execution.denied", {
+          executionId, missionId: context.missionId, capability: proposal.capability,
+          reason: capabilityDecision.reason,
+        }, { actor: "harness" }).catch(() => undefined);
         const outcome = this.createDeniedOutcome(proposal, executionId, context, capabilityDecision.reason);
-        return { outcome, verification: this.createSkippedVerification(proposal, "Authorization denied") };
+        return { outcome, verification: this.createSkippedVerification(proposal, "Authorization denied"), evidence, policy };
       }
 
       // Step 5: Lower proposal to ActionRequestV1
       const actionRequest = this.lowerProposal(proposal, resolution);
 
-      // Step 6: Determine effective timeout
-      const effectiveTimeoutMs = this.getEffectiveTimeout(proposal, actionDescriptor);
+      // Step 6 (P12): the effective timeout is POLICY-owned. The proposal's
+      // timeoutMs is no longer consulted — the runtime cannot be talked
+      // into a longer execution by payload data.
+      const effectiveTimeoutMs = policy.timeoutMs;
 
       // Step 7: Execute through ActionRuntime with timeout enforcement
       const executionContext: ExecutionContextV1 = {
@@ -191,8 +250,12 @@ export class DefaultExecutionHarness implements ExecutionHarness {
           toolId: proposal.capability, permission: approved.permission!, input: proposal.arguments, reason: proposal.intent });
         const current = this.capabilityBroker.revalidateAuthority?.(request);
         if (current && !current.granted) {
+          await this.eventBus.emit("execution.denied", {
+            executionId, missionId: context.missionId, capability: proposal.capability,
+            reason: current.reason,
+          }, { actor: "harness" }).catch(() => undefined);
           const outcome = this.createDeniedOutcome(proposal, executionId, context, current.reason);
-          return { outcome, verification: this.createSkippedVerification(proposal, current.reason) };
+          return { outcome, verification: this.createSkippedVerification(proposal, current.reason), evidence, policy };
         }
       }
 
@@ -202,8 +265,16 @@ export class DefaultExecutionHarness implements ExecutionHarness {
         executionContext,
         effectiveTimeoutMs,
         controller,
-        actionDescriptor
+        actionDescriptor,
+        evidence,
       );
+
+      // Step 7b (P12): output containment at the boundary. Oversized output
+      // is dropped and flagged — never previewed.
+      const contained = clampOutputBytes(actionResult.output, policy.limits.maxOutputBytes);
+      const containedResult: ActionResultV1 = contained.truncated
+        ? { ...actionResult, output: { ...contained.output } as JsonObject }
+        : actionResult;
 
       // Step 8: Update circuit breaker on success
       if (actionDescriptor && actionResult.status === "SUCCEEDED") {
@@ -211,7 +282,7 @@ export class DefaultExecutionHarness implements ExecutionHarness {
       }
 
       // Step 9: Verify result
-      const verification = await this.verifyResult(proposal, actionResult, executionId);
+      const verification = await this.verifyResult(proposal, containedResult, executionId);
 
       // Step 10: Build outcome
       const outcome: ActionOutcome = {
@@ -219,24 +290,55 @@ export class DefaultExecutionHarness implements ExecutionHarness {
         executionId,
         missionId: context.missionId,
         executedAt: new Date().toISOString(),
-        actionResult,
+        actionResult: containedResult,
         verification,
       };
+
+      if (evidence.timedOut) {
+        evidence.cancelled = false;
+        await this.eventBus.emit("execution.timeout", {
+          executionId, missionId: context.missionId, capability: proposal.capability,
+          timeoutMs: policy.timeoutMs,
+        }, { actor: "harness" }).catch(() => undefined);
+      } else if (combinedSignal.aborted || context.signal?.aborted) {
+        evidence.cancelled = true;
+        await this.eventBus.emit("execution.cancelled", {
+          executionId, missionId: context.missionId, capability: proposal.capability,
+        }, { actor: "harness" }).catch(() => undefined);
+      }
 
       // Emit completion event
       await this.eventBus.emit("harness.execution.completed", {
         executionId,
         missionId: context.missionId,
         proposalId: proposal.id,
-        status: actionResult.status,
+        status: containedResult.status,
         verification: verification.status,
       }, { actor: "harness" });
 
-      return { outcome, verification };
+      return { outcome, verification, evidence, policy };
     } catch (error) {
       // Handle execution errors
       const message = error instanceof Error ? error.message : String(error);
-      
+
+      // P12 evidence: distinguish runtime-observed timeout / cancellation
+      // from plain failure by the signals the harness itself controls.
+      if (evidence.timedOut) {
+        evidence.cancelled = false;
+      } else if (context.signal?.aborted) {
+        evidence.cancelled = true;
+      }
+      if (evidence.timedOut) {
+        await this.eventBus.emit("execution.timeout", {
+          executionId, missionId: context.missionId, capability: proposal.capability,
+          timeoutMs: policy?.timeoutMs ?? 0,
+        }, { actor: "harness" }).catch(() => undefined);
+      } else if (evidence.cancelled) {
+        await this.eventBus.emit("execution.cancelled", {
+          executionId, missionId: context.missionId, capability: proposal.capability,
+        }, { actor: "harness" }).catch(() => undefined);
+      }
+
       // Update circuit breaker on failure
       if (actionDescriptor) {
         this.recordCircuitBreakerFailure(actionDescriptor.providerId);
@@ -262,7 +364,7 @@ export class DefaultExecutionHarness implements ExecutionHarness {
         verification,
       };
 
-      return { outcome, verification };
+      return { outcome, verification, evidence, policy };
     } finally {
       this.activeExecutions.delete(executionId);
     }
@@ -299,18 +401,6 @@ export class DefaultExecutionHarness implements ExecutionHarness {
     if (proposal.riskLevel !== "READ_ONLY" && !proposal.idempotencyKey) {
       throw new Error("Non-read actions require an idempotency key");
     }
-  }
-
-  private getEffectiveTimeout(proposal: ActionProposal, actionDescriptor?: ActionDescriptorV1): number {
-    // Use the minimum of: proposal timeout, descriptor timeout, risk-level default
-    let timeout = proposal.timeoutMs;
-    
-    if (actionDescriptor) {
-      timeout = Math.min(timeout, actionDescriptor.timeoutMs);
-    }
-    
-    const riskTimeout = this.riskTimeouts[proposal.riskLevel] ?? this.config.defaultTimeoutMs;
-    return Math.min(timeout, riskTimeout);
   }
 
   private getCircuitBreakerState(providerId: string): CircuitBreakerState {
@@ -482,7 +572,8 @@ export class DefaultExecutionHarness implements ExecutionHarness {
     context: ExecutionContextV1,
     timeoutMs: number,
     controller: AbortController,
-    actionDescriptor?: ActionDescriptorV1
+    actionDescriptor?: ActionDescriptorV1,
+    evidence?: { timedOut: boolean; cancelled: boolean },
   ): Promise<ActionResultV1> {
     if (context.signal?.aborted) throw new Error("Execution cancelled before dispatch.");
     if (context.deadline && (!Number.isFinite(Date.parse(context.deadline)) || Date.now() >= Date.parse(context.deadline))) throw new Error("Execution deadline expired or is invalid.");
@@ -498,7 +589,10 @@ export class DefaultExecutionHarness implements ExecutionHarness {
     }
     const effectiveTimeout = Math.min(timeoutMs, actionDescriptor?.timeoutMs ?? timeoutMs,
       context.deadline ? Date.parse(context.deadline) - Date.now() : Infinity);
-    const timer = setTimeout(() => controller.abort(new Error("Action execution timed out.")), effectiveTimeout);
+    const timer = setTimeout(() => {
+      if (evidence) evidence.timedOut = true;
+      controller.abort(new Error("Action execution timed out."));
+    }, effectiveTimeout);
     try {
       // ActionRuntime owns policy, validation, idempotency, approval and evidence.
       // Await settlement even after abort so the harness cannot return while effects are still running.

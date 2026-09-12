@@ -113,6 +113,30 @@ model-to-tool execution path and no hidden provider coupling — provider
 access happens only through the injected governed model runtime under
 explicit broker authorization.
 
+## Secure Execution & Isolation surface
+
+The SDK exports the P12 contracts (ADR 0046): the canonical
+`ExecutionPolicy` builder (`resolveExecutionPolicy`, plus
+`serializeExecutionPolicy`/`parseExecutionPolicy`/`policyDigest` —
+deterministic, digest-stabilized, fail-closed on unknown fields and
+tampering), honest isolation classification (`resolveIsolationState` —
+`POLICY_RESTRICTED` is broker-policy enforcement of registered host
+functions and is never a sandbox claim; unavailable required isolation
+fails closed), runtime-evidence execution-state classification
+(`classifyExecutionState`, `journalStateForExecution` — success without
+verification is `EXECUTION_COMPLETED`, never `EXECUTION_VERIFIED`),
+output containment (`clampOutputBytes` — oversized output is dropped,
+never previewed), and the at-most-once step dispatch journal
+(`stepAttemptKey`, `InMemoryStepAttemptJournal`,
+`JsonFileStepAttemptJournal` — timeout/crash/cancellation settle AMBIGUOUS
+and are never re-executed). Policy resolution is provider-neutral and
+derives exclusively from runtime-trusted inputs (risk tier, descriptor
+timeout, deployer configuration); model-supplied timeout/sandbox/risk
+values never feed it. Memory limits are advisory (serialized `null`) and
+policies claiming enforced memory limits fail validation. No broker
+internals, isolation backends, or privileged execution primitives are
+exported.
+
 ## Requirements
 
 - Node.js 20+

@@ -156,9 +156,19 @@ unauthorized actions and has no fallback execution path.
   provider is reachable — output is never fabricated.
 - `status [missionId]` — lists durable governed run records (missionId,
   state, stop reason, step count) or inspects one run with per-step
-  metadata (capability, status, verification, decision, error code).
-  Records persist under `<dataDir>/governed-missions/` and are visible
-  across processes.
+  metadata (capability, status, verification, decision, error code, plus
+  the P12 execution state and isolation state — e.g.
+  `EXECUTION_COMPLETED` under `POLICY_RESTRICTED`, honestly labeled as
+  broker-policy enforcement, not a sandbox). Records persist under
+  `<dataDir>/governed-missions/` and are visible across processes.
+
+P12 (ADR 0046) hardening on the same path: every governed execution runs
+under a server-derived ExecutionPolicy (runtime-owned timeout, output
+containment, at-most-once dispatch, in-process concurrency bound). A step
+that timed out, was cancelled, or crashed mid-dispatch settles AMBIGUOUS in
+the durable step-attempt journal and is never re-executed — re-runs fail
+closed. Missions that require an isolation level the runtime cannot
+provide are DENIED (no silent downgrade).
 
 Output is metadata-only — no prompts, no model output, no action
 arguments, no secrets. Exit codes: 0 success (SUCCEEDED mission), 1

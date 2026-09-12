@@ -20,6 +20,10 @@ import { type ExecutionHarness, type HarnessExecutionContext, DefaultExecutionHa
 import { type ActionProposal } from "./action-contract.js";
 import { ACTION_PROPOSAL_SCHEMA_REF, buildCapabilityIndex, buildIterationPlan, parseActionProposal, stepIdempotencyKey, type ParsedProposalIntent } from "./proposal-parser.js";
 import {
+  classifyExecutionState, journalStateForExecution, DEFAULT_MAX_CONCURRENT_STEPS,
+} from "./execution-policy.js";
+import { InMemoryStepAttemptJournal, stepAttemptKey, type StepAttemptJournal } from "./step-attempt-journal.js";
+import {
   assertMissionTransition, planMissionTransition,
   type MissionState, type MissionTransitionTrigger,
 } from "./mission-state-machine.js";
@@ -89,6 +93,16 @@ export interface GovernedMissionLoopOptions {
   readonly memoryLimit?: number;
   /** Where to persist the run record; omit for in-memory only. */
   readonly runStore?: MissionRunStore;
+  /**
+   * P12 (ADR 0046): durable at-most-once dispatch journal. When provided,
+   * a step (mission, stepIndex, capability) can be dispatched at most once
+   * per process lifetime across restarts; crash-window attempts reconcile
+   * to AMBIGUOUS and are never re-executed. Default: in-memory journal
+   * scoped to this loop instance.
+   */
+  readonly stepJournal?: StepAttemptJournal;
+  /** P12: bounded concurrent governed executions (enforced in-process). */
+  readonly maxConcurrentSteps?: number;
 }
 
 export interface MissionRunStore {
@@ -125,6 +139,11 @@ export class GovernedMissionLoop {
   private readonly actor: string;
   private readonly runs = new Map<string, LoopRun>();
   private readonly cancellers = new Map<string, AbortController>();
+  /** P12: at-most-once step dispatch journal (durable when provided). */
+  private readonly stepJournal: StepAttemptJournal;
+  /** P12: in-process concurrency bound for governed executions. */
+  private readonly maxConcurrentSteps: number;
+  private activeSteps = 0;
 
   constructor(private readonly options: GovernedMissionLoopOptions) {
     // Fail fast on missing required authorities: a governed loop constructed
@@ -147,6 +166,8 @@ export class GovernedMissionLoop {
     this.maxRetriesPerStep = options.maxRetriesPerStep ?? 2;
     this.memoryLimit = options.memoryLimit ?? 5;
     this.actor = options.actor ?? "governed-mission-loop";
+    this.stepJournal = options.stepJournal ?? new InMemoryStepAttemptJournal();
+    this.maxConcurrentSteps = options.maxConcurrentSteps ?? DEFAULT_MAX_CONCURRENT_STEPS;
   }
 
   /** Run (or resume, when a stored non-terminal run exists) a governed mission. */
@@ -162,6 +183,11 @@ export class GovernedMissionLoop {
     const controller = new AbortController();
     const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
     this.cancellers.set(request.missionId, controller);
+
+    // P12: on every run, reconcile crash-window step attempts left
+    // DISPATCHING by a previous process. They become AMBIGUOUS and can
+    // never be re-dispatched — this is the at-most-once recovery pass.
+    await this.stepJournal.reconcileOrphans().catch(() => undefined);
 
     // Idempotent resume: a stored TERMINAL run fails closed (never silently
     // re-executed); a stored non-terminal run continues from its iterations.
@@ -394,8 +420,71 @@ export class GovernedMissionLoop {
         riskLevel: proposal.riskLevel,
         ...(proposal.idempotencyKey ? { idempotencyKey: proposal.idempotencyKey } : {}),
       });
+
+      // P12: at-most-once dispatch. Reserve the step in the journal BEFORE
+      // the harness runs; an already-reserved step (retry after timeout,
+      // restart, duplicate) is refused without a second dispatch. Crash
+      // between reserve and settle leaves DISPATCHING, which reconciles to
+      // AMBIGUOUS on recovery — never re-executed.
+      const attemptKey = stepAttemptKey(request.missionId, stepIndex, proposal.capability);
+      const harnessExecutionId = createId("exec");
+      const reserved = await this.stepJournal.reserve({
+        attemptKey,
+        missionId: request.missionId,
+        stepIndex,
+        capability: proposal.capability,
+        executionId: harnessExecutionId,
+      });
+      if (!reserved) {
+        const journalRecord = await this.stepJournal.load(attemptKey);
+        return this.failedIteration(run, iterationId, stepIndex, startedAt, usage,
+          "mission.step_already_dispatched",
+          `Step (${stepIndex}, ${proposal.capability}) was already dispatched (state: ${journalRecord?.state ?? "unknown"}); at-most-once dispatch refuses re-execution.`);
+      }
+
+      // P12: in-process concurrency bound. The loop serializes steps, but
+      // concurrent loop instances sharing one journal must not exceed the
+      // configured concurrent execution ceiling.
+      if (this.activeSteps >= this.maxConcurrentSteps) {
+        return this.failedIteration(run, iterationId, stepIndex, startedAt, usage,
+          "mission.concurrency_exhausted",
+          `Concurrent governed execution limit (${this.maxConcurrentSteps}) reached; the step fails closed instead of queueing unbounded work.`);
+      }
+      this.activeSteps += 1;
+
       const harnessContext: HarnessExecutionContext = { missionId: request.missionId, runId: run.runId, iterationId, actor: this.actor, signal };
-      const harnessResult = await this.harness.execute(proposal, harnessContext);
+      let harnessResult;
+      let harnessThrew = false;
+      try {
+        harnessResult = await this.harness.execute(proposal, harnessContext);
+      } catch (harnessError: unknown) {
+        // The harness settles its own errors into FAILED outcomes by
+        // contract; a THROW means dispatch state is unknown — settle
+        // AMBIGUOUS, never guess.
+        harnessThrew = true;
+        throw harnessError;
+      } finally {
+        this.activeSteps -= 1;
+        // P12: settle the journal from RUNTIME evidence only — classified
+        // state, never provider self-report.
+        const executionState = harnessThrew || harnessResult === undefined
+          ? "EXECUTION_AMBIGUOUS" as const
+          : classifyExecutionState({
+              status: harnessResultSafeStatus(harnessResult),
+              verificationStatus: harnessResultSafeVerification(harnessResult),
+              ...(harnessResult.evidence?.timedOut ? { timedOut: true } : {}),
+              ...(harnessResult.evidence?.cancelled ? { cancelled: true } : {}),
+            });
+        try {
+          await this.stepJournal.settle(attemptKey, {
+            state: journalStateForExecution(executionState),
+            executionState,
+          });
+        } catch {
+          // Journal settlement failures never mask the original result;
+          // the iteration records the outcome honestly either way.
+        }
+      }
       usage = recordToolCall(usage);
 
       const status = harnessResult.outcome.actionResult.status;
@@ -418,6 +507,15 @@ export class GovernedMissionLoop {
           status,
           executionId: harnessResult.outcome.executionId,
           verification: harnessResult.verification.status,
+          // P12 honest execution-state classification (runtime evidence only).
+          executionState: classifyExecutionState({
+            status,
+            verificationStatus: harnessResult.verification.status,
+            ...(harnessResult.evidence?.timedOut ? { timedOut: true } : {}),
+            ...(harnessResult.evidence?.cancelled ? { cancelled: true } : {}),
+          }),
+          // P12 honest isolation state governing this execution.
+          ...(harnessResult.policy ? { isolation: harnessResult.policy.isolation.state } : {}),
         },
         selectedAction: proposalView(proposal),
         permissionDecision: {
@@ -520,6 +618,22 @@ function errorSignature(result: import("../../contracts/v1/contracts.js").Action
   const message = result.output?.["error"] ?? result.output?.["reason"];
   const text = typeof message === "string" ? message : "unknown";
   return createHash("sha256").update(`${result.status}:${text}`).digest("hex").slice(0, 16);
+}
+
+/**
+ * P12 settlement helpers: read harness evidence defensively so a thrown
+ * harness execution still settles its journal entry honestly (AMBIGUOUS
+ * unless the error is provably a non-dispatch).
+ */
+function harnessResultSafeStatus(harnessResult: Awaited<ReturnType<ExecutionHarness["execute"]>> | undefined):
+  "SUCCEEDED" | "FAILED" | "CANCELLED" | "DENIED" {
+  return harnessResult?.outcome.actionResult.status ?? "FAILED";
+}
+
+function harnessResultSafeVerification(harnessResult: Awaited<ReturnType<ExecutionHarness["execute"]>> | undefined):
+  "PASSED" | "FAILED" | "INCONCLUSIVE" | "SKIPPED" | undefined {
+  const status = harnessResult?.verification.status;
+  return status === "PASSED" || status === "FAILED" || status === "INCONCLUSIVE" || status === "SKIPPED" ? status : undefined;
 }
 
 /**

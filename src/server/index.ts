@@ -836,6 +836,9 @@ export class QuackHttpServer {
             status: step.executionResult?.actionResult.status ?? null,
             verification: step.verification?.status ?? null,
             decision: step.permissionDecision?.decision ?? null,
+            // P12 (ADR 0046): honest execution/isolation state, metadata-only.
+            executionState: step.observations["executionState"] ?? null,
+            isolation: step.observations["isolation"] ?? null,
             code: step.observations["code"] ?? null,
             stopReason: step.stopReason ?? null,
           })),

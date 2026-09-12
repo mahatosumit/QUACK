@@ -295,8 +295,7 @@ test('P10.15 SDK exports the governed ecosystem catalog surface with stable cont
   assert.equal(scored.dimensions.manifestIntegrity, 100);
 });
 
-test('P11 SDK exports the governed mission runtime surface with stable contracts', async () => {
-  const {
+test('P11 SDK exports the governed mission runtime surface with stable contracts', async () => {  const {
     GovernedMissionLoop, InMemoryMissionRunStore,
     ACTION_PROPOSAL_SCHEMA_REF, parseActionProposal, stepIdempotencyKey,
     buildIterationPlan, buildCapabilityIndex,
@@ -350,4 +349,61 @@ test('P11 SDK exports the governed mission runtime surface with stable contracts
   // injected, never bundled): a loop without its required authorities cannot
   // even be constructed — it can never silently "execute" anything.
   assert.throws(() => new GovernedMissionLoop({}), /requires 'broker'/);
+});
+
+test('P12 SDK exports the secure execution and isolation surface with stable contracts', async () => {
+  const {
+    EXECUTION_POLICY_VERSION, DEFAULT_RISK_TIMEOUTS, DEFAULT_MAX_OUTPUT_BYTES,
+    resolveExecutionPolicy, resolveIsolationState, serializeExecutionPolicy,
+    parseExecutionPolicy, policyDigest, classifyExecutionState,
+    journalStateForExecution, clampOutputBytes,
+    stepAttemptKey, InMemoryStepAttemptJournal, JsonFileStepAttemptJournal,
+  } = await import('@quack/sdk');
+
+  // Contract constants are reachable through the package.
+  assert.equal(EXECUTION_POLICY_VERSION, 1);
+  assert.equal(DEFAULT_RISK_TIMEOUTS.READ_ONLY, 30_000);
+  assert.ok(DEFAULT_MAX_OUTPUT_BYTES > 0);
+  for (const fn of [resolveExecutionPolicy, resolveIsolationState, serializeExecutionPolicy,
+    parseExecutionPolicy, policyDigest, classifyExecutionState, journalStateForExecution,
+    clampOutputBytes, stepAttemptKey]) {
+    assert.equal(typeof fn, 'function');
+  }
+
+  // Policy resolution is deterministic and provider-neutral through the SDK.
+  const policy = resolveExecutionPolicy({ capability: 'demo.read', providerKind: 'ACTION_PROVIDER', riskLevel: 'READ_ONLY' });
+  assert.equal(policy.isolation.state, 'POLICY_RESTRICTED', 'default is a policy boundary, honestly labeled');
+  assert.equal(policy.limits.maxAttempts, 1, 'at-most-once dispatch');
+  assert.equal(policy.limits.memoryBytes, null, 'memory limits are advisory, never claimed enforced');
+  const again = resolveExecutionPolicy({ capability: 'demo.read', providerKind: 'ACTION_PROVIDER', riskLevel: 'READ_ONLY' });
+  assert.equal(policy.digest, again.digest, 'deterministic digest');
+
+  // Isolation honesty fails closed through the package path.
+  assert.equal(resolveIsolationState({ requiredLevel: 'CONTAINER_ISOLATED' }).state, 'FAILED_CLOSED');
+  assert.equal(resolveIsolationState({ requiredLevel: 'IN_PROCESS' }).state, 'POLICY_RESTRICTED');
+
+  // Serialized policy round-trips; tampering fails closed through the SDK.
+  const round = parseExecutionPolicy(JSON.stringify(policy));
+  assert.equal(round.ok, true);
+  const tampered = parseExecutionPolicy(JSON.stringify({ ...policy, timeoutMs: policy.timeoutMs + 60_000 }));
+  assert.equal(tampered.ok, false, 'digest mismatch rejected');
+
+  // Classification: success without runtime verification is never VERIFIED.
+  assert.equal(classifyExecutionState({ status: 'SUCCEEDED' }), 'EXECUTION_COMPLETED');
+  assert.equal(classifyExecutionState({ status: 'SUCCEEDED', verificationStatus: 'PASSED' }), 'EXECUTION_VERIFIED');
+  assert.equal(journalStateForExecution('EXECUTION_TIMED_OUT'), 'AMBIGUOUS');
+
+  // Output containment drops oversized output without previewing it.
+  const contained = clampOutputBytes({ blob: 'x'.repeat(10_000) }, 1_024);
+  assert.equal(contained.truncated, true);
+  assert.equal(JSON.stringify(contained.output).includes('xxxx'), false);
+
+  // The at-most-once step journal is usable standalone through the package.
+  const journal = new InMemoryStepAttemptJournal();
+  const key = stepAttemptKey('sdk-m', 0, 'demo.read');
+  assert.equal(await journal.reserve({ attemptKey: key, missionId: 'sdk-m', stepIndex: 0, capability: 'demo.read', executionId: 'e1' }), true);
+  assert.equal(await journal.reserve({ attemptKey: key, missionId: 'sdk-m', stepIndex: 0, capability: 'demo.read', executionId: 'e2' }), false, 'duplicate step refused');
+  await journal.settle(key, { state: 'COMPLETED', executionState: 'EXECUTION_COMPLETED' });
+  assert.equal((await journal.load(key)).state, 'COMPLETED');
+  assert.equal(typeof JsonFileStepAttemptJournal, 'function');
 });

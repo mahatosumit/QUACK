@@ -274,6 +274,40 @@ export type {
   ProposalErrorCode,
 } from "@quack/os";
 
+// Secure Execution & Isolation (P12, ADR 0046) — the canonical execution
+// policy, honest isolation classification, at-most-once step dispatch, and
+// runtime-evidence execution states. Provider-neutral contracts only: no
+// broker internals, no privileged execution primitives, no isolation
+// backends. POLICY_RESTRICTED is a policy boundary, not a sandbox claim.
+export {
+  EXECUTION_POLICY_VERSION,
+  DEFAULT_RISK_TIMEOUTS,
+  DEFAULT_MAX_OUTPUT_BYTES,
+  DEFAULT_MAX_CONCURRENT_STEPS,
+  resolveExecutionPolicy,
+  resolveIsolationState,
+  serializeExecutionPolicy,
+  parseExecutionPolicy,
+  policyDigest,
+  classifyExecutionState,
+  journalStateForExecution,
+  clampOutputBytes,
+  stepAttemptKey,
+  InMemoryStepAttemptJournal,
+  JsonFileStepAttemptJournal,
+} from "@quack/os";
+export type {
+  ExecutionPolicy,
+  ExecutionPolicyInput,
+  IsolationState,
+  ExecutionState,
+  ExecutionStateEvidence,
+  RiskLevelTimeouts,
+  StepAttemptJournal,
+  StepAttemptRecord,
+  StepAttemptState,
+} from "@quack/os";
+
 // Workspace
 
 

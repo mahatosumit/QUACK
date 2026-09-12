@@ -80,6 +80,7 @@ import { QuackNativeHarness } from "../harness/registry.js";
 import { ActionRuntime, ActionProviderRegistry } from "../actions/runtime.js";
 import { GovernedMissionLoop, type MissionRunStore } from "../runtime/mission-lifecycle/governed-mission-loop.js";
 import { JsonFileMissionRunStore } from "../runtime/mission-lifecycle/mission-run-store.js";
+import { JsonFileStepAttemptJournal } from "../runtime/mission-lifecycle/step-attempt-journal.js";
 import { memoryCandidatesFromRetrieval } from "../memory/semantic/qie.js";
 import { InstructionObserver } from "../instruction/observer.js";
 import { type PermissionPolicy } from "../security/permissions.js";
@@ -845,7 +846,11 @@ runtime = new QuackRuntime({
   // The loop NEVER provisions its own grants — standing consent flows
   // through the operator's configured permission set exactly like
   // `submitGoal` missions.
+  // P12 (ADR 0046): the durable step-attempt journal makes step dispatch
+  // at-most-once across process restarts; crash-window attempts reconcile
+  // to AMBIGUOUS and are never re-executed.
   const governedMissionRunStore = new JsonFileMissionRunStore(config.dataDir);
+  const governedStepJournal = new JsonFileStepAttemptJournal(config.dataDir);
   const instructionObserver = new InstructionObserver({ events });
   const governedMissionLoop = new GovernedMissionLoop({
     broker: capabilityBroker,
@@ -868,6 +873,7 @@ runtime = new QuackRuntime({
       return retrieval.ok ? memoryCandidatesFromRetrieval(retrieval.data) : [];
     },
     runStore: governedMissionRunStore,
+    stepJournal: governedStepJournal,
   });
 
 const agentLoop = new AgentLoop({
