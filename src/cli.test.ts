@@ -349,3 +349,83 @@ test("P10.13 commandExtension validates, installs, and lifecycle-manages extensi
   assert.equal(afterRemove, 0);
   assert.ok(lines.join("\n").includes("No extensions installed yet."), "removal leaves no ghost");
 });
+
+test("P11 CLI parseArgs parses govmission run/status with targets", async () => {
+  const { parseArgs } = await import("./cli.js") as { parseArgs: (argv: string[]) => { command: string; options: { govMissionAction?: string; govMissionTarget?: string; json: boolean } } };
+  const listed = parseArgs(["node", "cli.js", "govmission"]);
+  assert.equal(listed.command, "govmission");
+  assert.equal(listed.options.govMissionAction, undefined, "bare govmission is a usage error at dispatch time (no silent default)");
+  const run = parseArgs(["node", "cli.js", "govmission", "run", "Summarize the workspace"]);
+  assert.equal(run.options.govMissionAction, "run");
+  assert.equal(run.options.govMissionTarget, "Summarize the workspace");
+  const runJson = parseArgs(["node", "cli.js", "govmission", "run", "Objective text", "--json"]);
+  assert.equal(runJson.options.govMissionTarget, "Objective text", "--json is never eaten as the objective");
+  assert.equal(runJson.options.json, true);
+  const status = parseArgs(["node", "cli.js", "govmission", "status", "gov_abc"]);
+  assert.equal(status.options.govMissionAction, "status");
+  assert.equal(status.options.govMissionTarget, "gov_abc");
+  const statusAll = parseArgs(["node", "cli.js", "govmission", "status"]);
+  assert.equal(statusAll.options.govMissionTarget, undefined);
+});
+
+test("P11 commandGovMission requires an objective and honest provider.invoke consent", async (context) => {
+  const { commandGovMission } = await import("./cli/commands.js");
+  const { loadCliConfig } = await import("./cli/config.js");
+  const root = await mkdtemp(join(tmpdir(), "quack-govmission-cli-test-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const config = loadCliConfig({ cli: { dataDir: join(root, "state"), workspaceRoot: root } });
+  const lines: string[] = [];
+  context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });
+  context.mock.method(console, "error", (message: unknown) => { lines.push(String(message)); });
+
+  // Missing objective → usage error.
+  assert.equal(await commandGovMission({ json: false, config }, "run", ""), 2);
+  assert.ok(lines.join("\n").includes("requires an objective"));
+
+  // No permission declaration → fails closed with explicit guidance.
+  lines.length = 0;
+  const previous = process.env["QUACK_GOVMISSION_PERMISSIONS"];
+  delete process.env["QUACK_GOVMISSION_PERMISSIONS"];
+  try {
+    assert.equal(await commandGovMission({ json: false, config }, "run", "do something"), 2);
+    assert.ok(lines.join("\n").includes("provider.invoke"), "explains the provider.invoke requirement");
+  } finally {
+    if (previous !== undefined) process.env["QUACK_GOVMISSION_PERMISSIONS"] = previous;
+    else delete process.env["QUACK_GOVMISSION_PERMISSIONS"];
+  }
+});
+
+test("P11 commandGovMission status lists persisted runs across processes and exits 3 for unknown ids", async (context) => {
+  const { commandGovMission } = await import("./cli/commands.js");
+  const { loadCliConfig } = await import("./cli/config.js");
+  const { JsonFileMissionRunStore } = await import("./runtime/mission-lifecycle/mission-run-store.js");
+  const { createLoopRun, terminateRun } = await import("./runtime/mission-lifecycle/executive-loop.js");
+  const root = await mkdtemp(join(tmpdir(), "quack-govmission-status-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const config = loadCliConfig({ cli: { dataDir: join(root, "state"), workspaceRoot: root } });
+  const lines: string[] = [];
+  context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });
+  context.mock.method(console, "error", (message: unknown) => { lines.push(String(message)); });
+
+  // Simulate a record persisted by an earlier process.
+  const store = new JsonFileMissionRunStore(join(root, "state"));
+  const run = terminateRun(createLoopRun({
+    missionId: "gov_earlier", goal: "earlier mission", actor: "operator",
+    budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+  }), "STOP_GOAL_ACHIEVED");
+  await store.save({ ...run, currentState: "SUCCEEDED" });
+
+  assert.equal(await commandGovMission({ json: false, config }, "status"), 0);
+  const listing = lines.join("\n");
+  assert.ok(listing.includes("gov_earlier"), "earlier-process record is visible");
+  assert.ok(listing.includes("SUCCEEDED"));
+
+  lines.length = 0;
+  assert.equal(await commandGovMission({ json: true, config }, "status", "gov_earlier"), 0);
+  const inspected = JSON.parse(lines.join("\n")) as { missionId: string; state: string };
+  assert.equal(inspected.missionId, "gov_earlier");
+  assert.equal(inspected.state, "SUCCEEDED");
+
+  lines.length = 0;
+  assert.equal(await commandGovMission({ json: false, config }, "status", "gov_never_ran"), 3, "unknown id exits 3");
+});

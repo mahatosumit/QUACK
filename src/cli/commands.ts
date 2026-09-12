@@ -517,6 +517,167 @@ function extensionView(record: import("../ecosystem/registry.js").RegistryRecord
 }
 
 // ---------------------------------------------------------------------------
+// quack govmission run "<objective>" | status [missionId] (P11)
+// ---------------------------------------------------------------------------
+
+/**
+ * P11 governed mission runtime CLI. `run` executes a mission through the
+ * governed loop (QIE → model → parser → broker → existing surfaces);
+ * `status` lists/inspects durable run records. Output is metadata-only —
+ * no prompts, no model output, no arguments. Exit codes: 0 success,
+ * 1 mission failure, 2 usage error, 3 unknown mission.
+ */
+export async function commandGovMission(
+  context: CommandContext,
+  action: "run" | "status",
+  target?: string,
+): Promise<number> {
+  if (action === "run") {
+    if (!target || !target.trim()) {
+      console.error("quack govmission run requires an objective: quack govmission run \"<objective>\"");
+      return 2;
+    }
+    // A governed mission is model-in-the-loop by design: every iteration
+    // dispatches through the governed model runtime, which resolves
+    // provider.invoke through the broker. That permission is HIGH-RISK by
+    // policy, so it is never granted implicitly — the operator declares the
+    // mission's permission set explicitly (comma-separated, allowlisted
+    // env read only; no process.env spread). The declaration becomes the
+    // recorded approval provenance on the mission's capability grants.
+    const declared = process.env["QUACK_GOVMISSION_PERMISSIONS"];
+    const { isPermission } = await import("../security/permissions.js");
+    const permissions = (declared ?? "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .filter((entry): entry is import("../security/permissions.js").Permission => isPermission(entry));
+    if (!permissions.includes("provider.invoke")) {
+      if (context.json) {
+        out(context, { ok: false, error: "mission.govmission_provider_invoke_required", message: "A governed mission requires the operator to declare provider.invoke authority (e.g. QUACK_GOVMISSION_PERMISSIONS=\"provider.invoke,workspace.read\")." });
+      } else {
+        console.error("Governed missions are model-in-the-loop; provider.invoke is high-risk and must be declared explicitly:");
+        console.error('  QUACK_GOVMISSION_PERMISSIONS="provider.invoke,workspace.read" quack govmission run "<objective>"');
+      }
+      return 2;
+    }
+    const missionId = `gov_${Date.now().toString(36)}`;
+    // provider.invoke is medium/high-risk policy: the permission declaration
+    // alone is not enough — the operator confirms each governed run through
+    // the standard approval callback (same contract as extension installs).
+    const { ConsoleApprovalCallback } = await import("../security/approval-controller.js");
+    const system = createQuackSystem({
+      dataDir: context.config.dataDir,
+      workspaceRoot: context.config.workspaceRoot,
+      permissions,
+      approver: context.approver ?? new ConsoleApprovalCallback(),
+      // Seed the mission's grants from the operator's explicit declaration:
+      // the env consent IS the recorded approval provenance. The broker
+      // still validates every request (policy + grant + revalidate).
+      capabilityGrants: permissions.map((permission) => ({
+        missionId,
+        capabilities: [`permission.${permission}`],
+        approval: {
+          approvedBy: "operator:QUACK_GOVMISSION_PERMISSIONS",
+          reason: `Explicit operator permission declaration for governed mission ${missionId}.`,
+          approvedAt: new Date().toISOString(),
+        },
+      })),
+    });
+    try {
+      const result = await system.governedMissionLoop.run({ missionId, objective: target });
+      if (!result.ok) {
+        if (context.json) out(context, { ok: false, error: result.error.message, code: result.error.code });
+        else console.error(`Governed mission rejected: ${result.error.message}`);
+        await system.events.drain();
+        return 1;
+      }
+      const { run, finalState } = result.data;
+      if (context.json) {
+        out(context, {
+          ok: true,
+          missionId: run.missionId,
+          runId: run.runId,
+          finalState,
+          stopReason: run.stopReason ?? null,
+          iterations: run.iterations.length,
+          steps: run.iterations.map(iterationView),
+        });
+      } else {
+        console.log(`Mission ${run.missionId}: ${finalState} (${run.stopReason ?? "ran to completion"})`);
+        for (const step of run.iterations) {
+          const view = iterationView(step);
+          console.log(`  step ${view.step}: ${view.capability ?? "model"} → ${view.status ?? view.code ?? "?"}`);
+        }
+      }
+      await system.events.drain();
+      return finalState === "SUCCEEDED" ? 0 : 1;
+    } catch (error) {
+      if (context.json) out(context, { error: String(error) });
+      else console.error("Governed mission failed:", error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+  // status [missionId]
+  const system = createQuackSystem({
+    dataDir: context.config.dataDir,
+    workspaceRoot: context.config.workspaceRoot,
+  });
+  try {
+    if (target) {
+      const run = await system.governedMissionLoop.getRun(target);
+      if (!run) {
+        if (context.json) out(context, { error: "mission.govmission_not_found", message: `No governed run for ${target}.` });
+        else console.error(`No governed run for ${target}.`);
+        return 3;
+      }
+      out(context, { missionId: run.missionId, runId: run.runId, state: run.currentState ?? "RUNNING", stopReason: run.stopReason ?? null, iterations: run.iterations.length, steps: run.iterations.map(iterationView) });
+      await system.events.drain();
+      return 0;
+    }
+    const runs = await system.governedMissionLoop.listRuns();
+    if (context.json) out(context, { runs: runs.map(runView) });
+    else {
+      console.log(`Governed mission runs (${runs.length}):`);
+      if (runs.length === 0) console.log("  No governed runs yet. Start one with: quack govmission run \"<objective>\"");
+      for (const run of runs) console.log(`  ${run.missionId}  ${(run.currentState ?? "RUNNING").padEnd(10)} ${(run.stopReason ?? "…").padEnd(28)} ${run.iterations.length} step(s)`);
+    }
+    await system.events.drain();
+    return 0;
+  } catch (error) {
+    if (context.json) out(context, { error: String(error) });
+    else console.error("Governed mission status failed:", error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+/** Metadata-only iteration view (no arguments, no prompts, no model output). */
+function iterationView(step: import("../runtime/mission-lifecycle/executive-loop.js").IterationRecord): Record<string, unknown> {
+  return {
+    step: step.index,
+    iterationId: step.iterationId,
+    capability: step.selectedAction?.capability ?? null,
+    status: step.executionResult?.actionResult.status ?? null,
+    verification: step.verification?.status ?? null,
+    decision: step.permissionDecision?.decision ?? null,
+    code: step.observations["code"] ?? null,
+    stopReason: step.stopReason ?? null,
+  };
+}
+
+/** Metadata-only run view. */
+function runView(run: import("../runtime/mission-lifecycle/executive-loop.js").LoopRun): Record<string, unknown> {
+  return {
+    missionId: run.missionId,
+    runId: run.runId,
+    state: run.currentState ?? "RUNNING",
+    stopReason: run.stopReason ?? null,
+    iterations: run.iterations.length,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // quack provider list|doctor|test <id>
 // ---------------------------------------------------------------------------
 

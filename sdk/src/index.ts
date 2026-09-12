@@ -246,6 +246,34 @@ export type {
   EcosystemEvaluationEvidence,
 } from "@quack/os";
 
+// Governed Mission Runtime (P11, ADR 0045) — the model-in-the-loop mission
+// loop and its fail-closed proposal parser. Stable composition contracts
+// only: no broker internals, no provider clients, no harness wiring, no
+// storage paths. The loop is provider-neutral; consumers inject their own
+// governed runtime and execution surfaces.
+export {
+  GovernedMissionLoop,
+  InMemoryMissionRunStore,
+  ACTION_PROPOSAL_SCHEMA_REF,
+  MAX_PROPOSAL_ARGUMENT_CHARS,
+  MAX_FINAL_MESSAGE_CHARS,
+  MAX_INTENT_CHARS,
+  MAX_RAW_PROPOSAL_CHARS,
+  parseActionProposal,
+  stepIdempotencyKey,
+  buildCapabilityIndex,
+  buildIterationPlan,
+} from "@quack/os";
+export type {
+  GovernedMissionLoopOptions,
+  GovernedMissionLoopResult,
+  MissionRunStore,
+  ParsedProposalIntent,
+  ProposalCapabilityIndex,
+  ParseProposalOptions,
+  ProposalErrorCode,
+} from "@quack/os";
+
 // Workspace
 
 

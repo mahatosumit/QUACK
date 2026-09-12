@@ -441,6 +441,38 @@ test("local API rate limits and refuses accidental network exposure", async () =
   }
 });
 
+test("P11 governed mission surface exposes metadata-only runs and redacts at the wire", async () => {
+  const fixture = await createFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+
+  try {
+    await server.start();
+    // Seed a run record through the loop's own durable store so the surface
+    // reflects a real persisted run, not a fixture dict.
+    const { createLoopRun, terminateRun } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const run = terminateRun(createLoopRun({
+      missionId: "gov_server_test", goal: "server surface test", actor: "server-test",
+      budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+    }), "STOP_GOAL_ACHIEVED");
+    await fixture.system.governedMissionRunStore.save({ ...run, currentState: "SUCCEEDED" });
+
+    const response = await getJson<{ readOnly: boolean; runs: { missionId: string; state: string; stopReason: string | null; steps: unknown[] }[] }>(`${server.address().url}/governed-missions`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.readOnly, true);
+    const found = response.body.runs.find((entry) => entry.missionId === "gov_server_test");
+    assert.ok(found, "persisted run is visible through the surface");
+    assert.equal(found.state, "SUCCEEDED");
+    assert.equal(found.stopReason, "STOP_GOAL_ACHIEVED");
+    // Metadata only: no prompt/model-output/argument fields on the wire.
+    const wire = JSON.stringify(response.body);
+    assert.ok(!wire.includes("\"prompt\""), "no prompt text at the wire");
+    assert.ok(!wire.includes("\"arguments\""), "no action arguments at the wire");
+  } finally {
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
 async function createFixture() {
   const workspaceRoot = join(tmpdir(), createId("quack_server_workspace"));
   const dataDir = join(tmpdir(), createId("quack_server_data"));

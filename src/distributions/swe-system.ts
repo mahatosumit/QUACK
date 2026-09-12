@@ -78,6 +78,10 @@ import { AgentLoop } from "../agent-loop/index.js";
 import { createHarness, type LegacyHarness } from "../harness/index.js";
 import { QuackNativeHarness } from "../harness/registry.js";
 import { ActionRuntime, ActionProviderRegistry } from "../actions/runtime.js";
+import { GovernedMissionLoop, type MissionRunStore } from "../runtime/mission-lifecycle/governed-mission-loop.js";
+import { JsonFileMissionRunStore } from "../runtime/mission-lifecycle/mission-run-store.js";
+import { memoryCandidatesFromRetrieval } from "../memory/semantic/qie.js";
+import { InstructionObserver } from "../instruction/observer.js";
 import { type PermissionPolicy } from "../security/permissions.js";
 import { InMemoryActionExecutionLedger } from "../actions/ledger.js";
 import { SkillRuntime } from "../skills/runtime/index.js";
@@ -251,6 +255,16 @@ export interface QuackSystem {
    * package content is never executed here.
    */
   readonly ecosystem: EcosystemService;
+  /**
+   * P11 governed mission loop (ADR 0045): the first REAL model-in-the-loop
+   * mission path — QIE → governed model → fail-closed proposal parser →
+   * harness authorization → existing execution surfaces, with bounded
+   * budgets, deterministic recovery, and idempotent replay. Distinct from
+   * the static-graph `submitGoal` path; same broker/model/evaluator/bus.
+   */
+  readonly governedMissionLoop: GovernedMissionLoop;
+  /** P11 durable run-record store (audit + idempotent replay, not resume). */
+  readonly governedMissionRunStore: MissionRunStore;
   readonly workflowLoader: WorkflowLoader;
   readonly coreAgentRegistry: CoreAgentRegistry;
   readonly coreAgentMonitor: CoreAgentMonitor;
@@ -823,6 +837,39 @@ runtime = new QuackRuntime({
     maxNodesPerGraph: 20,
     modelRuntime: gatedModelRuntime,
   });
+
+  // --- Wire the P11 governed mission loop (ADR 0045) ---
+  // Assembled exclusively over existing authorities: the same broker, the
+  // same governed model runtime, the same ActionRuntime/core.tools surfaces,
+  // the same EventBus, and P9 semantic memory reduced to QIE candidates.
+  // The loop NEVER provisions its own grants — standing consent flows
+  // through the operator's configured permission set exactly like
+  // `submitGoal` missions.
+  const governedMissionRunStore = new JsonFileMissionRunStore(config.dataDir);
+  const instructionObserver = new InstructionObserver({ events });
+  const governedMissionLoop = new GovernedMissionLoop({
+    broker: capabilityBroker,
+    actionRuntime,
+    actionProviders,
+    tools,
+    modelRuntime: governedModelRuntime,
+    events,
+    executeTool: (toolId, input, options) => runtime.executeTool(toolId, input, options),
+    observer: instructionObserver,
+    // P9 semantic memory, governed: recall through the broker-gated service,
+    // reduced to MEMORY-trust candidates. Candidates carry their memory ids
+    // in item.data.memoryId, which the loop uses as the P8.3 firewall's
+    // admittedMemory backing (no separate authority snapshot needed).
+    retrieveMemory: async (query, limit) => {
+      const retrieval = await semanticMemory.recall({
+        text: query, scope: "global", owner: config.missionId ?? "operator", limit,
+        context: { actor: "governed-mission-loop" },
+      });
+      return retrieval.ok ? memoryCandidatesFromRetrieval(retrieval.data) : [];
+    },
+    runStore: governedMissionRunStore,
+  });
+
 const agentLoop = new AgentLoop({
           runtime,
           missionManager: cognitiveSystem.missionManager,
@@ -981,6 +1028,8 @@ const agentLoop = new AgentLoop({
       knowledgePipeline,
       semanticMemory,
       ecosystem,
+      governedMissionLoop,
+      governedMissionRunStore,
       workflowLoader,
             coreAgentRegistry,
                                     coreAgentMonitor,

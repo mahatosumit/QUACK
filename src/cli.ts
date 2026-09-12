@@ -8,7 +8,7 @@ import { createQuackBackup, restoreQuackBackup } from "./recovery/index.js";
 import { cpus, release, totalmem } from "node:os";
 import { execFile } from "node:child_process";
 import { redactSecrets } from "./security/secret-provider.js";
-import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas, commandInstructions, commandMemory, commandExtension } from "./cli/commands.js";
+import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas, commandInstructions, commandMemory, commandExtension, commandGovMission } from "./cli/commands.js";
 import { loadCliConfig } from "./cli/config.js";
 
 interface CliOptions {
@@ -29,6 +29,9 @@ interface CliOptions {
   /** P10.13: ecosystem extension subcommand action + target id@version/path. */
   extensionAction?: "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove";
   extensionTarget?: string;
+  /** P11: governed mission runtime subcommand. */
+  govMissionAction?: "run" | "status";
+  govMissionTarget?: string;
   headless: boolean;
   port?: number;
   backupPath?: string;
@@ -101,6 +104,16 @@ Commands:
                         Toggle extension lifecycle explicitly
   extension remove <id>@<version>
                         Remove an extension and its registry entry
+  govmission run <objective>
+                        Run a governed mission through the model-in-the-loop
+                        runtime (QIE -> broker -> harness execution)
+  govmission status [missionId]
+                        List governed mission runs or inspect one run
+  govmission run "<objective>"
+                        Run a mission through the governed loop (QIE →
+                        model → fail-closed parser → broker → execution)
+  govmission status [id]
+                        List governed mission runs or inspect one run
   provider list      List registered providers and credential status
   provider doctor   Live health check of every registered provider
   provider test <id>
@@ -242,6 +255,19 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
           options.extensionAction = args[++i] as "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove";
           if (options.extensionAction !== "list" && args[i + 1] && !args[i + 1].startsWith("-")) {
             options.extensionTarget = args[++i];
+          }
+        }
+        break;
+      case "govmission":
+        command = "govmission";
+        if (args[i + 1] === "run" || args[i + 1] === "status") {
+          options.govMissionAction = args[++i] as "run" | "status";
+          // Target: for `run` it is the objective string (may not start with
+          // '-'); for `status` an optional mission id.
+          if (options.govMissionAction === "run") {
+            if (args[i + 1] && !args[i + 1].startsWith("-")) options.govMissionTarget = args[++i];
+          } else if (args[i + 1] && !args[i + 1].startsWith("-")) {
+            options.govMissionTarget = args[++i];
           }
         }
         break;
@@ -516,6 +542,15 @@ async function main(): Promise<void> {
   if (command === "extension") {
     const action = options.extensionAction ?? "list";
     process.exit(await commandExtension(commandContext, action, options.extensionTarget));
+    return;
+  }
+  if (command === "govmission") {
+    const action = options.govMissionAction;
+    if (action !== "run" && action !== "status") {
+      console.error('quack govmission requires an action: run "<objective>" | status [missionId]');
+      process.exit(2);
+    }
+    process.exit(await commandGovMission(commandContext, action, options.govMissionTarget));
     return;
   }
   if (command === "provider") {

@@ -269,6 +269,16 @@ test("P10.14 ecosystem events refresh the panel live over SSE", () => {
   assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem"\]/);
 });
 
+test("P11 governed mission events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  // The full governed-loop step/action lifecycle is wired for live refresh.
+  for (const type of ["mission.step.started", "mission.step.completed", "mission.step.failed", "mission.action.proposed", "mission.action.denied", "mission.action.completed", "mission.action.failed"]) {
+    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`), `${type} is in liveTypes`);
+  }
+  // Mission surfaces re-render on governed-loop activity.
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem"\]/);
+});
+
 test("P7 legacy surfaces stay retired", () => {
   assert.equal(existsSync("dist/desktop"), false, "no desktop HTTP server ships in the build");
   assert.equal(existsSync("gui"), false, "the duplicate gui/ SPA stays retired");

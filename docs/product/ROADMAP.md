@@ -396,6 +396,45 @@ governance only; no new authority surface).
 **P10 FOUNDATION is COMPLETE: all phases shipped. Extension execution,
 marketplace, sandboxing, and signature verification remain future work.**
 
+## P11 - Governed Mission Runtime (SHIPPED 2026-09-12, ADR 0045)
+
+The first REAL model-in-the-loop mission path, assembled exclusively over
+existing authorities (one broker, one EventBus, one QIE, one governed model
+runtime, one memory system):
+
+USER → MISSION → MISSION STATE (canonical state machine) → QIE
+(firewall → selector → composer → defense) → GOVERNED MODEL → strict
+fail-closed proposal parser → VALIDATION → CAPABILITY BROKER →
+AUTHORIZED EXECUTION (existing surfaces) → OBSERVATION → deterministic
+next-step policy → BUDGET/STALL-BOUNDED continue/complete/fail.
+
+The model NEVER executes. It proposes; the parser validates; the ONE
+CapabilityBroker authorizes; existing surfaces execute. No fallback path.
+
+- **P11.1** governed mission loop over existing authorities — SHIPPED
+- **P11.2** canonical MissionState machine transitions (fenced, fail-closed) — SHIPPED
+- **P11.3** strict `quack:action-proposal:v1` parser (server-derived risk/key) — SHIPPED
+- **P11.4** QIE pipeline mandatory (P8 digest preserved in dispatch metadata) — SHIPPED
+- **P11.5** P8.3 firewall admission for P9 memory (MEMORY lane, never authority) — SHIPPED
+- **P11.6** bounded retries (model/parse only); denial/execution fail closed — SHIPPED
+- **P11.7** budget + stall detection bound every loop — SHIPPED
+- **P11.8** idempotent step keys + terminal-run refusal (no silent re-execution) — SHIPPED
+- **P11.9** durable run records (atomic write, identity-checked load) — SHIPPED
+- **P11.10** seven `mission.step.*`/`mission.action.*` events, redacted metadata-only — SHIPPED
+- **P11.11** system surface `governedMissionLoop` (fail-fast construction) — SHIPPED
+- **P11.12** CLI `govmission run|status` (operator-declared provider.invoke consent) — SHIPPED
+- **P11.13** server `GET /governed-missions` (redacted, metadata-only) — SHIPPED
+- **P11.14** Studio SSE live refresh for mission-runtime events — SHIPPED
+- **P11.15** SDK contract exports (loop, parser, stores, keys) — SHIPPED
+- **P11.16** adversarial security matrix (12 cases) — SHIPPED
+- **P11.17** full regression gates (1827 serial, 0 fail) — SHIPPED
+
+**P11 COMPLETE. Explicitly NOT in P11: mid-run durable resume of arbitrary
+OODA state (ExecutionRecovery checkpoint mapping is future work), probe-runner
+verification beyond the existing conservative harness behavior, execution of
+P10 extension packages (still REGISTERED/ADMITTED/NOT-EXECUTABLE), and any
+P12+ functionality.**
+
 ## Dependencies
 
 P1 → P2 → P3 → P4 → P5 (Console and streaming enable harness eval UX);

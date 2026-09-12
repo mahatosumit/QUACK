@@ -161,7 +161,15 @@ export type QuackEventType =
   | "extension.disabled"
   | "extension.quarantined"
   | "extension.removed"
-  | "extension.rejected";;
+  | "extension.rejected"
+  /** P11 governed mission loop observability (metadata-only; ADR 0045). */
+  | "mission.step.started"
+  | "mission.step.completed"
+  | "mission.step.failed"
+  | "mission.action.proposed"
+  | "mission.action.denied"
+  | "mission.action.completed"
+  | "mission.action.failed";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

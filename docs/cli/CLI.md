@@ -134,6 +134,39 @@ duplicate install, invalid transition), 2 usage error, 3 not found / access
 denied. `--json` machine output on every action. Read-only commands
 (`list`, `inspect`, `validate`) never prompt for approval.
 
+### quack govmission [run|status]
+
+Runs missions through the governed mission execution loop (P11, ADR 0045)
+— the first model-in-the-loop path. Each iteration: canonical mission
+state → QIE pipeline (privacy firewall, context selection, deterministic
+composition, injection defense) → governed model dispatch → strict
+fail-closed proposal parsing (`quack:action-proposal:v1`) → capability
+broker authorization → execution through existing surfaces (ActionRuntime
+or the policy-enforced core.tools path) → deterministic next-step policy.
+The model proposes; the broker authorizes; the loop never executes
+unauthorized actions and has no fallback execution path.
+
+- `run "<objective>"` — executes a governed mission. Model dispatch is
+  intrinsic, so the operator must declare the mission's permission set
+  explicitly: `QUACK_GOVMISSION_PERMISSIONS="provider.invoke,workspace.read"`.
+  `provider.invoke` is medium/high-risk policy — never granted implicitly;
+  the declaration seeds the mission's capability grants (operator recorded
+  as approver) and each run still confirms through the standard approval
+  callback. Missions fail closed with `mission.model_error` when no model
+  provider is reachable — output is never fabricated.
+- `status [missionId]` — lists durable governed run records (missionId,
+  state, stop reason, step count) or inspects one run with per-step
+  metadata (capability, status, verification, decision, error code).
+  Records persist under `<dataDir>/governed-missions/` and are visible
+  across processes.
+
+Output is metadata-only — no prompts, no model output, no action
+arguments, no secrets. Exit codes: 0 success (SUCCEEDED mission), 1
+mission failure or operational error, 2 usage/consent error (missing
+objective, missing provider.invoke declaration), 3 unknown mission.
+`--json` machine output. Terminal runs refuse re-execution
+(`mission.loop_already_terminal`) — start a new mission instead.
+
 ### quack update
 
 Compares installed version against the npm registry (read-only `npm view`,

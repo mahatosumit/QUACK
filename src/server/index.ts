@@ -277,6 +277,10 @@ export class QuackHttpServer {
       await this.getExtensions(response);
       return;
     }
+    if (method === "GET" && path === "/governed-missions") {
+      await this.getGovernedMissions(response);
+      return;
+    }
     if (method === "GET" && path === "/settings") {
       this.writeJson(response, 200, this.settings());
       return;
@@ -806,6 +810,40 @@ export class QuackHttpServer {
       // Malformed registry state fails closed — honest empty surface, never
       // a fabricated catalog.
       this.writeJson(response, 200, { readOnly: true, extensions: [] });
+    }
+  }
+
+  private async getGovernedMissions(response: ServerResponse): Promise<void> {
+    // P11 server surface: metadata-only governed mission runs. Prompts,
+    // model output, action arguments, and secrets never cross this
+    // boundary; records are already redacted at persistence and are
+    // re-redacted at the wire like every other surface.
+    try {
+      const runs = await this.system.governedMissionLoop.listRuns();
+      this.writeJson(response, 200, {
+        readOnly: true,
+        runs: runs.map((run) => JSON.parse(redactSecrets(JSON.stringify({
+          missionId: run.missionId,
+          runId: run.runId,
+          state: run.currentState ?? "RUNNING",
+          stopReason: run.stopReason ?? null,
+          iterations: run.iterations.length,
+          startedAt: run.startedAt,
+          endedAt: run.endedAt ?? null,
+          steps: run.iterations.map((step) => ({
+            step: step.index,
+            capability: step.selectedAction?.capability ?? null,
+            status: step.executionResult?.actionResult.status ?? null,
+            verification: step.verification?.status ?? null,
+            decision: step.permissionDecision?.decision ?? null,
+            code: step.observations["code"] ?? null,
+            stopReason: step.stopReason ?? null,
+          })),
+        }))) as JsonObject),
+      });
+    } catch {
+      // Malformed store state fails closed — honest empty surface.
+      this.writeJson(response, 200, { readOnly: true, runs: [] });
     }
   }
 

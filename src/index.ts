@@ -39,3 +39,31 @@ export * from "./ecosystem/index.js";
 // harnesses and external consumers. Pure composition/selection/defense
 // primitives; no runtime side effects.
 export * from "./instruction/index.js";
+// P11: governed mission runtime (ADR 0045) — the model-in-the-loop mission
+// loop over existing authorities: fail-closed proposal parsing, the
+// canonical mission state machine, the executive-loop run contract, the
+// execution harness, and the durable run-record store. Provider-neutral
+// composition surface; no new authority is introduced here.
+export {
+  GovernedMissionLoop,
+  InMemoryMissionRunStore,
+  type GovernedMissionLoopOptions,
+  type GovernedMissionLoopResult,
+  type MissionRunStore,
+} from "./runtime/mission-lifecycle/governed-mission-loop.js";
+export { JsonFileMissionRunStore } from "./runtime/mission-lifecycle/mission-run-store.js";
+export {
+  ACTION_PROPOSAL_SCHEMA_REF,
+  MAX_PROPOSAL_ARGUMENT_CHARS,
+  MAX_FINAL_MESSAGE_CHARS,
+  MAX_INTENT_CHARS,
+  MAX_RAW_PROPOSAL_CHARS,
+  parseActionProposal,
+  stepIdempotencyKey,
+  buildCapabilityIndex,
+  buildIterationPlan,
+  type ParsedProposalIntent,
+  type ProposalCapabilityIndex,
+  type ParseProposalOptions,
+  type ProposalErrorCode,
+} from "./runtime/mission-lifecycle/proposal-parser.js";

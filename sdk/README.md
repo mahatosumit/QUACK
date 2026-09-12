@@ -80,6 +80,39 @@ capabilities grant nothing, package content is never executed, and no
 registry file paths, broker internals, package content, or execution
 surfaces are exported.
 
+## Governed Mission Runtime surface
+
+The SDK exports the governed mission-runtime contracts (P11, ADR 0045):
+`GovernedMissionLoop` (the model-in-the-loop mission executor),
+`InMemoryMissionRunStore` (in-memory run-record persistence), and the
+fail-closed proposal contracts `ACTION_PROPOSAL_SCHEMA_REF`,
+`MAX_PROPOSAL_ARGUMENT_CHARS`, `MAX_FINAL_MESSAGE_CHARS`,
+`MAX_INTENT_CHARS`, `MAX_RAW_PROPOSAL_CHARS`, `parseActionProposal`,
+`stepIdempotencyKey`, `buildCapabilityIndex`, and `buildIterationPlan`,
+plus the `GovernedMissionLoopOptions`/`GovernedMissionLoopResult`/
+`MissionRunStore`/`ParsedProposalIntent`/`ProposalCapabilityIndex`/
+`ParseProposalOptions`/`ProposalErrorCode` types.
+
+Mission composition is provider-neutral: the loop assembles exclusively
+over caller-injected existing authorities (capability broker, action
+runtime, tool registry, governed model runtime, event bus, optional
+harness/run store/memory retrieval). Construction fails fast when a
+required authority is missing — `GovernedMissionLoop` refuses to be
+built without its broker, action runtime, providers, tools, model
+runtime, and events, so no ungoverned loop can ever run. The separation
+of duties is absolute: the model proposes structured actions, the
+existing `CapabilityBroker` alone authorizes, and the existing execution
+surfaces alone execute. `parseActionProposal` is the trust boundary —
+unknown capabilities, oversized arguments, and forged approval fields
+fail closed, and authority fields (mission id, actor, idempotency key)
+are derived server-side, never taken from model output. The loop
+dispatches through the existing QIE pipeline (plan -> selection ->
+composition -> defense -> governed invocation), so instruction context
+never reaches the model ungoverned, and there is no direct
+model-to-tool execution path and no hidden provider coupling — provider
+access happens only through the injected governed model runtime under
+explicit broker authorization.
+
 ## Requirements
 
 - Node.js 20+

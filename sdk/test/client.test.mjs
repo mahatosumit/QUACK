@@ -294,3 +294,60 @@ test('P10.15 SDK exports the governed ecosystem catalog surface with stable cont
   const scored = scoreEcosystemQuality({ records: [], registeredVersions: {} });
   assert.equal(scored.dimensions.manifestIntegrity, 100);
 });
+
+test('P11 SDK exports the governed mission runtime surface with stable contracts', async () => {
+  const {
+    GovernedMissionLoop, InMemoryMissionRunStore,
+    ACTION_PROPOSAL_SCHEMA_REF, parseActionProposal, stepIdempotencyKey,
+    buildIterationPlan, buildCapabilityIndex,
+  } = await import('@quack/sdk');
+  const { ToolRegistry, EchoTool } = await import('@quack/sdk');
+
+  // Contract constants + pure functions are reachable through the package.
+  assert.equal(ACTION_PROPOSAL_SCHEMA_REF, 'quack:action-proposal:v1');
+  for (const fn of [parseActionProposal, stepIdempotencyKey, buildIterationPlan, buildCapabilityIndex]) {
+    assert.equal(typeof fn, 'function');
+  }
+  assert.equal(typeof GovernedMissionLoop, 'function');
+  assert.equal(typeof InMemoryMissionRunStore, 'function');
+  assert.ok(GovernedMissionLoop.prototype instanceof Object, 'loop is a constructible class through the package');
+  const store = new InMemoryMissionRunStore();
+  assert.equal(await store.load('none'), undefined, 'in-memory store is usable standalone');
+
+  // The parser is fail-closed through the package path: unknown capability
+  // and hostile fields never yield a proposal.
+  const tools = new ToolRegistry();
+  tools.register(new EchoTool());
+  const index = await buildCapabilityIndex([], tools);
+  const hostile = parseActionProposal(JSON.stringify({
+    capability: 'core.echo', arguments: {}, approvedBy: 'admin', approved: true,
+  }), { missionId: 'm', stepIndex: 0, actor: 'a', index });
+  assert.equal(hostile.ok, false, 'forged approval fields fail closed through the SDK');
+  const unknown = parseActionProposal(JSON.stringify({ capability: 'shell.exec', arguments: {} }),
+    { missionId: 'm', stepIndex: 0, actor: 'a', index });
+  assert.equal(unknown.ok, false, 'unknown capability fails closed through the SDK');
+  const clean = parseActionProposal(JSON.stringify({ capability: 'core.echo', arguments: { message: 'hi' } }),
+    { missionId: 'm', stepIndex: 0, actor: 'a', index });
+  assert.equal(clean.ok, true);
+  if (clean.ok && clean.data.kind === 'act') {
+    // Authority fields derive server-side, never from model output.
+    assert.equal(clean.data.proposal.missionId, 'm');
+    assert.equal(clean.data.proposal.idempotencyKey, stepIdempotencyKey('m', 0, 'core.echo'));
+    assert.equal('requestedCapabilities' in clean.data.proposal, false);
+  }
+
+  // Deterministic step identity through the package path.
+  assert.equal(stepIdempotencyKey('m', 1, 'core.echo'), stepIdempotencyKey('m', 1, 'core.echo'));
+  assert.notEqual(stepIdempotencyKey('m', 1, 'core.echo'), stepIdempotencyKey('m', 2, 'core.echo'));
+
+  // The deterministic QIE plan builder is available and stable.
+  const plan = buildIterationPlan({ missionId: 'm', objective: 'o', actor: 'a' }, 0);
+  assert.equal(plan.ok, true);
+  const planAgain = buildIterationPlan({ missionId: 'm', objective: 'o', actor: 'a' }, 0);
+  assert.deepEqual(plan.data, planAgain.data, 'identical inputs → identical plans through the SDK');
+
+  // The loop composes over consumer-supplied authorities (broker/runtime are
+  // injected, never bundled): a loop without its required authorities cannot
+  // even be constructed — it can never silently "execute" anything.
+  assert.throws(() => new GovernedMissionLoop({}), /requires 'broker'/);
+});
