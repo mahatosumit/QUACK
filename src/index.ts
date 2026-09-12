@@ -100,3 +100,72 @@ export {
   type StepAttemptRecord,
   type StepAttemptState,
 } from "./runtime/mission-lifecycle/step-attempt-journal.js";
+// P13: real isolation backends + verified execution (ADR 0047) — backend
+// capability negotiation, honest availability, the trusted isolation
+// supervisor, identity-bound execution evidence, the probe runner, and
+// the governed workload-adapter registry. Provider-neutral composition
+// surface; no broker internals, no raw process/container handles, no
+// privileged execution primitives are exposed.
+export {
+  type IsolationLevel,
+  type IsolationProfile,
+  type IsolationRequest,
+  type IsolationResult,
+  type IsolationBackend,
+  type ProbeableIsolationBackend,
+  type BackendAvailability,
+  type IsolatedIo,
+  type IsolatedWorkload,
+  validateIsolationProfile,
+  effectiveGuarantees,
+} from "./isolation/contract.js";
+export {
+  IsolationBackendRegistry,
+  executeIsolated,
+  describeBackends,
+  type BackendResolution,
+} from "./isolation/backend-resolver.js";
+export { ProcessIsolationBackend } from "./isolation/process-backend.js";
+export { ContainerIsolationBackend } from "./isolation/container-backend.js";
+export { WorkerProcessIsolationBackend } from "./isolation/worker-backend.js";
+export {
+  EXECUTION_EVIDENCE_VERSION,
+  createExecutionEvidence,
+  parseExecutionEvidence,
+  serializeExecutionEvidence,
+  executionEvidenceDigest,
+  evidenceMatchesIdentity,
+  JsonFileExecutionEvidenceStore,
+  InMemoryExecutionEvidenceStore,
+  type ExecutionEvidenceRecord,
+  type ExecutionEvidenceIdentity,
+  type ExecutionEvidenceFacts,
+  type ExecutionEvidenceVerification,
+  type CleanupStatus,
+  type EvidenceVerificationState,
+} from "./isolation/execution-evidence.js";
+export {
+  IsolationSupervisor,
+  type IsolationSupervisorOptions,
+  type SupervisedExecution,
+} from "./isolation/supervisor.js";
+export {
+  ProbeRunner,
+  type ProbeRunnerOptions,
+  type ProbeOutcome,
+} from "./isolation/probe-runner.js";
+export {
+  WorkloadAdapterRegistry,
+  isAbsoluteOrTraversal,
+  resolveEntryInsideRoot,
+  type GovernedWorkloadAdapter,
+} from "./isolation/workload-adapter.js";
+// P13: provider-neutral SDK inspection surface (ADR 0047) — metadata-only
+// views over isolation backends, execution evidence, and verification.
+// No backend internals, process/container handles, or supervisor
+// primitives cross this boundary.
+export type {
+  IsolationBackendInfo,
+  ExecutionEvidence,
+  VerificationResult,
+} from "./isolation/sdk-types.js";

@@ -174,7 +174,16 @@ export type QuackEventType =
   | "execution.policy.resolved"
   | "execution.denied"
   | "execution.timeout"
-  | "execution.cancelled";
+  | "execution.cancelled"
+  /** P13 isolation/verification observability (metadata-only; ADR 0047). */
+  | "isolation.backend_selected"
+  | "isolation.unresolved"
+  | "execution.isolation_ready"
+  | "execution.verified"
+  | "execution.unverified"
+  | "execution.cleanup_failed"
+  /** P13 review finding 10: durable-journal settlement failure (metadata-only). */
+  | "mission.journal_settlement_failed";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

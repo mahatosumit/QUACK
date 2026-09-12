@@ -170,6 +170,21 @@ the durable step-attempt journal and is never re-executed — re-runs fail
 closed. Missions that require an isolation level the runtime cannot
 provide are DENIED (no silent downgrade).
 
+P13 (ADR 0047): real isolation backends exist. Capabilities with a
+deployer-registered workload adapter execute in a genuinely isolated
+environment — a dedicated OS child process (`os-process`) or, when a
+Docker daemon is reachable, a locked-down container (`docker-container`:
+network-namespace sealed, kernel memory cgroup, read-only rootfs). The
+step view then reports the backend that actually ran the workload in the
+`backend` field. Isolation availability is environment-dependent: when
+the required backend is unavailable the execution DENIES — there is no
+`--no-sandbox`-style flag and no fallback to in-process execution. A
+`trust_executed` success stays `EXECUTION_COMPLETED` (unverified); a
+`probe_external_state` strategy can now reach `EXECUTION_VERIFIED`
+through the runtime's trusted probe runner. QUACK is not "sandboxed" as
+a whole: only adapter-registered capabilities run isolated; host-function
+capabilities remain `POLICY_RESTRICTED` broker-policy enforcement.
+
 Output is metadata-only — no prompts, no model output, no action
 arguments, no secrets. Exit codes: 0 success (SUCCEEDED mission), 1
 mission failure or operational error, 2 usage/consent error (missing

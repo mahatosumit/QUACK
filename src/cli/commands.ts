@@ -662,6 +662,8 @@ function iterationView(step: import("../runtime/mission-lifecycle/executive-loop
     // P12 (ADR 0046): honest execution-state + isolation state, metadata-only.
     executionState: step.observations["executionState"] ?? null,
     isolation: step.observations["isolation"] ?? null,
+    // P13 (ADR 0047): backend identity that actually ran the workload.
+    backend: step.observations["backend"] ?? null,
     code: step.observations["code"] ?? null,
     stopReason: step.stopReason ?? null,
   };

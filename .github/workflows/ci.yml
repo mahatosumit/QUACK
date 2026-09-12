@@ -60,7 +60,10 @@ jobs:
         run: node --test "dist/skills/discovery/discovery.test.js" "dist/skills/discovery/search.test.js" "dist/skills/execution-profile.test.js" "dist/skills/sandbox-runtime.test.js"
 
       - name: Focused isolation and recovery tests
-        run: node --test "dist/isolation/isolation.test.js" "dist/storage/coordination.test.js" "dist/runtime/interrupted-recovery.test.js"
+        run: node --test "dist/isolation/contract.test.js" "dist/isolation/process-backend.security.test.js" "dist/isolation/container-backend.security.test.js" "dist/isolation/supervisor.security.test.js" "dist/storage/coordination.test.js" "dist/runtime/interrupted-recovery.test.js"
+
+      - name: Focused P13 isolation-verified execution tests
+        run: node --test "dist/runtime/mission-lifecycle/secure-isolation.security.test.js" "dist/runtime/mission-lifecycle/secure-isolation.integration.test.js"
 
       - name: SDK checks
         run: npm --prefix sdk test

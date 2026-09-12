@@ -137,6 +137,18 @@ policies claiming enforced memory limits fail validation. No broker
 internals, isolation backends, or privileged execution primitives are
 exported.
 
+P13 (ADR 0047) adds provider-neutral INSPECTION types —
+`IsolationBackendInfo`, `ExecutionEvidence`, `VerificationResult`, plus the
+`IsolationLevel`/`IsolationState`/`ExecutionState` vocabularies — metadata
+views over isolation backends (id, supported levels, honest guarantees,
+availability), identity-bound execution evidence (mission/step/capability/
+execution/backend, exit state, cleanup status), and runtime-derived
+verification outcomes (VERIFIED only when trusted probes passed). These are
+read-only views: no Docker clients, process handles, supervisor primitives,
+filesystem, or credential surfaces cross the SDK boundary, and nothing in
+the SDK can select or weaken a backend — isolation requirements come from
+deployer configuration only.
+
 ## Requirements
 
 - Node.js 20+

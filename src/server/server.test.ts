@@ -510,8 +510,42 @@ test("P12 governed mission surface carries execution/isolation state, metadata-o
   }
 });
 
-async function createFixture() {
-  const workspaceRoot = join(tmpdir(), createId("quack_server_workspace"));
+test("P13 governed mission surface carries backend identity, metadata-only", async () => {
+  const fixture = await createFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+  try {
+    await server.start();
+    const { createLoopRun, appendIteration, createIterationId } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const base = createLoopRun({
+      missionId: "gov_server_p13", goal: "p13 surface test", actor: "server-test",
+      budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+    });
+    const run = appendIteration(base, {
+      runId: base.runId, missionId: "gov_server_p13", iterationId: createIterationId(), index: 0,
+      startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), phase: "ACT", goal: "p13",
+      observations: {
+        capability: "fixture.transform", status: "SUCCEEDED", executionState: "EXECUTION_VERIFIED",
+        isolation: "PROCESS_ISOLATED", backend: "os-process",
+      },
+      workingContext: {}, candidateActions: [],
+    });
+    await fixture.system.governedMissionRunStore.save({ ...run, currentState: "SUCCEEDED", stopReason: "STOP_GOAL_ACHIEVED" });
+
+    const response = await getJson<{ runs: { missionId: string; steps: { backend: string | null; isolation: string | null; executionState: string | null }[] }[] }>(`${server.address().url}/governed-missions`);
+    assert.equal(response.status, 200);
+    const found = response.body.runs.find((entry) => entry.missionId === "gov_server_p13");
+    assert.ok(found, "persisted P13 run visible");
+    const step = found.steps[0]!;
+    assert.equal(step.backend, "os-process", "backend identity on the wire");
+    assert.equal(step.isolation, "PROCESS_ISOLATED", "honest process-isolated state");
+    assert.equal(step.executionState, "EXECUTION_VERIFIED", "runtime-verified state");
+  } finally {
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
+async function createFixture() {  const workspaceRoot = join(tmpdir(), createId("quack_server_workspace"));
   const dataDir = join(tmpdir(), createId("quack_server_data"));
   await mkdir(workspaceRoot, { recursive: true });
   const system = createQuackSystem({

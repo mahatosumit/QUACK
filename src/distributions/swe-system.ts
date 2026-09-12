@@ -2,7 +2,8 @@ import { createBuiltinSkillCatalog } from "../skills/builtins/index.js";
 import { defaultSpecialistAgents, createSweToolPack } from "../extensions/packs/swe.js";
 import { compileSkillContributions } from "../skills/graph-composition.js";
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { ExecutiveBrain } from "../brain/executive-brain.js";
 import { SimpleBrain } from "../brain/simple-brain.js";
 import { SkillOrchestrator } from "../brain/skill-orchestrator.js";
@@ -81,6 +82,13 @@ import { ActionRuntime, ActionProviderRegistry } from "../actions/runtime.js";
 import { GovernedMissionLoop, type MissionRunStore } from "../runtime/mission-lifecycle/governed-mission-loop.js";
 import { JsonFileMissionRunStore } from "../runtime/mission-lifecycle/mission-run-store.js";
 import { JsonFileStepAttemptJournal } from "../runtime/mission-lifecycle/step-attempt-journal.js";
+// P13 (ADR 0047): real isolation backends + verified execution.
+import { IsolationBackendRegistry } from "../isolation/backend-resolver.js";
+import { ProcessIsolationBackend } from "../isolation/process-backend.js";
+import { ContainerIsolationBackend } from "../isolation/container-backend.js";
+import { IsolationSupervisor } from "../isolation/supervisor.js";
+import { WorkloadAdapterRegistry } from "../isolation/workload-adapter.js";
+import { JsonFileExecutionEvidenceStore } from "../isolation/execution-evidence.js";
 import { memoryCandidatesFromRetrieval } from "../memory/semantic/qie.js";
 import { InstructionObserver } from "../instruction/observer.js";
 import { type PermissionPolicy } from "../security/permissions.js";
@@ -852,6 +860,35 @@ runtime = new QuackRuntime({
   const governedMissionRunStore = new JsonFileMissionRunStore(config.dataDir);
   const governedStepJournal = new JsonFileStepAttemptJournal(config.dataDir);
   const instructionObserver = new InstructionObserver({ events });
+  // P13 (ADR 0047): governed isolation surface. The OS process backend is
+  // registered (availability: structural); the container backend is
+  // registered with an honest availability probe (unavailable ⇒ DENY for
+  // isolation-requiring workloads, never a downgrade). The workload adapter
+  // registry starts EMPTY: capabilities only become isolation-eligible when
+  // a deployer registers an explicit adapter. No capability silently moves
+  // to an isolated path, and no capability silently stays on the host path
+  // when its policy demands isolation — the resolver fails closed.
+  //
+  // P13 security review finding 5: isolated workspaces live under a
+  // DEDICATED workspace root (os tmpdir), NOT under config.dataDir. The
+  // trusted dataDir keeps grants, mission journals, evidence, memory, and
+  // other durable trusted state — a same-user isolated workload must not
+  // receive a blast radius covering those stores. The dedicated root is
+  // lifecycle-managed by the supervisor (per-execution dirs, removed on
+  // every terminal path; best-effort cleanup after bounded retries is
+  // recorded honestly in evidence as CLEANUP_FAILED).
+  const isolationBackendRegistry = new IsolationBackendRegistry();
+  isolationBackendRegistry.register(new ProcessIsolationBackend());
+  isolationBackendRegistry.register(new ContainerIsolationBackend());
+  const isolationEvidenceStore = new JsonFileExecutionEvidenceStore(config.dataDir);
+  const isolationSupervisor = new IsolationSupervisor({
+    registry: isolationBackendRegistry,
+    events,
+    actor: "isolation-supervisor",
+    workspaceRoot: createIsolatedWorkspaceRoot(),
+    evidenceStore: isolationEvidenceStore,
+  });
+  const workloadAdapters = new WorkloadAdapterRegistry();
   const governedMissionLoop = new GovernedMissionLoop({
     broker: capabilityBroker,
     actionRuntime,
@@ -874,6 +911,10 @@ runtime = new QuackRuntime({
     },
     runStore: governedMissionRunStore,
     stepJournal: governedStepJournal,
+    isolation: {
+      supervisor: isolationSupervisor,
+      adapters: workloadAdapters,
+    },
   });
 
 const agentLoop = new AgentLoop({
@@ -1062,4 +1103,19 @@ function findBrowserExecutable(): string | undefined {
     "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   ] : [];
   return candidates.find((path) => existsSync(path));
+}
+
+/**
+ * P13 security review finding 5: dedicated root for adapter-mode isolated
+ * workspaces, deliberately OUTSIDE the trusted dataDir. Per-execution
+ * isolated dirs are created (and cleaned up) under this root by the
+ * supervisor; grants, journals, evidence, memory, and every other trusted
+ * QUACK store stay under dataDir where isolated workloads never address
+ * them as workspace siblings. Uses the OS tmpdir (bounded lifetime by the
+ * OS; the supervisor cleans per-execution dirs on every terminal path).
+ */
+function createIsolatedWorkspaceRoot(): string {
+  const root = join(tmpdir(), "quack-isolated-workspaces");
+  mkdirSync(root, { recursive: true });
+  return root;
 }

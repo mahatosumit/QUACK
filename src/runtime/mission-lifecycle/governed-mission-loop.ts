@@ -103,6 +103,14 @@ export interface GovernedMissionLoopOptions {
   readonly stepJournal?: StepAttemptJournal;
   /** P12: bounded concurrent governed executions (enforced in-process). */
   readonly maxConcurrentSteps?: number;
+  /**
+   * P13 (ADR 0047): governed isolated-execution surface. Passed through to
+   * the default harness; when a custom harness is provided the caller wires
+   * it there instead. Capabilities with a REGISTERED workload adapter route
+   * through the trusted IsolationSupervisor (real isolated environment);
+   * everything else keeps the honest POLICY_RESTRICTED host path.
+   */
+  readonly isolation?: import("./harness.js").HarnessConfig["isolation"];
 }
 
 export interface MissionRunStore {
@@ -160,7 +168,8 @@ export class GovernedMissionLoop {
       options.actionProviders,
       options.tools,
       options.events,
-      { defaultTimeoutMs: 120_000, requireVerificationForIrreversible: true, executeTool: options.executeTool },
+      { defaultTimeoutMs: 120_000, requireVerificationForIrreversible: true, executeTool: options.executeTool,
+        ...(options.isolation ? { isolation: options.isolation } : {}) },
     );
     this.budget = { ...DEFAULT_BUDGET, ...options.budget };
     this.maxRetriesPerStep = options.maxRetriesPerStep ?? 2;
@@ -452,9 +461,14 @@ export class GovernedMissionLoop {
       }
       this.activeSteps += 1;
 
-      const harnessContext: HarnessExecutionContext = { missionId: request.missionId, runId: run.runId, iterationId, actor: this.actor, signal };
+      const harnessContext: HarnessExecutionContext = { missionId: request.missionId, runId: run.runId, iterationId, actor: this.actor, stepIndex, signal };
       let harnessResult;
       let harnessThrew = false;
+      // P13 review finding 10: durable-journal settlement outcome for this
+      // step — when settlement fails, the reported classification downgrades
+      // to AMBIGUOUS (never COMPLETED/VERIFIED over an unconfirmable journal).
+      let journalSettled = true;
+      let journalClassifiedState: import("./execution-policy.js").ExecutionState | undefined;
       try {
         harnessResult = await this.harness.execute(proposal, harnessContext);
       } catch (harnessError: unknown) {
@@ -467,7 +481,12 @@ export class GovernedMissionLoop {
         this.activeSteps -= 1;
         // P12: settle the journal from RUNTIME evidence only — classified
         // state, never provider self-report.
-        const executionState = harnessThrew || harnessResult === undefined
+        // P13 review finding 10: a journal-settlement FAILURE is never
+        // swallowed. When the durable journal cannot confirm the step's
+        // outcome, the iteration is classified AMBIGUOUS (the external
+        // effect state is unknown) — the runtime never reports a
+        // COMPLETED/VERIFIED step over an unconfirmable journal.
+        const classified = harnessThrew || harnessResult === undefined
           ? "EXECUTION_AMBIGUOUS" as const
           : classifyExecutionState({
               status: harnessResultSafeStatus(harnessResult),
@@ -475,15 +494,36 @@ export class GovernedMissionLoop {
               ...(harnessResult.evidence?.timedOut ? { timedOut: true } : {}),
               ...(harnessResult.evidence?.cancelled ? { cancelled: true } : {}),
             });
+        let settledState = classified;
+        let journalSettlementFailed = false;
         try {
           await this.stepJournal.settle(attemptKey, {
-            state: journalStateForExecution(executionState),
-            executionState,
+            state: journalStateForExecution(classified),
+            executionState: classified,
           });
         } catch {
-          // Journal settlement failures never mask the original result;
-          // the iteration records the outcome honestly either way.
+          journalSettlementFailed = true;
+          settledState = "EXECUTION_AMBIGUOUS" as const;
+          // Retry once so a transient journal error does not force
+          // ambiguity; a second failure leaves the step honestly AMBIGUOUS.
+          try {
+            await this.stepJournal.settle(attemptKey, {
+              state: "AMBIGUOUS",
+              executionState: "EXECUTION_AMBIGUOUS",
+            });
+          } catch {
+            // The journal cannot record even the ambiguity: the in-memory
+            // record below carries it; recovery reconcileOrphans() will
+            // find DISPATCHING and transition it to AMBIGUOUS.
+          }
+          await this.options.events.emit("mission.journal_settlement_failed", {
+            missionId: request.missionId, stepIndex, capability: proposal.capability,
+            classifiedState: classified,
+          }, { actor: this.actor }).catch(() => undefined);
         }
+        // Surface the settlement outcome to the iteration classifier below.
+        journalSettled = !journalSettlementFailed;
+        journalClassifiedState = settledState;
       }
       usage = recordToolCall(usage);
 
@@ -500,22 +540,35 @@ export class GovernedMissionLoop {
       // The ITERATION RECORD persists a metadata view of the proposal
       // (identity + capability + risk + key, never raw arguments — the
       // authoritative request copy lives in the action ledger).
-      const nextStep = succeeded ? "PROCEED" : "STOP_FAIL";
+      // P13 review finding 10: when the durable journal could not confirm
+      // the step outcome (settlement failure), the recorded execution
+      // state is AMBIGUOUS and the step does NOT proceed — a
+      // COMPLETED/VERIFIED claim over an unconfirmable journal is never
+      // reported.
+      const stepOutcomeConfirmed = succeeded && journalSettled;
+      const nextStep = stepOutcomeConfirmed ? "PROCEED" : "STOP_FAIL";
       return this.iteration(run, iterationId, stepIndex, startedAt, usage, {
         observations: {
           capability: proposal.capability,
           status,
           executionId: harnessResult.outcome.executionId,
           verification: harnessResult.verification.status,
-          // P12 honest execution-state classification (runtime evidence only).
-          executionState: classifyExecutionState({
+          // P12 honest execution-state classification (runtime evidence only),
+          // downgraded to AMBIGUOUS when journal settlement failed.
+          executionState: journalClassifiedState ?? classifyExecutionState({
             status,
             verificationStatus: harnessResult.verification.status,
             ...(harnessResult.evidence?.timedOut ? { timedOut: true } : {}),
             ...(harnessResult.evidence?.cancelled ? { cancelled: true } : {}),
           }),
+          ...( !journalSettled ? { journalSettlement: "FAILED" } : {}),
           // P12 honest isolation state governing this execution.
           ...(harnessResult.policy ? { isolation: harnessResult.policy.isolation.state } : {}),
+          // P13 (ADR 0047): honest backend identity when an isolation backend
+          // actually ran the workload (metadata-only; "none" = host path).
+          ...(harnessResult.outcome.actionResult.providerId?.startsWith("isolation:")
+            ? { backend: harnessResult.outcome.actionResult.providerId.slice("isolation:".length) }
+            : { backend: harnessResult.policy?.isolation.backendId ?? "none" }),
         },
         selectedAction: proposalView(proposal),
         permissionDecision: {
@@ -524,10 +577,10 @@ export class GovernedMissionLoop {
         },
         executionResult: harnessResult.outcome,
         verification: { status: harnessResult.verification.status, message: harnessResult.verification.message },
-        executionErrorSignature: succeeded ? undefined : errorSignature(harnessResult.outcome.actionResult),
-        ...(succeeded ? { stateDelta: { capability: proposal.capability, step: stepIndex } } : {}),
+        executionErrorSignature: stepOutcomeConfirmed ? undefined : errorSignature(harnessResult.outcome.actionResult),
+        ...(stepOutcomeConfirmed ? { stateDelta: { capability: proposal.capability, step: stepIndex } } : {}),
         nextStep,
-        ...(!succeeded ? { stopReason: denied ? "STOP_POLICY_DENIED" : "STOP_UNRECOVERABLE_ERROR" } : {}),
+        ...( !stepOutcomeConfirmed ? { stopReason: denied ? "STOP_POLICY_DENIED" : "STOP_UNRECOVERABLE_ERROR" } : {}),
       });
     }
   }

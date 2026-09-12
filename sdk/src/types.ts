@@ -29,4 +29,10 @@ export type {
   Permission,
   PermissionDecision,
   PermissionDecision as PermissionCheck,
+  IsolationLevel,
+  IsolationState,
+  ExecutionState,
+  IsolationBackendInfo,
+  ExecutionEvidence,
+  VerificationResult,
 } from "@quack/os";

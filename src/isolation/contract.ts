@@ -114,6 +114,25 @@ export interface IsolationBackend {
   execute(request: IsolationRequest): Promise<IsolationResult>;
 }
 
+/**
+ * P13 (ADR 0047): honest backend availability. SUPPORTED (the backend class
+ * implements the level) ≠ AVAILABLE (the platform/runtime provides the
+ * mechanism right now) ≠ ENFORCEABLE (the guarantees hold for this request).
+ * A backend that is supported but unavailable must never execute.
+ */
+export interface BackendAvailability {
+  /** Whether the backing mechanism is usable on this host right now. */
+  readonly available: boolean;
+  /** Human-readable, metadata-only reason (no paths/secrets). */
+  readonly reason: string;
+}
+
+/** P13: a backend that can report availability per level. */
+export interface ProbeableIsolationBackend extends IsolationBackend {
+  /** Availability probe. Never throws; an errored probe means unavailable. */
+  readonly availability: () => BackendAvailability | Promise<BackendAvailability>;
+}
+
 /** Validate a profile against conservative defaults; throws on contradictions. */
 export function validateIsolationProfile(profile: IsolationProfile): void {
   if (!profile.filesystem.workspaceRoot?.trim()) throw new Error("Isolation requires a workspace root.");

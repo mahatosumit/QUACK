@@ -42,6 +42,15 @@ export interface HarnessExecutionContext {
   readonly actor: string;
   readonly signal?: AbortSignal;
   readonly deadline?: IsoTimestamp;
+  /**
+   * P13 (ADR 0047, review finding 10): the CANONICAL mission step index,
+   * assigned by the runtime loop — never derived from model output and
+   * never supplied by a proposal payload. Binds execution evidence to the
+   * step that actually dispatched it; a mismatched index fails identity
+   * settlement fail-closed. Optional only for pre-P13 callers; the governed
+   * loop always supplies it.
+   */
+  readonly stepIndex?: number;
 }
 
 /** Capability resolution result. */
@@ -78,6 +87,26 @@ export interface HarnessConfig {
   readonly isolationBackend?: import("../../isolation/contract.js").IsolationBackend;
   /** P12: trusted containment overrides (deployer configuration), never proposal data. */
   readonly policyOverrides?: { readonly maxOutputBytes?: number; readonly timeoutCeilingMs?: number };
+  /**
+   * P13 (ADR 0047): governed isolated-execution surface. When provided AND
+   * the proposal's capability has a REGISTERED workload adapter, execution
+   * routes through the trusted IsolationSupervisor — a real isolated
+   * environment — instead of the in-process host path. Capabilities without
+   * an adapter keep the honest POLICY_RESTRICTED path; no silent downgrade
+   * exists in either direction.
+   */
+  readonly isolation?: {
+    readonly supervisor: import("../../isolation/supervisor.js").IsolationSupervisor;
+    readonly adapters: import("../../isolation/workload-adapter.js").WorkloadAdapterRegistry;
+    /** P13: trusted probe runner for runtime-derived verification. */
+    readonly probeRunner?: import("../../isolation/probe-runner.js").ProbeRunner;
+    /** P13 review finding 10: when provided, verification settlement must
+     * produce a durable record or the reported verdict downgrades to
+     * INCONCLUSIVE (never PASSED/VERIFIED over an unconfirmable state). */
+    readonly evidenceStore?: {
+      load(executionId: string): Promise<import("../../isolation/execution-evidence.js").ExecutionEvidenceRecord | undefined>;
+    };
+  };
 }
 
 /** Timeout configuration per risk level. */
@@ -228,6 +257,211 @@ export class DefaultExecutionHarness implements ExecutionHarness {
 
       // Step 5: Lower proposal to ActionRequestV1
       const actionRequest = this.lowerProposal(proposal, resolution);
+
+      // Step 5b (P13): isolated-execution routing. When the composition
+      // provides the governed isolation surface AND the capability has a
+      // REGISTERED workload adapter, execution crosses the real isolation
+      // boundary via the trusted supervisor. The adapter registry is
+      // deployer-registered; model output can only NAME capabilities.
+      // Authorization already happened (step 4) — the broker remains the
+      // single authority; isolation decides WHERE, not WHETHER.
+      //
+      // DOWNGRADE GATE (P13 security review findings 1+2): there are
+      // exactly two legal outcomes once an isolation surface exists:
+      //   a) adapter REGISTERED → execute through isolation, or
+      //   b) adapter UNREGISTERED AND policy.isolation.state is
+      //      POLICY_RESTRICTED → honest host path (never was
+      //      isolation-eligible).
+      // Everything else DENIES fail-closed:
+      //   - adapter REJECTED (model-controlled arguments must NEVER select
+      //     the execution environment),
+      //   - requiredIsolation above policy-only with no adapter (the
+      //     policy would claim isolation while executing in-process).
+      const isolationSurface = this.config.isolation;
+      const adapterResolution = isolationSurface
+        ? isolationSurface.adapters.resolve(proposal.capability, proposal.arguments)
+        : undefined;
+      const isolatedStateDemanded = policy.isolation.state === "PROCESS_ISOLATED" || policy.isolation.state === "OS_ISOLATED";
+      if (isolationSurface && adapterResolution?.kind === "REJECTED") {
+        const reason = adapterResolution.reason;
+        await this.eventBus.emit("execution.denied", {
+          executionId, missionId: context.missionId, capability: proposal.capability,
+          reason: "workload adapter rejected the arguments; isolated execution fails closed",
+        }, { actor: "harness" }).catch(() => undefined);
+        const outcome = this.createDeniedOutcome(proposal, executionId, context, `${reason}; execution fails closed rather than downgrading to the host path.`);
+        return { outcome, verification: this.createSkippedVerification(proposal, "Adapter rejected arguments"), evidence, policy };
+      }
+      if (isolatedStateDemanded && adapterResolution?.kind !== "REGISTERED") {
+        // Trusted configuration demanded process/OS isolation but no
+        // registered adapter can provide it for this capability: DENY.
+        // Never claim isolation while executing in-process.
+        await this.eventBus.emit("execution.denied", {
+          executionId, missionId: context.missionId, capability: proposal.capability,
+          reason: `required isolation '${policy.isolation.requiredLevel}' has no registered workload adapter for this capability`,
+        }, { actor: "harness" }).catch(() => undefined);
+        const outcome = this.createDeniedOutcome(proposal, executionId, context,
+          `Required isolation '${policy.isolation.requiredLevel}' cannot be provided for capability '${proposal.capability}' (no registered workload adapter); execution fails closed.`);
+        return { outcome, verification: this.createSkippedVerification(proposal, "Isolation requirement unmet"), evidence, policy };
+      }
+      if (isolationSurface && adapterResolution?.kind === "REGISTERED") {
+        const adapter = adapterResolution.adapter;
+        // P13 review finding 10: the evidence stepIndex is the RUNTIME's
+        // canonical mission step (context.stepIndex), never a constant and
+        // never model-supplied. A composition that failed to provide it is
+        // a wiring bug — fail closed rather than record misattributed
+        // evidence.
+        if (typeof context.stepIndex !== "number" || !Number.isInteger(context.stepIndex) || context.stepIndex < 0) {
+          await this.eventBus.emit("execution.denied", {
+            executionId, missionId: context.missionId, capability: proposal.capability,
+            reason: "isolated execution requires the canonical runtime stepIndex",
+          }, { actor: "harness" }).catch(() => undefined);
+          const outcome = this.createDeniedOutcome(proposal, executionId, context,
+            "Isolated execution requires the canonical runtime stepIndex; execution fails closed rather than recording misattributed evidence.");
+          return { outcome, verification: this.createSkippedVerification(proposal, "Missing canonical stepIndex"), evidence, policy };
+        }
+        const isolatedResult = await isolationSurface.supervisor.execute({
+          missionId: context.missionId,
+          stepIndex: context.stepIndex,
+          capability: proposal.capability,
+          executionId,
+          requiredLevel: adapter.requiredLevel,
+          profile: {
+            filesystem: { workspaceRoot: isolationSurface.supervisor.workspaceRoot },
+            network: { mode: "DENY" },
+            environment: { variables: {}, secrets: [] },
+            limits: {
+              wallClockMs: policy.timeoutMs,
+              maxOutputBytes: policy.limits.maxOutputBytes,
+            },
+          },
+          workload: { kind: "module", entry: adapter.entry, args: proposal.arguments },
+          sourceDirectory: adapter.sourceDirectory,
+          signal: combinedSignal,
+        });
+        if (isolatedResult.status === "DENIED") {
+          await this.eventBus.emit("execution.denied", {
+            executionId, missionId: context.missionId, capability: proposal.capability,
+            reason: isolatedResult.error ?? "isolated execution denied",
+          }, { actor: "harness" }).catch(() => undefined);
+          const deniedOutcome = this.createDeniedOutcome(proposal, executionId, context, isolatedResult.error ?? "Isolated execution failed closed.");
+          return { outcome: deniedOutcome, verification: this.createSkippedVerification(proposal, "Isolation unavailable"), evidence, policy };
+        }
+        // Runtime-observed terminal facts from the supervisor (never workload
+        // self-report): timeout/cancellation flags for P12 classification.
+        if (isolatedResult.status === "TIMED_OUT") evidence.timedOut = true;
+        if (isolatedResult.status === "CANCELLED") evidence.cancelled = true;
+
+        const contained = clampOutputBytes(
+          isolatedResult.status === "SUCCEEDED" ? (isolatedResult.output ?? {}) : { error: isolatedResult.error ?? isolatedResult.status },
+          policy.limits.maxOutputBytes,
+        );
+        const isolatedActionResult: ActionResultV1 = {
+          executionId,
+          providerId: `isolation:${isolatedResult.backendId}`,
+          actionId: proposal.capability,
+          status: isolatedResult.status === "SUCCEEDED" ? "SUCCEEDED" : "FAILED",
+          output: (contained.output ?? {}) as JsonObject,
+          evidenceIds: [],
+        };
+
+        // P13 verification: run the trusted probe runner against the
+        // supervisor-observed result. Model output never supplies the
+        // verification result; probes read runtime evidence only.
+        let verification: ResultVerification;
+        if (isolatedResult.status === "SUCCEEDED" && isolationSurface.probeRunner && proposal.verificationStrategy?.kind === "probe_external_state") {
+          const probed = await isolationSurface.probeRunner.verify({
+            strategy: proposal.verificationStrategy,
+            result: isolatedActionResult,
+            facts: isolatedResult.evidence.facts,
+            missionId: context.missionId,
+            executionId,
+          });
+          // P13 review finding 10: durable settlement is part of the
+          // verdict. A journal/evidence-settlement failure means the
+          // runtime can no longer CONFIRM the verified state durably —
+          // the reported verdict downgrades to INCONCLUSIVE (never
+          // PASSED/VERIFIED). This includes the no-record case: when the
+          // durable store cannot produce the evidence record, the state
+          // is unconfirmed. The settlement error is surfaced, never
+          // swallowed.
+          let settled: import("../../isolation/execution-evidence.js").ExecutionEvidenceRecord | undefined;
+          let settlementError: string | undefined;
+          try {
+            settled = await isolationSurface.supervisor.settleVerification({
+              missionId: context.missionId,
+              stepIndex: context.stepIndex,
+              capability: proposal.capability,
+              executionId,
+              verification: {
+                state: probed.kind === "PASSED" ? "VERIFIED" : probed.kind === "FAILED" ? "FAILED" : "INCONCLUSIVE",
+                probesRun: probed.probesRun,
+                checkedAt: new Date().toISOString(),
+                ...(probed.summary !== undefined ? { summary: probed.summary } : {}),
+              },
+            });
+          } catch (error) {
+            settlementError = error instanceof Error ? error.message : String(error);
+          }
+          const settlementOk = settled !== undefined && settlementError === undefined;
+          // P13 review finding 10 (no-record case): when the composition
+          // provides a durable evidence store, settlement must produce a
+          // loadable record — otherwise the verified state is unconfirmable
+          // and the verdict stays INCONCLUSIVE.
+          if (settlementOk && isolationSurface.evidenceStore) {
+            const durable = await isolationSurface.evidenceStore.load(executionId).catch(() => undefined);
+            if (!durable) {
+              settlementError = "no durable evidence record could be loaded after settlement";
+            }
+          }
+          const finalOk = settled !== undefined && settlementError === undefined;
+          const reportedKind = finalOk ? probed.kind : "INCONCLUSIVE";
+          if (!finalOk) {
+            await this.eventBus.emit("execution.unverified", {
+              executionId, missionId: context.missionId, capability: proposal.capability,
+              probes: probed.probesRun.length, reason: settlementError ?? "verification settlement produced no durable record; verdict downgraded to INCONCLUSIVE",
+            }, { actor: "harness" }).catch(() => undefined);
+          } else {
+            await this.eventBus.emit(probed.kind === "PASSED" ? "execution.verified" : "execution.unverified", {
+              executionId, missionId: context.missionId, capability: proposal.capability,
+              probes: probed.probesRun.length,
+            }, { actor: "harness" }).catch(() => undefined);
+          }
+          verification = {
+            strategy: proposal.verificationStrategy,
+            status: reportedKind === "PASSED" ? "PASSED" : reportedKind === "FAILED" ? "FAILED" : "INCONCLUSIVE",
+            ...(reportedKind === "INCONCLUSIVE" && !finalOk
+              ? { message: `Verification settlement failed; the durable journal cannot confirm this state: ${settlementError ?? "no durable evidence record was produced"}. Verdict stays INCONCLUSIVE — never VERIFIED.` }
+              : { message: probed.summary }),
+            checkedAt: new Date().toISOString(),
+          };
+        } else {
+          verification = await this.verifyResult(proposal, isolatedActionResult, executionId);
+          await this.eventBus.emit("execution.unverified", {
+            executionId, missionId: context.missionId, capability: proposal.capability,
+            probes: 0,
+          }, { actor: "harness" }).catch(() => undefined);
+        }
+
+        const outcome: ActionOutcome = {
+          proposalId: proposal.id,
+          executionId,
+          missionId: context.missionId,
+          executedAt: new Date().toISOString(),
+          actionResult: isolatedActionResult,
+          verification,
+        };
+        await this.eventBus.emit("harness.execution.completed", {
+          executionId, missionId: context.missionId, proposalId: proposal.id,
+          status: isolatedActionResult.status, verification: verification.status,
+          backend: isolatedResult.backendId,
+        }, { actor: "harness" }).catch(() => undefined);
+        return { outcome, verification, evidence, policy };
+      }
+      // Remaining legal host-path case: adapter UNREGISTERED (or no
+      // isolation surface) AND the policy honestly says POLICY_RESTRICTED.
+      // The downgrade gate above already denied REJECTED-adapter and
+      // isolation-demanding-without-adapter cases.
+
 
       // Step 6 (P12): the effective timeout is POLICY-owned. The proposal's
       // timeoutMs is no longer consulted — the runtime cannot be talked
