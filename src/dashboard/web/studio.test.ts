@@ -191,8 +191,8 @@ test("P8.8 instruction events refresh live surfaces over SSE", () => {
   const script = studioScript();
   assert.match(script, /"instruction\.dispatched","instruction\.rejected"/);
   // Evidence and trace surfaces re-render on instruction telemetry updates
-  // (P10.14 added the ecosystem route to the same re-render list).
-  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem"\]/);
+  // (P10.14 added the ecosystem route; P14 added the recovery route).
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem","recovery"\]/);
 });
 
 test("P9.22 Evidence view renders the governed semantic memory panel", () => {
@@ -266,7 +266,7 @@ test("P10.14 ecosystem events refresh the panel live over SSE", () => {
     assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`));
   }
   // The ecosystem route is in the SSE re-render list.
-  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem"\]/);
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem","recovery"\]/);
 });
 
 test("P11 governed mission events refresh live surfaces over SSE", () => {
@@ -276,7 +276,7 @@ test("P11 governed mission events refresh live surfaces over SSE", () => {
     assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`), `${type} is in liveTypes`);
   }
   // Mission surfaces re-render on governed-loop activity.
-  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem"\]/);
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem","recovery"\]/);
 });
 
 test("P12 secure execution events refresh live surfaces over SSE", () => {
@@ -286,6 +286,96 @@ test("P12 secure execution events refresh live surfaces over SSE", () => {
   for (const type of ["execution.policy.resolved", "execution.denied", "execution.timeout", "execution.cancelled"]) {
     assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`), `${type} is in liveTypes`);
   }
+});
+
+test("P14 recovery, approval, and verification events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  // The P14 (ADR 0048) metadata-only event vocabulary is wired for live
+  // refresh: recovery lifecycle, checkpoint writes, approval decisions,
+  // and verification settlement.
+  for (const type of [
+    "mission.recovery_started", "mission.recovery_completed", "mission.recovery_ambiguous",
+    "mission.checkpoint_written", "mission.approval_requested", "mission.approval_granted",
+    "mission.approval_denied", "execution.verification_pending", "execution.verification_completed",
+  ]) {
+    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`), `${type} is in liveTypes`);
+  }
+});
+
+test("P14 recovery view renders the Mission → Recovery → Step → Verification hierarchy, metadata only", () => {
+  const script = studioScript();
+  // The recovery route exists and renders from the governed surfaces only.
+  assert.match(script, /recovery:\["Recovery"/);
+  assert.match(script, /renderRecovery/);
+  assert.match(script, /api\.governedMissions/, "reads only the governed /governed-missions surface");
+  // Mission → Recovery fields: recovery state, next step, last settled
+  // step, ambiguous step, checkpoint.
+  assert.match(script, /row\("Recovery state",badge\(recoveryState\),true\)/);
+  assert.match(script, /row\("Next step",nextStep\)/);
+  assert.match(script, /row\("Last settled step",lastSettled\)/);
+  assert.match(script, /row\("Ambiguous step",ambiguous\)/);
+  assert.match(script, /row\("Checkpoint",badge\(checkpoint\.recovery\)\)/);
+  // Step → Verification mapping is explicit (no derived success).
+  assert.match(script, /recoveryStepTable/);
+  assert.match(script, /recoveryVerificationBadge/);
+  // Metadata only: no prompt/model-output/argument rendering on the route.
+  const recoveryStart = script.indexOf("async function renderRecovery");
+  const recoveryEnd = script.indexOf("async function missionAction");
+  const recoveryView = script.slice(recoveryStart, recoveryEnd);
+  assert.ok(recoveryStart !== -1 && recoveryEnd > recoveryStart, "recovery view code present");
+  assert.ok(!/"prompt"/.test(recoveryView), "no prompt rendering in the recovery view");
+  assert.ok(!/"arguments"\s*:/.test(recoveryView), "no argument rendering in the recovery view");
+});
+
+test("P14 recovery view renders the honest state vocabulary with correct tones", () => {
+  const script = studioScript();
+  // States the view itself emits as literals (badge text it constructs).
+  for (const state of ["VERIFIED", "UNVERIFIED", "AMBIGUOUS", "RUNNING", "DENIED", "WAITING_APPROVAL"]) {
+    assert.ok(script.includes(`"${state}"`), `${state} appears in the recovery vocabulary`);
+  }
+  // Data-driven states (RECOVERING, REQUIRES_VERIFICATION, SAFE_TO_RESUME,
+  // TERMINAL) arrive from the server surface and render through the tone
+  // classifier — each must be explicitly tone-classified so it can never
+  // silently fall through to success styling.
+  const toneMatch = script.match(/const tone=value=>([^\n]+?);/);
+  assert.ok(toneMatch, "tone classifier exists");
+  const toneBody = toneMatch![1]!;
+  assert.match(toneBody, /RECOVERING/, "RECOVERING is explicitly tone-classified (warn)");
+  assert.match(toneBody, /REQUIRES_VERIFICATION/, "REQUIRES_VERIFICATION is explicitly tone-classified (danger)");
+  // WAITING_APPROVAL is distinct from execution state: it renders from the
+  // approval surface (AWAITING_APPROVAL actions), not from step execution.
+  assert.match(script, /AWAITING_APPROVAL"\)\.map\(x=>x\.actionName\)/);
+  assert.match(script, /row\("Approval",badge\("WAITING_APPROVAL"\),true\)/);
+  // AMBIGUOUS/UNVERIFIED/REQUIRES_VERIFICATION classify as DANGER tone and
+  // take precedence over the success pattern — UNVERIFIED can never borrow
+  // VERIFIED styling, and AMBIGUOUS never renders as success.
+  const dangerPattern = toneBody.slice(0, toneBody.indexOf("?"));
+  assert.match(dangerPattern, /UNVERIFIED/, "UNVERIFIED is danger-toned");
+  assert.match(dangerPattern, /AMBIGUOUS/, "AMBIGUOUS is danger-toned");
+  assert.match(dangerPattern, /REQUIRES_VERIFICATION/, "REQUIRES_VERIFICATION is danger-toned");
+  assert.ok(!dangerPattern.includes("VERIFIED|") || dangerPattern.includes("UNVERIFIED"),
+    "plain VERIFIED is not in the danger pattern");
+});
+
+test("P14 recovery view exposes no force/skip/override controls", () => {
+  const script = studioScript();
+  // No force-resume, skip-step, or verification-override control exists on
+  // the recovery surface: recovery resumes only through the governed loop.
+  const recoveryStart = script.indexOf("async function renderRecovery");
+  const recoveryEnd = script.indexOf("async function missionAction");
+  const recoveryView = script.slice(recoveryStart, recoveryEnd);
+  assert.ok(recoveryStart !== -1 && recoveryEnd > recoveryStart, "recovery view code present");
+  assert.ok(!/force-resume|skip-step|verify-anyway|recovery-force|recovery-skip|recovery-override/.test(recoveryView),
+    "no force/skip/override controls in the recovery view");
+  assert.ok(!/missionAction\(/.test(recoveryView), "the recovery view dispatches no mission actions");
+  assert.ok(!/\{method:"(POST|PATCH|PUT|DELETE)"\}/.test(recoveryView), "the recovery view performs no mutations");
+  // AMBIGUOUS visibly parks: the callout names the no-replay guarantee.
+  assert.match(recoveryView, /never re-dispatches an uncertain action/);
+  // UNVERIFIED is never rendered as VERIFIED: the classifier's success
+  // branch requires the exact VERIFIED state, and EXECUTION_COMPLETED maps
+  // to UNVERIFIED — the mapping never upgrades.
+  assert.match(script, /execution==="EXECUTION_VERIFIED"\)state="VERIFIED"/);
+  assert.match(script, /execution==="EXECUTION_COMPLETED"\)state="UNVERIFIED"/);
 });
 
 test("P7 legacy surfaces stay retired", () => {

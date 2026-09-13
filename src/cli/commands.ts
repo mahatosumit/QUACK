@@ -523,15 +523,77 @@ function extensionView(record: import("../ecosystem/registry.js").RegistryRecord
 /**
  * P11 governed mission runtime CLI. `run` executes a mission through the
  * governed loop (QIE → model → parser → broker → existing surfaces);
- * `status` lists/inspects durable run records. Output is metadata-only —
- * no prompts, no model output, no arguments. Exit codes: 0 success,
- * 1 mission failure, 2 usage error, 3 unknown mission.
+ * `status` lists/inspects durable run records; `recover` (P14, ADR 0048)
+ * inspects durable recovery state — checkpoint + reconciled records — for
+ * one mission. All output is metadata-only — no prompts, no model output,
+ * no arguments. Exit codes: 0 success, 1 mission failure, 2 usage error,
+ * 3 unknown mission.
  */
 export async function commandGovMission(
   context: CommandContext,
-  action: "run" | "status",
+  action: "run" | "status" | "recover",
   target?: string,
 ): Promise<number> {
+  if (action === "recover") {
+    // P14: safe inspection only. This NEVER bypasses broker, approval,
+    // isolation, verification, or recovery safety — it reads the durable
+    // records and reports the honest recovery state. Resuming a crashed
+    // mission is `govmission run` on the SAME mission id (the loop
+    // reconciles and refuses unsafe resumption itself); there is no
+    // --force/--skip flag and none will exist.
+    if (!target || !target.trim()) {
+      console.error("quack govmission recover requires a mission id: quack govmission recover <missionId>");
+      return 2;
+    }
+    const system = createQuackSystem({
+      dataDir: context.config.dataDir,
+      workspaceRoot: context.config.workspaceRoot,
+    });
+    try {
+      const run = await system.governedMissionLoop.getRun(target);
+      if (!run) {
+        if (context.json) out(context, { error: "mission.govmission_not_found", message: `No governed run for ${target}.` });
+        else console.error(`No governed run for ${target}.`);
+        return 3;
+      }
+      const decision = await system.governedMissionLoop.inspectRecovery(target);
+      const checkpoint = await system.governedMissionLoop.getCheckpoint(target).catch(() => undefined);
+      if (context.json) {
+        out(context, {
+          missionId: target,
+          runId: decision.runId || run.runId,
+          runState: run.currentState ?? "RUNNING",
+          stopReason: run.stopReason ?? null,
+          recovery: {
+            state: decision.state,
+            nextStepIndex: decision.nextStepIndex,
+            lastSettledStep: decision.lastSettledStep,
+            ambiguousStep: decision.ambiguousStep,
+            reason: decision.reason,
+          },
+          checkpoint: checkpoint ? {
+            version: checkpoint.version,
+            recovery: checkpoint.recovery,
+            nextStepIndex: checkpoint.nextStepIndex,
+            usage: checkpoint.usage,
+            recordedAt: checkpoint.recordedAt,
+          } : null,
+        });
+      } else {
+        console.log(`Mission ${target}: recovery state ${decision.state}`);
+        console.log(`  ${decision.reason}`);
+        console.log(`  safe continuation point: ${decision.nextStepIndex >= 0 ? `step ${decision.nextStepIndex}` : "none (mission parked or terminal)"}`);
+        if (checkpoint) console.log(`  checkpoint: ${checkpoint.recovery} @ step ${checkpoint.nextStepIndex} (recorded ${checkpoint.recordedAt})`);
+        else console.log("  checkpoint: none recorded");
+      }
+      await system.events.drain();
+      return 0;
+    } catch (error) {
+      if (context.json) out(context, { error: String(error) });
+      else console.error("Governed mission recovery inspection failed:", error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
   if (action === "run") {
     if (!target || !target.trim()) {
       console.error("quack govmission run requires an objective: quack govmission run \"<objective>\"");

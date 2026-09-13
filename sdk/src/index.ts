@@ -308,6 +308,43 @@ export type {
   StepAttemptState,
 } from "@quack/os";
 
+// P14 Durable Recovery + Verified Actions (ADR 0048) — the mission
+// checkpoint contract, the fenced recovery-state machine, reconciliation
+// over existing durable records, and the governed approval contract.
+// Inspection/composition surface only: no checkpoint-store internals, no
+// approval callbacks beyond the deny/console defaults, no privileged
+// recovery functions (nothing here can force a resume or forge authority).
+export {
+  MISSION_CHECKPOINT_VERSION,
+  parseMissionCheckpoint,
+  missionCheckpointDigest,
+  buildMissionCheckpoint,
+  serializeMissionCheckpoint,
+  reconcileMission,
+  journalStateDigest,
+  runRecordDigest,
+  assertRecoveryTransition,
+  InMemoryMissionCheckpointStore,
+  APPROVAL_RECORD_VERSION,
+  ApprovalRunner,
+  canonicalProposalDigest,
+  approvalRecordDigest,
+  parseApprovalRecord,
+  ConsoleApprovalRunnerCallback,
+  DenyApprovalRunnerCallback,
+  registerProductionAdapters,
+  WorkloadAdapterRegistry,
+} from "@quack/os";
+export type {
+  MissionCheckpoint,
+  RecoveryDecision,
+  RecoveryState,
+  ApprovalRecord,
+  ApprovalRequestInput,
+  ApprovalRunnerCallback,
+  ApprovalCallbackDecision,
+} from "@quack/os";
+
 // Workspace
 
 

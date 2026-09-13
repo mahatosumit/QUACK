@@ -818,11 +818,15 @@ export class QuackHttpServer {
     // model output, action arguments, and secrets never cross this
     // boundary; records are already redacted at persistence and are
     // re-redacted at the wire like every other surface.
+    // P14 (ADR 0048): each run also carries its durable recovery state —
+    // checkpoint recovery status, safe continuation point, and ambiguous
+    // step (when recovery parked the mission). Inspection only.
     try {
       const runs = await this.system.governedMissionLoop.listRuns();
-      this.writeJson(response, 200, {
-        readOnly: true,
-        runs: runs.map((run) => JSON.parse(redactSecrets(JSON.stringify({
+      const withRecovery = await Promise.all(runs.map(async (run) => {
+        const checkpoint = await this.system.governedMissionLoop.getCheckpoint(run.missionId).catch(() => undefined);
+        const recovery = await this.system.governedMissionLoop.inspectRecovery(run.missionId).catch(() => undefined);
+        return JSON.parse(redactSecrets(JSON.stringify({
           missionId: run.missionId,
           runId: run.runId,
           state: run.currentState ?? "RUNNING",
@@ -830,6 +834,20 @@ export class QuackHttpServer {
           iterations: run.iterations.length,
           startedAt: run.startedAt,
           endedAt: run.endedAt ?? null,
+          // P14 recovery fields (metadata only).
+          recovery: recovery ? {
+            state: recovery.state,
+            nextStepIndex: recovery.nextStepIndex,
+            lastSettledStep: recovery.lastSettledStep,
+            ambiguousStep: recovery.ambiguousStep,
+          } : null,
+          checkpoint: checkpoint ? {
+            version: checkpoint.version,
+            recovery: checkpoint.recovery,
+            nextStepIndex: checkpoint.nextStepIndex,
+            recordedAt: checkpoint.recordedAt,
+            usage: checkpoint.usage,
+          } : null,
           steps: run.iterations.map((step) => ({
             step: step.index,
             capability: step.selectedAction?.capability ?? null,
@@ -844,8 +862,9 @@ export class QuackHttpServer {
             code: step.observations["code"] ?? null,
             stopReason: step.stopReason ?? null,
           })),
-        }))) as JsonObject),
-      });
+        }))) as JsonObject;
+      }));
+      this.writeJson(response, 200, { readOnly: true, runs: withRecovery });
     } catch {
       // Malformed store state fails closed — honest empty surface.
       this.writeJson(response, 200, { readOnly: true, runs: [] });

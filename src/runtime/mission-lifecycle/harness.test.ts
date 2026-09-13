@@ -83,6 +83,8 @@ test("descriptor risk cannot be downgraded by a read-only proposal without a ver
   const harness = new DefaultExecutionHarness(runtime, broker, registry, new ToolRegistry(), new EventBus());
   const result = await harness.execute(proposal("fixture.action"), context);
   assert.equal(result.outcome.actionResult.status, "FAILED");
-  assert.match(String(result.outcome.actionResult.output?.error), /verification runner/);
+  // P14 (ADR 0048): without an approval runner the gate stays closed — same
+  // P13 fail-closed behavior, reworded to the approval contract.
+  assert.match(String(result.outcome.actionResult.output?.error), /approval runner/);
   assert.equal(calls, 0);
 });

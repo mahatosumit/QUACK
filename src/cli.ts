@@ -30,7 +30,7 @@ interface CliOptions {
   extensionAction?: "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove";
   extensionTarget?: string;
   /** P11: governed mission runtime subcommand. */
-  govMissionAction?: "run" | "status";
+  govMissionAction?: "run" | "status" | "recover";
   govMissionTarget?: string;
   headless: boolean;
   port?: number;
@@ -109,6 +109,9 @@ Commands:
                         runtime (QIE -> broker -> harness execution)
   govmission status [missionId]
                         List governed mission runs or inspect one run
+  govmission recover <missionId>
+                        Inspect durable recovery state for a mission
+                        (checkpoint + reconciled records; metadata only)
   govmission run "<objective>"
                         Run a mission through the governed loop (QIE →
                         model → fail-closed parser → broker → execution)
@@ -260,10 +263,10 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
         break;
       case "govmission":
         command = "govmission";
-        if (args[i + 1] === "run" || args[i + 1] === "status") {
-          options.govMissionAction = args[++i] as "run" | "status";
+        if (args[i + 1] === "run" || args[i + 1] === "status" || args[i + 1] === "recover") {
+          options.govMissionAction = args[++i] as "run" | "status" | "recover";
           // Target: for `run` it is the objective string (may not start with
-          // '-'); for `status` an optional mission id.
+          // '-'); for `status`/`recover` an optional mission id.
           if (options.govMissionAction === "run") {
             if (args[i + 1] && !args[i + 1].startsWith("-")) options.govMissionTarget = args[++i];
           } else if (args[i + 1] && !args[i + 1].startsWith("-")) {

@@ -20,6 +20,7 @@ import {
   clampOutputBytes,
   type ExecutionPolicy,
 } from "./execution-policy.js";
+import { canonicalProposalDigest, type ApprovalRunner } from "./approval-contract.js";
 
 /** Result of harness execution. */
 export interface HarnessResult {
@@ -107,6 +108,14 @@ export interface HarnessConfig {
       load(executionId: string): Promise<import("../../isolation/execution-evidence.js").ExecutionEvidenceRecord | undefined>;
     };
   };
+  /**
+   * P14 (ADR 0048): the governed approval runner for IRREVERSIBLE and
+   * DESTRUCTIVE actions. Without it, those risk levels keep failing closed
+   * exactly as in P13. With it, the flow is broker authorization → human
+   * approval (identity-bound, digest-bound, single-use) → policy →
+   * execution → verification. Model output never reaches this seam.
+   */
+  readonly approvalRunner?: ApprovalRunner;
 }
 
 /** Timeout configuration per risk level. */
@@ -199,7 +208,61 @@ export class DefaultExecutionHarness implements ExecutionHarness {
       if (this.config.requireVerificationForIrreversible && actionDescriptor) {
         const actualRisk = this.mapRiskClassToExecutionRiskLevel(actionDescriptor.riskClass);
         if (actualRisk === "IRREVERSIBLE" || actualRisk === "DESTRUCTIVE") {
-          throw new Error("Irreversible action execution requires a verification runner, which is unsupported by this harness.");
+          // P14 (ADR 0048): the approval gate. P13 failed closed here; P14
+          // admits IRREVERSIBLE/DESTRUCTIVE execution ONLY through the
+          // governed approval runner — a human, identity-bound,
+          // digest-bound, single-use decision that the model cannot forge,
+          // supply, or reuse. No runner: still fails closed (P13 behavior).
+          if (!this.config.approvalRunner) {
+            throw new Error("Irreversible action execution requires a governed approval runner, which is not wired; failing closed.");
+          }
+          const proposalDigest = canonicalProposalDigest({
+            capability: proposal.capability,
+            arguments: proposal.arguments,
+            intent: proposal.intent,
+            missionId: context.missionId,
+            stepIndex: context.stepIndex ?? -1,
+          });
+          await this.eventBus.emit("mission.approval_requested", {
+            executionId, missionId: context.missionId, capability: proposal.capability,
+            riskLevel: actualRisk, stepIndex: context.stepIndex ?? null,
+          }, { actor: "harness" }).catch(() => undefined);
+          const approval = await this.config.approvalRunner.requestApproval({
+            missionId: context.missionId,
+            stepIndex: context.stepIndex ?? -1,
+            capability: proposal.capability,
+            proposalDigest,
+            riskLevel: actualRisk,
+            reason: `Irreversible/destructive action proposed (intent: ${proposal.intent.slice(0, 120)}).`,
+            actor: context.actor,
+          });
+          if (approval.decision !== "GRANTED") {
+            await this.eventBus.emit("mission.approval_denied", {
+              executionId, missionId: context.missionId, capability: proposal.capability,
+              approver: approval.approver, reason: approval.reason,
+            }, { actor: "harness" }).catch(() => undefined);
+            const outcome = this.createDeniedOutcome(proposal, executionId, context,
+              `Irreversible action denied by the approver (${approval.approver}): ${approval.reason}`);
+            return { outcome, verification: this.createSkippedVerification(proposal, "Approval denied"), evidence, policy };
+          }
+          const consumed = this.config.approvalRunner.consumeApproval(approval, {
+            missionId: context.missionId,
+            stepIndex: context.stepIndex ?? -1,
+            capability: proposal.capability,
+            proposalDigest,
+          });
+          if (!consumed.ok) {
+            await this.eventBus.emit("mission.approval_denied", {
+              executionId, missionId: context.missionId, capability: proposal.capability,
+              approver: "harness", reason: consumed.reason,
+            }, { actor: "harness" }).catch(() => undefined);
+            const outcome = this.createDeniedOutcome(proposal, executionId, context, `Approval could not be consumed: ${consumed.reason}`);
+            return { outcome, verification: this.createSkippedVerification(proposal, consumed.reason), evidence, policy };
+          }
+          await this.eventBus.emit("mission.approval_granted", {
+            executionId, missionId: context.missionId, capability: proposal.capability,
+            approvalId: approval.approvalId, approver: approval.approver,
+          }, { actor: "harness" }).catch(() => undefined);
         }
       }
 

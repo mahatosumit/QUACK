@@ -35,4 +35,12 @@ export type {
   IsolationBackendInfo,
   ExecutionEvidence,
   VerificationResult,
+  RecoveryState,
+  RecoveryInfo,
+  MissionCheckpoint,
+  MissionCheckpointInfo,
+  ApprovalRecord,
+  ApprovalInfo,
+  AdapterInfo,
+  AdapterVerificationStrategy,
 } from "@quack/os";

@@ -366,6 +366,12 @@ test("P11 CLI parseArgs parses govmission run/status with targets", async () => 
   assert.equal(status.options.govMissionTarget, "gov_abc");
   const statusAll = parseArgs(["node", "cli.js", "govmission", "status"]);
   assert.equal(statusAll.options.govMissionTarget, undefined);
+  // P14: recover action parses with its mission-id target.
+  const recover = parseArgs(["node", "cli.js", "govmission", "recover", "gov_crashed"]);
+  assert.equal(recover.options.govMissionAction, "recover");
+  assert.equal(recover.options.govMissionTarget, "gov_crashed");
+  const recoverNoId = parseArgs(["node", "cli.js", "govmission", "recover"]);
+  assert.equal(recoverNoId.options.govMissionTarget, undefined);
 });
 
 test("P11 commandGovMission requires an objective and honest provider.invoke consent", async (context) => {
@@ -428,4 +434,53 @@ test("P11 commandGovMission status lists persisted runs across processes and exi
 
   lines.length = 0;
   assert.equal(await commandGovMission({ json: false, config }, "status", "gov_never_ran"), 3, "unknown id exits 3");
+});
+
+test("P14 commandGovMission recover inspects durable recovery state and fails closed on unknown ids", async (context) => {
+  const { commandGovMission } = await import("./cli/commands.js");
+  const { loadCliConfig } = await import("./cli/config.js");
+  const { JsonFileMissionRunStore } = await import("./runtime/mission-lifecycle/mission-run-store.js");
+  const { JsonFileStepAttemptJournal } = await import("./runtime/mission-lifecycle/step-attempt-journal.js");
+  const { createLoopRun, appendIteration, createIterationId } = await import("./runtime/mission-lifecycle/executive-loop.js");
+  const root = await mkdtemp(join(tmpdir(), "quack-govmission-recover-"));
+  context.after(() => rm(root, { recursive: true, force: true }));
+  const config = loadCliConfig({ cli: { dataDir: join(root, "state"), workspaceRoot: root } });
+  const lines: string[] = [];
+  context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });
+  context.mock.method(console, "error", (message: unknown) => { lines.push(String(message)); });
+
+  // Missing id → usage error.
+  assert.equal(await commandGovMission({ json: false, config }, "recover", ""), 2);
+  assert.ok(lines.join("\n").includes("requires a mission id"));
+
+  // A crashed (non-terminal) run + a settled journal step: recovery
+  // reports SAFE_TO_RESUME with the safe continuation point.
+  const stateDir = join(root, "state");
+  const store = new JsonFileMissionRunStore(stateDir);
+  const journal = new JsonFileStepAttemptJournal(stateDir);
+  const base = createLoopRun({
+    missionId: "gov_crashed", goal: "crash fixture", actor: "operator",
+    budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+  });
+  const run = appendIteration(base, {
+    runId: base.runId, missionId: "gov_crashed", iterationId: createIterationId(), index: 0,
+    startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), phase: "ACT", goal: "g",
+    observations: {}, workingContext: {}, candidateActions: [],
+    usageSnapshot: { modelCalls: 1, toolCalls: 1, cost: 0 },
+  });
+  await store.save({ ...run, currentState: "RUNNING" });
+  const key = (await import("./runtime/mission-lifecycle/step-attempt-journal.js")).stepAttemptKey("gov_crashed", 0, "core.echo");
+  assert.equal(await journal.reserve({ attemptKey: key, missionId: "gov_crashed", stepIndex: 0, capability: "core.echo", executionId: "e" }), true);
+  await journal.settle(key, { state: "COMPLETED", executionState: "EXECUTION_COMPLETED" });
+
+  lines.length = 0;
+  assert.equal(await commandGovMission({ json: true, config }, "recover", "gov_crashed"), 0);
+  const inspected = JSON.parse(lines.join("\n")) as { missionId: string; recovery: { state: string; nextStepIndex: number }; checkpoint: unknown };
+  assert.equal(inspected.missionId, "gov_crashed");
+  assert.equal(inspected.recovery.state, "SAFE_TO_RESUME");
+  assert.equal(inspected.recovery.nextStepIndex, 1, "safe continuation point after the settled step");
+
+  // Unknown id → exit 3.
+  lines.length = 0;
+  assert.equal(await commandGovMission({ json: false, config }, "recover", "gov_ghost"), 3);
 });

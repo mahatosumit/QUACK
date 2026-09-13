@@ -24,9 +24,14 @@ import {
 } from "./execution-policy.js";
 import { InMemoryStepAttemptJournal, stepAttemptKey, type StepAttemptJournal } from "./step-attempt-journal.js";
 import {
-  assertMissionTransition, planMissionTransition,
+  assertMissionTransition, planMissionTransition, isTerminalMissionState,
   type MissionState, type MissionTransitionTrigger,
 } from "./mission-state-machine.js";
+import {
+  reconcileMission, journalStateDigest, runRecordDigest, buildMissionCheckpoint,
+  JsonFileMissionCheckpointStore, InMemoryMissionCheckpointStore,
+  type MissionCheckpoint, type RecoveryDecision, type RecoveryState,
+} from "./mission-recovery.js";
 
 /**
  * P11 (ADR 0045): the governed mission execution loop — the first REAL
@@ -104,6 +109,20 @@ export interface GovernedMissionLoopOptions {
   /** P12: bounded concurrent governed executions (enforced in-process). */
   readonly maxConcurrentSteps?: number;
   /**
+   * P14 (ADR 0048): durable mission checkpoints. When provided, the loop
+   * writes a trusted checkpoint after every settled iteration and reconciles
+   * it on restart to determine the safe continuation point. Default:
+   * in-memory store scoped to this loop instance.
+   */
+  readonly checkpointStore?: import("./mission-recovery.js").JsonFileMissionCheckpointStore | import("./mission-recovery.js").InMemoryMissionCheckpointStore;
+  /**
+   * P14 (ADR 0048): the governed approval runner for IRREVERSIBLE and
+   * DESTRUCTIVE proposals. Passed through to the default harness; a custom
+   * harness wires it itself. Without it, those risk levels keep the honest
+   * P13 fail-closed behavior.
+   */
+  readonly approvalRunner?: import("./approval-contract.js").ApprovalRunner;
+  /**
    * P13 (ADR 0047): governed isolated-execution surface. Passed through to
    * the default harness; when a custom harness is provided the caller wires
    * it there instead. Capabilities with a REGISTERED workload adapter route
@@ -151,6 +170,8 @@ export class GovernedMissionLoop {
   private readonly stepJournal: StepAttemptJournal;
   /** P12: in-process concurrency bound for governed executions. */
   private readonly maxConcurrentSteps: number;
+  /** P14: durable mission checkpoint store. */
+  private readonly checkpointStore: import("./mission-recovery.js").JsonFileMissionCheckpointStore | import("./mission-recovery.js").InMemoryMissionCheckpointStore;
   private activeSteps = 0;
 
   constructor(private readonly options: GovernedMissionLoopOptions) {
@@ -169,7 +190,8 @@ export class GovernedMissionLoop {
       options.tools,
       options.events,
       { defaultTimeoutMs: 120_000, requireVerificationForIrreversible: true, executeTool: options.executeTool,
-        ...(options.isolation ? { isolation: options.isolation } : {}) },
+        ...(options.isolation ? { isolation: options.isolation } : {}),
+        ...(options.approvalRunner ? { approvalRunner: options.approvalRunner } : {}) },
     );
     this.budget = { ...DEFAULT_BUDGET, ...options.budget };
     this.maxRetriesPerStep = options.maxRetriesPerStep ?? 2;
@@ -177,6 +199,7 @@ export class GovernedMissionLoop {
     this.actor = options.actor ?? "governed-mission-loop";
     this.stepJournal = options.stepJournal ?? new InMemoryStepAttemptJournal();
     this.maxConcurrentSteps = options.maxConcurrentSteps ?? DEFAULT_MAX_CONCURRENT_STEPS;
+    this.checkpointStore = options.checkpointStore ?? new InMemoryMissionCheckpointStore();
   }
 
   /** Run (or resume, when a stored non-terminal run exists) a governed mission. */
@@ -199,16 +222,86 @@ export class GovernedMissionLoop {
     await this.stepJournal.reconcileOrphans().catch(() => undefined);
 
     // Idempotent resume: a stored TERMINAL run fails closed (never silently
-    // re-executed); a stored non-terminal run continues from its iterations.
+    // re-executed); a stored non-terminal run RECONCILES its durable records
+    // (P14): every recorded attempt must have settled, and any ambiguous
+    // attempt parks the mission REQUIRES_VERIFICATION — the loop never
+    // blindly replays an uncertain action, and never steps over one.
     const stored = await this.options.runStore?.load(request.missionId) ?? this.runs.get(request.missionId);
     let run: LoopRun;
     let state: MissionState;
-    if (stored && isTerminalStopReason(stored.stopReason ?? ("STOP_GOAL_ACHIEVED" as StopReason))) {
+    let resumeFromStep = 0;
+    if (stored && stored.stopReason !== undefined && isTerminalStopReason(stored.stopReason)) {
+      // P11/P14: a run that STOPPED with a terminal reason is finished —
+      // resume is refused, never silently re-executed.
       this.cancellers.delete(request.missionId);
       return fail({ code: "mission.loop_already_terminal", message: `Mission ${request.missionId} already ended (${stored.stopReason}). Start a new mission instead.`, category: "validation", recoverable: false });
     } else if (stored) {
+      // P14 mid-run crash recovery: a stored run WITHOUT a terminal stop
+      // reason means the previous process died mid-flight. Reconcile the
+      // durable records: every recorded attempt must have settled, and any
+      // ambiguous attempt parks the mission — the loop never blindly
+      // replays an uncertain action, and never steps over one.
+      const decision = await this.reconcileForResume(request.missionId, stored);
+      if (decision.state !== "SAFE_TO_RESUME") {
+        this.cancellers.delete(request.missionId);
+        return fail({
+          code: decision.state === "TERMINAL"
+            ? "mission.loop_already_terminal"
+            : "mission.recovery_ambiguous",
+          message: `Mission ${request.missionId} cannot resume: ${decision.reason}`,
+          category: "validation",
+          recoverable: false,
+        });
+      }
+      resumeFromStep = decision.nextStepIndex;
       run = stored;
-      state = stored.currentState ?? "RUNNING";
+      // P14 budget recovery: restore consumed counters from the persisted
+      // record so a restart can never reset budgets (no budget-reset exploit).
+      run = { ...run, usage: restoreUsage(run) };
+      // Canonical crash chain (state machine table). The crashed state is
+      // whatever non-terminal state the record carries; every path is
+      // composed ONLY of legal fenced transitions:
+      //   RUNNING/STARTING/WAITING → INTERRUPTED → RECOVERING → RUNNING
+      //   BLOCKED → WAITING → INTERRUPTED → RECOVERING → RUNNING
+      //   RECOVERING (died mid-recovery) → RUNNING after re-reconciliation
+      //   CREATED/QUEUED (never entered the loop body) → admission chain
+      const crashedState: MissionState = stored.currentState && !isTerminalMissionState(stored.currentState) ? stored.currentState : "RUNNING";
+      switch (crashedState) {
+        case "CREATED":
+        case "QUEUED": {
+          // Crashed before the loop body ever ran: re-run the admission chain.
+          let s: MissionState = crashedState === "CREATED"
+            ? this.transition(run.missionId, "CREATED", "QUEUED", "enqueue", "Mission enqueued by the governed loop.")
+            : "QUEUED";
+          s = this.transition(run.missionId, s, "STARTING", "start", "Mission starting after restart.");
+          state = this.transition(run.missionId, s, "RUNNING", "start", "Restarted admission complete; loop begins.");
+          break;
+        }
+        case "RECOVERING":
+          // Died mid-recovery: reconciliation just re-ran above; resume.
+          state = this.transition(run.missionId, "RECOVERING", "RUNNING", "resume", `Recovery re-verified a safe boundary at step ${resumeFromStep}; resuming.`);
+          break;
+        case "INTERRUPTED":
+          state = this.transition(run.missionId, "INTERRUPTED", "RECOVERING", "recover", "Reconciled durable records after a process restart.");
+          state = this.transition(run.missionId, state, "RUNNING", "resume", `Recovery verified a safe boundary at step ${resumeFromStep}; resuming.`);
+          break;
+        case "BLOCKED": {
+          let s = this.transition(run.missionId, "BLOCKED", "WAITING", "wait", "Blocked mission interrupted by a process crash.");
+          s = this.transition(run.missionId, s, "INTERRUPTED", "interrupt", "Previous process died mid-run.");
+          s = this.transition(run.missionId, s, "RECOVERING", "recover", "Reconciled durable records after a process restart.");
+          state = this.transition(run.missionId, s, "RUNNING", "resume", `Recovery verified a safe boundary at step ${resumeFromStep}; resuming.`);
+          break;
+        }
+        default: {
+          // RUNNING / STARTING / WAITING: direct interrupt → recover → resume.
+          let s = this.transition(run.missionId, crashedState, "INTERRUPTED", "interrupt", "Previous process died mid-run.");
+          s = this.transition(run.missionId, s, "RECOVERING", "recover", "Reconciled durable records after a process restart.");
+          state = this.transition(run.missionId, s, "RUNNING", "resume", `Recovery verified a safe boundary at step ${resumeFromStep}; resuming.`);
+          break;
+        }
+      }
+      run = { ...run, currentState: state };
+      await this.emitMission("mission.recovery_completed", { missionId: request.missionId, runId: run.runId, nextStepIndex: resumeFromStep });
     } else {
       // P11 security: the persisted run record carries the REDACTED objective
       // (secret-shaped content never persists); dispatch uses the raw
@@ -226,7 +319,7 @@ export class GovernedMissionLoop {
     }
 
     try {
-      let index = run.iterations.length;
+      let index = resumeFromStep;
       let cancelled = false;
       while (true) {
         if (signal.aborted) { cancelled = true; break; }
@@ -251,9 +344,17 @@ export class GovernedMissionLoop {
         }
 
         const iteration = await this.executeStep(run, request, index, signal);
+        // P14 budget recovery: the iteration record carries the authoritative
+        // cumulative usage snapshot (written inside iteration()); append
+        // folds it into run.usage so a restart reconstructs consumed budget.
         run = appendIteration(run, iteration);
         await this.options.runStore?.save(run).catch(() => undefined);
         this.runs.set(request.missionId, run);
+        // P14 (ADR 0048): durable checkpoint AFTER the settled iteration and
+        // its durable records — closing crash window G (settlement done, next
+        // checkpoint not yet written). Checkpoint failures are surfaced but
+        // never block the run: the journal + run record remain authoritative.
+        await this.writeCheckpoint(run, index).catch(() => undefined);
 
         if (iteration.stopReason) {
           run = terminateRun(run, iteration.stopReason);
@@ -278,6 +379,86 @@ export class GovernedMissionLoop {
       await this.options.runStore?.save(run).catch(() => undefined);
       this.runs.set(request.missionId, run);
     }
+  }
+
+  // -----------------------------------------------------------------
+  // P14 (ADR 0048): durable recovery over existing records.
+  // -----------------------------------------------------------------
+
+  /**
+   * Reconcile durable records for a stored non-terminal run and write the
+   * trusted checkpoint. Orchestration only — the run store and step journal
+   * remain the authorities; this method decides nothing about execution and
+   * grants nothing.
+   */
+  private async reconcileForResume(missionId: string, stored: LoopRun): Promise<RecoveryDecision> {
+    await this.emitRecovery("mission.recovery_started", { missionId, runId: stored.runId });
+    const decision = await reconcileMission({ missionId, run: stored, journal: this.stepJournal });
+    // Persist the trusted checkpoint (metadata only). Write failures are
+    // surfaced but never widen authority: the decision still governs.
+    try {
+      const checkpoint = buildMissionCheckpoint({
+        run: stored,
+        recovery: decision.state === "TERMINAL" ? "TERMINAL" : decision.state,
+        nextStepIndex: decision.nextStepIndex,
+        lastSettledStep: decision.lastSettledStep,
+        ambiguousStep: decision.ambiguousStep,
+        journalDigest: await journalStateDigest(this.stepJournal, missionId),
+        runDigest: runRecordDigest(stored),
+      });
+      await this.checkpointStore.save(checkpoint);
+      await this.options.events.emit("mission.checkpoint_written", {
+        missionId, runId: stored.runId, recovery: checkpoint.recovery, nextStepIndex: checkpoint.nextStepIndex,
+      }, { actor: this.actor }).catch(() => undefined);
+    } catch (error) {
+      await this.emitRecovery("mission.recovery_ambiguous", {
+        missionId, runId: stored.runId,
+        reason: `checkpoint write failed: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
+    if (decision.state === "SAFE_TO_RESUME") {
+      await this.emitRecovery("mission.recovery_completed", { missionId, runId: stored.runId, nextStepIndex: decision.nextStepIndex });
+    } else if (decision.state !== "TERMINAL") {
+      await this.emitRecovery("mission.recovery_ambiguous", { missionId, runId: stored.runId, reason: decision.reason });
+    }
+    return decision;
+  }
+
+  /** Read the durable checkpoint for a mission (metadata-only inspection). */
+  async getCheckpoint(missionId: string): Promise<MissionCheckpoint | undefined> {
+    return this.checkpointStore.load(missionId);
+  }
+
+  /**
+   * Write the trusted checkpoint after one settled iteration (crash
+   * window G). Derives the safe boundary from the run's own settled
+   * iterations; metadata only; failures surfaced, never blocking.
+   */
+  private async writeCheckpoint(run: LoopRun, settledStep: number): Promise<void> {
+    const lastSettled = run.iterations.length - 1;
+    const checkpoint = buildMissionCheckpoint({
+      run,
+      recovery: "SAFE_TO_RESUME",
+      nextStepIndex: Math.max(settledStep + 1, lastSettled + 1),
+      lastSettledStep: lastSettled,
+      ambiguousStep: -1,
+      journalDigest: await journalStateDigest(this.stepJournal, run.missionId),
+      runDigest: runRecordDigest(run),
+    });
+    await this.checkpointStore.save(checkpoint);
+    await this.options.events.emit("mission.checkpoint_written", {
+      missionId: run.missionId, runId: run.runId, recovery: checkpoint.recovery, nextStepIndex: checkpoint.nextStepIndex,
+    }, { actor: this.actor }).catch(() => undefined);
+  }
+
+  /** Read the recovery decision for a mission WITHOUT resuming (inspection only). */
+  async inspectRecovery(missionId: string): Promise<RecoveryDecision> {
+    const stored = await this.options.runStore?.load(missionId) ?? this.runs.get(missionId);
+    return reconcileMission({ missionId, run: stored, journal: this.stepJournal });
+  }
+
+  private async emitRecovery(type: "mission.recovery_started" | "mission.recovery_completed" | "mission.recovery_ambiguous" | "mission.checkpoint_written", payload: JsonObject): Promise<void> {
+    await this.options.events.emit(type, redactPayloadSecrets(payload), { actor: this.actor }).catch(() => undefined);
   }
 
   /** Cancel a running governed mission. */
@@ -593,10 +774,9 @@ export class GovernedMissionLoop {
     iterationId: string,
     stepIndex: number,
     startedAt: string,
-    _usage: LoopRun["usage"],
+    usage: LoopRun["usage"],
     fields: Partial<Pick<IterationRecord, "observations" | "selectedAction" | "permissionDecision" | "executionResult" | "verification" | "executionErrorSignature" | "stateDelta" | "nextStep" | "stopReason">>,
   ): IterationRecord {
-    void _usage;
     // P11 security: the PERSISTED record is the redacted copy. Secret-shaped
     // values (sk-…, Bearer …, key dumps) inside objectives, arguments, and
     // outputs never reach the run record; execution already used the
@@ -614,6 +794,9 @@ export class GovernedMissionLoop {
       observations: {},
       workingContext: {},
       candidateActions: [],
+      // P14 (ADR 0048): cumulative budget counters at step end — the
+      // budget-recovery source of truth, persisted with the record.
+      usageSnapshot: { modelCalls: usage.modelCalls, toolCalls: usage.toolCalls, cost: usage.cost },
       ...redactedFields,
     };
   }
@@ -635,7 +818,7 @@ export class GovernedMissionLoop {
     return planMissionTransition(missionId, from, to, trigger, reason).to;
   }
 
-  private async emitMission(type: "mission.started" | "mission.completed" | "mission.failed" | "mission.cancelled", payload: JsonObject): Promise<void> {
+  private async emitMission(type: "mission.started" | "mission.completed" | "mission.failed" | "mission.cancelled" | "mission.recovery_started" | "mission.recovery_completed" | "mission.recovery_ambiguous", payload: JsonObject): Promise<void> {
     await this.options.events.emit(type, redactPayloadSecrets(payload), { actor: this.actor }).catch(() => undefined);
   }
 
@@ -651,6 +834,23 @@ export class GovernedMissionLoop {
       ...payload,
     } as JsonObject), { actor: this.actor }).catch(() => undefined);
   }
+}
+
+/**
+ * P14 (ADR 0048) budget recovery: restore consumed counters from the
+ * persisted run record. Conservative maximum of the record's own counters
+ * and the last iteration's usage snapshot — a restart can only
+ * UNDER-report the remaining budget, never grant budget back.
+ */
+function restoreUsage(run: LoopRun): LoopRun["usage"] {
+  const snapshots = run.iterations
+    .map((iteration) => iteration.usageSnapshot)
+    .filter((snapshot): snapshot is NonNullable<typeof snapshot> => snapshot !== undefined);
+  const last = snapshots.at(-1);
+  const modelCalls = last ? Math.max(run.usage.modelCalls, last.modelCalls) : run.usage.modelCalls;
+  const toolCalls = last ? Math.max(run.usage.toolCalls, last.toolCalls) : run.usage.toolCalls;
+  const cost = last ? Math.max(run.usage.cost, last.cost) : run.usage.cost;
+  return { ...run.usage, modelCalls, toolCalls, cost, iterations: run.iterations.length };
 }
 
 /**

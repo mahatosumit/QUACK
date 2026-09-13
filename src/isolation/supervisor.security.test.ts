@@ -286,6 +286,7 @@ test("P13.ADAPT-2 adapter argument validation rejects malformed input as REJECTE
     capability: "fixture.validated", entry: "task.cjs", requiredLevel: "WORKER_PROCESS",
     sourceDirectory: "/trusted/src", description: "d",
     validateArguments: (args) => typeof args["n"] === "number" ? { ok: true } : { ok: false, reason: "n must be a number" },
+    verification: { kind: "none", reason: "fixture adapter carries no verification" },
   });
   const good = registry.resolve("fixture.validated", { n: 1 });
   assert.equal(good.kind, "REGISTERED");
@@ -299,10 +300,12 @@ test("P13.ADAPT-3 adapter registration rejects traversal entries and absolute pa
   assert.throws(() => registry.register({
     capability: "bad", entry: "../escape.cjs", requiredLevel: "WORKER_PROCESS",
     sourceDirectory: "/trusted", description: "d", validateArguments: () => ({ ok: true }),
+    verification: { kind: "none", reason: "fixture adapter carries no verification" },
   }), /relative path without traversal/);
   assert.throws(() => registry.register({
     capability: "bad2", entry: "C:/abs/path.cjs", requiredLevel: "WORKER_PROCESS",
     sourceDirectory: "/trusted", description: "d", validateArguments: () => ({ ok: true }),
+    verification: { kind: "none", reason: "fixture adapter carries no verification" },
   }), /relative path without traversal/);
   assert.equal(isAbsoluteOrTraversal("/abs"), true);
   assert.equal(isAbsoluteOrTraversal("safe/rel.cjs"), false);
@@ -314,6 +317,7 @@ test("P13.ADAPT-4 duplicate adapters for one capability fail closed", () => {
     capability: "dup", entry: "a.cjs", requiredLevel: "WORKER_PROCESS" as const,
     sourceDirectory: "/trusted", description: "d",
     validateArguments: () => ({ ok: true as const }),
+    verification: { kind: "none" as const, reason: "fixture adapter carries no verification" },
   };
   registry.register(adapter);
   assert.throws(() => registry.register(adapter), /Duplicate/);

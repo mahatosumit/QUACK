@@ -183,7 +183,17 @@ export type QuackEventType =
   | "execution.unverified"
   | "execution.cleanup_failed"
   /** P13 review finding 10: durable-journal settlement failure (metadata-only). */
-  | "mission.journal_settlement_failed";
+  | "mission.journal_settlement_failed"
+  /** P14 durable recovery observability (metadata-only; ADR 0048). */
+  | "mission.recovery_ambiguous"
+  | "mission.checkpoint_written"
+  /** P14 approval-runner observability (metadata-only; ADR 0048). */
+  | "mission.approval_requested"
+  | "mission.approval_granted"
+  | "mission.approval_denied"
+  /** P14 verification observability (metadata-only; ADR 0048). */
+  | "execution.verification_pending"
+  | "execution.verification_completed";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

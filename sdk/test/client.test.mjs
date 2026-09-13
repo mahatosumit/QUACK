@@ -407,3 +407,76 @@ test('P12 SDK exports the secure execution and isolation surface with stable con
   assert.equal((await journal.load(key)).state, 'COMPLETED');
   assert.equal(typeof JsonFileStepAttemptJournal, 'function');
 });
+
+test('P14 SDK exports the durable recovery + approval + adapter surface with stable contracts', async () => {
+  const {
+    MISSION_CHECKPOINT_VERSION, parseMissionCheckpoint, buildMissionCheckpoint,
+    reconcileMission, assertRecoveryTransition, InMemoryMissionCheckpointStore,
+    canonicalProposalDigest, ApprovalRunner, DenyApprovalRunnerCallback,
+    parseApprovalRecord, approvalRecordDigest, registerProductionAdapters,
+    WorkloadAdapterRegistry, stepAttemptKey, InMemoryStepAttemptJournal,
+  } = await import('@quack/sdk');
+
+  // Checkpoint contract is reachable and digest-stable through the package.
+  assert.equal(MISSION_CHECKPOINT_VERSION, 1);
+  assert.equal(typeof parseMissionCheckpoint, 'function');
+  assert.equal(typeof buildMissionCheckpoint, 'function');
+  assert.equal(typeof reconcileMission, 'function');
+  assert.equal(typeof assertRecoveryTransition, 'function');
+  assert.equal(typeof canonicalProposalDigest, 'function');
+  assert.equal(typeof ApprovalRunner, 'function');
+  assert.equal(typeof DenyApprovalRunnerCallback, 'function');
+  assert.equal(typeof parseApprovalRecord, 'function');
+  assert.equal(typeof registerProductionAdapters, 'function');
+
+  // Recovery fence: illegal transitions throw through the package path.
+  assert.throws(() => assertRecoveryTransition('CLEAN', 'SAFE_TO_RESUME'), /Illegal recovery transition/);
+  assert.throws(() => assertRecoveryTransition('TERMINAL', 'RECOVERING'), /Illegal recovery transition/);
+  assert.doesNotThrow(() => assertRecoveryTransition('AMBIGUOUS', 'SAFE_TO_RESUME'));
+
+  // Approval identity is the canonical digest of the exact action; approval
+  // is single-use through the package path.
+  const digestA = canonicalProposalDigest({ capability: 'c', arguments: { x: 1 }, intent: 'i', missionId: 'm', stepIndex: 0 });
+  const digestB = canonicalProposalDigest({ capability: 'c', arguments: { x: 2 }, intent: 'i', missionId: 'm', stepIndex: 0 });
+  assert.notEqual(digestA, digestB, 'different actions have different identities');
+  const runner = new ApprovalRunner(new DenyApprovalRunnerCallback());
+  const base = {
+    version: 1, approvalId: 'appr_t', missionId: 'm', stepIndex: 0, capability: 'c',
+    proposalDigest: digestA, riskLevel: 'DESTRUCTIVE', decision: 'GRANTED',
+    approver: 'operator:test', reason: 'r', decidedAt: new Date().toISOString(), state: 'GRANTED',
+  };
+  const approval = { ...base, digest: approvalRecordDigest(base) };
+  const binding = { missionId: 'm', stepIndex: 0, capability: 'c', proposalDigest: digestA };
+  assert.equal(runner.consumeApproval(approval, binding).ok, true, 'first use consumes');
+  assert.equal(runner.consumeApproval(approval, binding).ok, false, 'replay refused');
+  assert.equal(runner.consumeApproval(approval, { ...binding, proposalDigest: digestB }).ok, false, 'cross-action reuse refused');
+
+  // Tampered approval records fail closed through the package path.
+  const parsed = parseApprovalRecord(JSON.stringify({ ...approval, approver: '' , digest: approval.digest }));
+  assert.equal(parsed.ok, false, 're-digested-tampered record still fails semantic checks');
+
+  // Production adapters register through the package path and validate args.
+  const registry = new WorkloadAdapterRegistry();
+  registerProductionAdapters(registry);
+  assert.equal(registry.list().length, 2);
+  assert.equal(registry.resolve('quack.text.transform', { input: 'hi', op: 'upper' }).kind, 'REGISTERED');
+  assert.equal(registry.resolve('quack.text.transform', { input: 123, op: 'upper' }).kind, 'REJECTED');
+  assert.equal(registry.resolve('model.arbitrary.capability', {}).kind, 'UNREGISTERED');
+
+  // Reconciliation is inspection-only through the package path: a crashed
+  // run with an ambiguous step parks, never resumes.
+  const journal = new InMemoryStepAttemptJournal();
+  const run = {
+    runId: 'run_sdk', missionId: 'sdk-m2', goal: 'g', actor: 'a',
+    startedAt: new Date().toISOString(),
+    budget: { maxIterations: 8 },
+    usage: { iterations: 1, modelCalls: 1, toolCalls: 1, cost: 0, startedAt: new Date().toISOString(), consecutiveFailures: 0, replans: 0 },
+    iterations: [{ runId: 'run_sdk', missionId: 'sdk-m2', iterationId: 'it0', index: 0, startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), phase: 'ACT', goal: 'g', observations: {}, workingContext: {}, candidateActions: [] }],
+    currentPhase: 'ACT', currentState: 'RUNNING',
+  };
+  const stepKey = stepAttemptKey('sdk-m2', 0, 'demo.read');
+  assert.equal(await journal.reserve({ attemptKey: stepKey, missionId: 'sdk-m2', stepIndex: 0, capability: 'demo.read', executionId: 'e' }), true);
+  const decision = await reconcileMission({ missionId: 'sdk-m2', run, journal });
+  assert.equal(decision.state, 'REQUIRES_VERIFICATION', 'ambiguous attempts park the mission');
+  assert.equal(decision.nextStepIndex, -1, 'no resume point over uncertainty');
+});

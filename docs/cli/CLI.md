@@ -134,7 +134,7 @@ duplicate install, invalid transition), 2 usage error, 3 not found / access
 denied. `--json` machine output on every action. Read-only commands
 (`list`, `inspect`, `validate`) never prompt for approval.
 
-### quack govmission [run|status]
+### quack govmission [run|status|recover]
 
 Runs missions through the governed mission execution loop (P11, ADR 0045)
 — the first model-in-the-loop path. Each iteration: canonical mission
@@ -184,6 +184,36 @@ the required backend is unavailable the execution DENIES — there is no
 through the runtime's trusted probe runner. QUACK is not "sandboxed" as
 a whole: only adapter-registered capabilities run isolated; host-function
 capabilities remain `POLICY_RESTRICTED` broker-policy enforcement.
+
+P14 (ADR 0048): durable mission recovery. A crashed process no longer
+terminates the mission: a stored run without a terminal stop reason is
+reconciled against the durable journal and checkpoint on the next
+`govmission run` of the same mission id — every recorded step must have
+settled, consumed budget is restored (never reset), and the mission resumes
+at the verified safe boundary through the canonical
+INTERRUPTED → RECOVERING → RUNNING chain. A step left ambiguous by a
+crash window parks the mission: recovery refuses to resume
+(`mission.recovery_ambiguous`) because the runtime never re-dispatches an
+uncertain action. Terminal runs still refuse re-execution.
+
+- `recover <missionId>` — inspects durable recovery state for one mission
+  (recovery decision, safe continuation point, last settled step, ambiguous
+  step, checkpoint record, budget counters). Inspection only: this command
+  cannot bypass governance, cannot force execution, and cannot resolve an
+  ambiguous step — resumption happens through `govmission run` on the
+  same mission id, and the loop itself re-verifies every recovery safety
+  condition. There is no `--force`, `--skip-approval`,
+  `--ignore-isolation`, or `--resume-unsafe` flag, and none will exist.
+  Exit codes: 0 inspection complete, 1 operational failure, 2 missing
+  mission id, 3 unknown mission.
+
+IRREVERSIBLE/DESTRUCTIVE proposals now have a governed approval path
+where an operator surface exists: broker authorization → human approval
+(identity-bound, digest-bound to the exact action, single-use) →
+execution policy → isolation → execution → verification. Without an
+approval surface those risk levels keep failing closed. Approval never
+fabricates verification: an approved destructive action with no trusted
+probe still reports honestly unverified.
 
 Output is metadata-only — no prompts, no model output, no action
 arguments, no secrets. Exit codes: 0 success (SUCCEEDED mission), 1

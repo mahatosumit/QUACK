@@ -489,6 +489,61 @@ null), probe-runner verification (IRREVERSIBLE execution still fails
 closed), cross-process concurrency coordination beyond journal reservation,
 and any P13+ functionality.**
 
+### P13 — Real Isolation Backends + Verified Execution — COMPLETE
+
+Backend capability negotiation (SUPPORTED/AVAILABLE/ENFORCEABLE distinct;
+UNRESOLVED = durable denial, never downgrade); REAL OS-process backend
+(ENFORCED env-block sealing, wall-clock/cancel tree-kill); REAL container
+backend (docker: sealed network namespace, kernel memory cgroup, read-only
+rootfs, non-root, availability-probed); trusted IsolationSupervisor;
+identity-bound ExecutionEvidence with crash-window reconciliation; trusted
+ProbeRunner (EXECUTION_VERIFIED reachable only from runtime evidence);
+WorkloadAdapterRegistry (deployer-registered; production started EMPTY);
+harness integration post-authorization; SDK inspection types; security
+review fix round closed findings 5/6/9/10 (runtime-canonical stepIndex,
+settlement-failure propagation, dedicated isolated workspace root,
+filesystem-identity probes, integrity-not-authenticity documentation).
+ADR 0047.
+
+### P14 — Durable Mission Recovery + Verified Actions — COMPLETE
+
+- **P14.1–P14.3** durable mission checkpoint + recovery state machine +
+  mid-run crash recovery — digest-protected metadata-only checkpoints
+  (fail-closed tamper/schema/cross-mission identity); `reconcileMission`
+  over the EXISTING run store + step journal (no parallel recovery
+  subsystem); fenced recovery states (CLEAN/RECOVERING/SAFE_TO_RESUME/
+  REQUIRES_VERIFICATION/AMBIGUOUS/TERMINAL) with legal-only canonical
+  mission-state crash chains; crashed runs resume at the verified safe
+  boundary or park — SHIPPED
+- **P14.4–P14.7** existing-authority orchestration, replay protection,
+  budget recovery, crash windows — at-most-once reservation preserved
+  across restarts; `usageSnapshot` budget recovery (conservative max —
+  restart never resets or grants budget); window G closed by
+  checkpoint-after-settlement; windows B–F park, never assume success —
+  SHIPPED
+- **P14.8–P14.11** approval runner — identity-bound (canonical action
+  digest), single-use, model-never-approver; harness gate replaces the
+  P13 fail-closed throw (absent runner keeps P13 semantics); approved
+  destructive actions still never fabricate verification — SHIPPED
+- **P14.12–P14.15** first production workload adapters — deterministic
+  READ_ONLY transforms (`quack.text.transform`, `quack.data.process`),
+  strict argument schemas, declared verification strategies, network DENY,
+  credentials NONE, fail-closed registration security, smoke-verified
+  through the REAL OS-process backend — SHIPPED
+- **P14.16–P14.26** recovery+approval interaction, observability (9
+  metadata-only events), CLI `govmission recover` (inspection-only),
+  server recovery/checkpoint fields, Studio Recovery route (no
+  force/skip/override controls), SDK exports, 55-case R1–R50 adversarial
+  matrix, recovery/approval/adapter properties — SHIPPED
+
+**P14 COMPLETE. Explicitly NOT in P14: exactly-once execution (ambiguous
+means UNKNOWN, never re-executed, never claimed settled), automatic
+ambiguous-step resolution (operator decision required), workflow-level
+multi-mission recovery, approval TTL on the runner contract, write/network/
+credential-demanding adapters (v1 adapters are READ_ONLY transforms only),
+extension adapter registration (extensions remain NOT-EXECUTABLE), and any
+P15+ functionality.**
+
 ## Dependencies
 
 P1 → P2 → P3 → P4 → P5 (Console and streaming enable harness eval UX);

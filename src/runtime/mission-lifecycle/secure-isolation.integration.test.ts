@@ -118,6 +118,7 @@ async function integrationFixture() {
     validateArguments: (args) => typeof args["input"] === "string" && (args["input"] as string).length <= 128
       ? { ok: true }
       : { ok: false, reason: "input must be a bounded string" },
+    verification: { kind: "deterministic_result", probes: [{ path: "transformed", kind: "string" }] },
   });
   const probeRunner = new ProbeRunner({ workspaceRoot: root, events, actor: "test" });
 
@@ -289,6 +290,7 @@ test("P13.INT-6 broker denial blocks isolated execution too (broker remains the 
   adapters.register({
     capability: "fixture.transform", entry: "t.cjs", requiredLevel: "WORKER_PROCESS",
     sourceDirectory: root, description: "d", validateArguments: () => ({ ok: true }),
+    verification: { kind: "none", reason: "broker-denial fixture carries no verification" },
   });
 
   const harness = new DefaultExecutionHarness(actionRuntime, broker, actionProviders, tools, events, {

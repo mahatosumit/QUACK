@@ -18,7 +18,23 @@ import type { JsonObject } from "../core/types.js";
  * passed to the registered module's run(io). Unknown capabilities DENY.
  * Registry entries are deployer/operator decisions, never runtime-discovered
  * and never model-influenced.
+ *
+ * P14 (ADR 0048) extends the adapter contract with the server/runtime
+ * declarations the harness enforces: argument schema, risk level, and a
+ * REQUIRED verification strategy. An adapter without a verification strategy
+ * fails registration — an executable capability must declare how its results
+ * can be trusted, or honestly declare none (results then stay UNVERIFIED,
+ * never EXECUTION_VERIFIED).
  */
+
+/** P14: trusted verification-strategy declaration every adapter must carry. */
+export type AdapterVerificationStrategy =
+  /** The workload output is deterministic and probe-checkable from the result. */
+  | { readonly kind: "deterministic_result"; readonly probes: readonly { readonly path: string; readonly kind: "string" | "number" | "boolean" }[] }
+  /** A filesystem effect inside the isolated workspace is checkable. */
+  | { readonly kind: "filesystem_probe" }
+  /** No trusted verification exists; results stay honestly UNVERIFIED. */
+  | { readonly kind: "none"; readonly reason: string };
 
 export interface GovernedWorkloadAdapter {
   /** The registered capability id this adapter executes under isolation. */
@@ -38,6 +54,21 @@ export interface GovernedWorkloadAdapter {
    * provides. Never derived from model/user input.
    */
   readonly sourceDirectory: string;
+  /**
+   * P14 (ADR 0048): server/runtime declarations — never model-overridable.
+   * - argumentSchema: declarative shape the harness can enforce
+   * - riskLevel: honest risk classification of the workload
+   * - verification: how (or honestly whether not) results can be verified
+   */
+  readonly argumentSchema?: JsonObject;
+  readonly riskLevel?: "READ_ONLY" | "REVERSIBLE";
+  readonly verification: AdapterVerificationStrategy;
+  /** P14: filesystem/network/credential declarations (all DENY in v1 adapters). */
+  readonly filesystem?: "WORKSPACE_ONLY";
+  readonly network?: "DENY";
+  readonly credentials?: "NONE";
+  /** P14: timeout ceiling (ms) the workload must not exceed. */
+  readonly timeoutMs?: number;
 }
 
 export class WorkloadAdapterRegistry {
@@ -54,6 +85,39 @@ export class WorkloadAdapterRegistry {
       throw new Error("Workload adapter requires a real isolation level (WORKER_PROCESS or CONTAINER_ISOLATED).");
     }
     if (typeof adapter.validateArguments !== "function") throw new Error("Workload adapter requires argument validation.");
+    // P14 (ADR 0048): fail-closed registration security. Every executable
+    // adapter must declare its verification strategy; honest 'none' is legal
+    // (results stay UNVERIFIED), a missing declaration is not.
+    if (!adapter.verification || (adapter.verification.kind !== "deterministic_result"
+      && adapter.verification.kind !== "filesystem_probe" && adapter.verification.kind !== "none")) {
+      throw new Error(`Workload adapter for '${adapter.capability}' must declare a verification strategy.`);
+    }
+    if (adapter.verification.kind === "deterministic_result"
+      && (!Array.isArray(adapter.verification.probes) || adapter.verification.probes.length === 0)) {
+      throw new Error(`Workload adapter for '${adapter.capability}' declares deterministic_result verification without probes.`);
+    }
+    if (adapter.verification.kind === "none" && (typeof adapter.verification.reason !== "string" || adapter.verification.reason.length === 0)) {
+      throw new Error(`Workload adapter for '${adapter.capability}' declares no verification without an honest reason.`);
+    }
+    // P14: risk honesty — executable adapters are READ_ONLY/REVERSIBLE only;
+    // irreversible/destructive workloads are NOT isolation-eligible v1 (they
+    // need the approval runner contract at the harness layer first).
+    if (adapter.riskLevel !== undefined && adapter.riskLevel !== "READ_ONLY" && adapter.riskLevel !== "REVERSIBLE") {
+      throw new Error(`Workload adapter for '${adapter.capability}' declares an unsupported risk level; isolation-eligible workloads are READ_ONLY/REVERSIBLE only.`);
+    }
+    // P14: no adapter may demand network or credentials in v1.
+    if (adapter.network !== undefined && adapter.network !== "DENY") {
+      throw new Error(`Workload adapter for '${adapter.capability}' cannot demand network access; DENY only.`);
+    }
+    if (adapter.credentials !== undefined && adapter.credentials !== "NONE") {
+      throw new Error(`Workload adapter for '${adapter.capability}' cannot demand credentials; NONE only.`);
+    }
+    if (adapter.filesystem !== undefined && adapter.filesystem !== "WORKSPACE_ONLY") {
+      throw new Error(`Workload adapter for '${adapter.capability}' can only declare WORKSPACE_ONLY filesystem access.`);
+    }
+    if (adapter.timeoutMs !== undefined && (!Number.isInteger(adapter.timeoutMs) || adapter.timeoutMs <= 0 || adapter.timeoutMs > 300_000)) {
+      throw new Error(`Workload adapter for '${adapter.capability}' declares an invalid timeout ceiling.`);
+    }
     if (this.adapters.has(adapter.capability)) throw new Error(`Duplicate workload adapter for '${adapter.capability}'.`);
     this.adapters.set(adapter.capability, adapter);
   }

@@ -54,6 +54,12 @@ export interface StepAttemptJournal {
   /** Look up a step attempt. */
   load(attemptKey: string): Promise<StepAttemptRecord | undefined>;
   /**
+   * P14: list every durable attempt belonging to a mission (all step
+   * indices, all capabilities). Recovery reconciliation reads this to
+   * determine the safe continuation point; ordering is ascending stepIndex.
+   */
+  listByMission(missionId: string): Promise<readonly StepAttemptRecord[]>;
+  /**
    * Transition crash-window DISPATCHING entries to AMBIGUOUS. Called on
    * recovery paths only; records that were mid-flight in a dead process are
    * NEVER re-executed.
@@ -110,7 +116,26 @@ export class JsonFileStepAttemptJournal implements StepAttemptJournal {
     return record;
   }
 
+  async listByMission(missionId: string): Promise<readonly StepAttemptRecord[]> {
+    const records = await this.readAllRecords();
+    return records
+      .filter((record) => record.missionId === missionId)
+      .sort((a, b) => a.stepIndex - b.stepIndex);
+  }
+
   async reconcileOrphans(): Promise<readonly StepAttemptRecord[]> {
+    const orphaned = (await this.readAllRecords()).filter((record) => record.state === "DISPATCHING");
+    const reconciled: StepAttemptRecord[] = [];
+    for (const record of orphaned) {
+      const updated: StepAttemptRecord = { ...record, state: "AMBIGUOUS", recordedAt: new Date().toISOString() };
+      await this.persist(updated);
+      reconciled.push(updated);
+    }
+    return reconciled;
+  }
+
+  /** Read every record file; invalid/corrupt individual files are skipped fail-closed by readRecordFile's catch below. */
+  private async readAllRecords(): Promise<readonly StepAttemptRecord[]> {
     const directory = join(this.dataDir, "step-attempts");
     let files: readonly string[] = [];
     try {
@@ -119,19 +144,15 @@ export class JsonFileStepAttemptJournal implements StepAttemptJournal {
       if (isMissingFile(error)) return [];
       throw error;
     }
-    const orphaned: StepAttemptRecord[] = [];
+    const records: StepAttemptRecord[] = [];
     for (const file of files) {
       if (!file.endsWith(".json")) continue;
       // Self-consistency check inside readRecordFile rejects records whose
       // claimed attemptKey does not belong in this file (forged records).
       const record = await this.readRecordFile(join(directory, file)).catch(() => undefined);
-      if (record?.state === "DISPATCHING") {
-        const reconciled: StepAttemptRecord = { ...record, state: "AMBIGUOUS", recordedAt: new Date().toISOString() };
-        await this.persist(reconciled);
-        orphaned.push(reconciled);
-      }
+      if (record) records.push(record);
     }
-    return orphaned;
+    return records;
   }
 
   /**
@@ -206,6 +227,12 @@ export class InMemoryStepAttemptJournal implements StepAttemptJournal {
 
   async load(attemptKey: string): Promise<StepAttemptRecord | undefined> {
     return this.records.get(attemptKey);
+  }
+
+  async listByMission(missionId: string): Promise<readonly StepAttemptRecord[]> {
+    return [...this.records.values()]
+      .filter((record) => record.missionId === missionId)
+      .sort((a, b) => a.stepIndex - b.stepIndex);
   }
 
   async reconcileOrphans(): Promise<readonly StepAttemptRecord[]> {

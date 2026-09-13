@@ -3,7 +3,8 @@
 Status: single-process recovery SUPPORTED and verified; SQLite
 coordination primitive SUPPORTED and verified; **multi-process recovery
 UNSUPPORTED** (recovery stores are not wired to the coordination
-primitive — ADR 0031).
+primitive — ADR 0031); **governed-mission durable recovery (P14) SUPPORTED
+across process restarts for the governed loop** — see the last section.
 
 ## Single-process recovery (ADR 0028) — SUPPORTED
 
@@ -66,3 +67,50 @@ Stale-owner write after takeover (fenced), expired-lease heartbeat
 resurrection (rejected), version-guessing foreign writes (rejected),
 concurrent acquire storms (exactly one owner), crash-mid-hold followed by
 takeover.
+
+## Governed-mission durable recovery (P14, ADR 0048) — SUPPORTED
+
+The governed mission loop (`GovernedMissionLoop`, ADR 0045) has its own
+durable recovery over the P11–P13 records — the run store, the step-attempt
+journal, and the P14 mission checkpoint. It is deliberately separate from
+the ADR 0028 session-runtime recovery above (different authority chain,
+different stores) and does not use the SQLite coordination primitive; the
+same single-process/dataDir ownership discipline applies.
+
+Semantics and guarantees (all adversarially verified, 55-case P14 matrix):
+
+- **Crash detection**: a stored run WITHOUT a terminal stop reason is a
+  crashed run; on the next `run` of the same mission id the loop
+  reconciles durable records before doing anything else.
+- **At-most-once, not exactly-once**: `(missionId, stepIndex, capability)`
+  reserves exactly once across processes. An ambiguous step means the
+  external effect is UNKNOWN — it may have happened, partially happened,
+  or not happened. No exactly-once claim exists anywhere.
+- **Ambiguity parking**: AMBIGUOUS and crash-window DISPATCHING records
+  both park the mission REQUIRES_VERIFICATION. There is no
+  AMBIGUOUS → resume path: the runtime never re-dispatches an uncertain
+  action, never steps over one, and never converts ambiguity into success.
+- **Safe boundary**: resume continues AFTER the highest settled step (and
+  after the run record's cursor); verified/settled steps are never
+  re-executed.
+- **Budget recovery**: consumed counters restore from the persisted record
+  (conservative maximum — a restart can only under-report remaining
+  budget, never grant it back). Budget-reset-after-restart is refused.
+- **Checkpoint integrity**: digest-protected, fail-closed on tampering,
+  unknown schema, unknown fields, and cross-mission identity mismatch;
+  metadata only (no prompts/arguments/secrets — verified); write failures
+  never block the run (journal + run record stay authoritative).
+- **Authority invariant**: `Authority_after_restart ≤ Authority_before_restart`.
+  Recovery never grants capability — an unprovisioned mission resumes and
+  is still broker-denied; the fenced recovery state machine has no
+  transition from an unresolved ambiguous state to resume.
+- **Legal transitions only**: recovery composes the canonical mission-state
+  chains (INTERRUPTED → RECOVERING → RUNNING etc.) through the ADR 0045
+  state machine; illegal transitions throw.
+
+Approval contract security (same matrix): approvals are identity-bound to
+the canonical digest of the exact action, single-use at exactly one
+dispatch, non-transferable across mission/step/capability/arguments;
+model-supplied approval fields are data; the proposing actor can never be
+the approver; destructive/irreversible actions without the full
+approval+verification chain keep failing closed.

@@ -191,10 +191,21 @@ test("P13.PROC-12 runner temp directories are cleaned on every terminal path", a
   const ws = await workspace();
   t.after(ws.cleanup);
   await writeFile(join(ws.root, "ok.cjs"), `exports.run = async () => ({ ok: true });`);
+  // The invariant: THIS backend instance cleans the runner directory it
+  // creates for each execution. (A whole-tmpdir sweep is not assertable in
+  // parallel runs — other suites legitimately run their own process-backed
+  // workloads concurrently, and their in-flight dirs are not leaks.)
+  const before = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("quack-isolation-proc-")));
   const result = await backend.execute(request(ws.root, { kind: "module", entry: "ok.cjs", args: {} }));
   assert.equal(result.status, "SUCCEEDED");
-  const leaked = (await readdir(tmpdir())).filter(entry => entry.startsWith("quack-isolation-proc-"));
-  assert.equal(leaked.length, 0, "no leaked process-backend temp directories");
+  // Give the async rm in the finally-path a bounded settle window.
+  let leaked: string[] = [];
+  for (let attempt = 0; attempt < 20; attempt += 1) {
+    await new Promise(resolve => setTimeout(resolve, 25));
+    leaked = (await readdir(tmpdir())).filter(entry => entry.startsWith("quack-isolation-proc-") && !before.has(entry));
+    if (leaked.length === 0) break;
+  }
+  assert.equal(leaked.length, 0, "no leaked process-backend temp directories created by this execution");
 });
 
 // ---------------------------------------------------------------------------

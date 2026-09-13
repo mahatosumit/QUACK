@@ -121,6 +121,7 @@ async function reviewFixture(): Promise<Fixture> {
     sourceDirectory: sourceDir,
     description: "review fixture workload",
     validateArguments: (args) => typeof args["n"] === "number" ? { ok: true } : { ok: false, reason: "n must be a number" },
+    verification: { kind: "deterministic_result", probes: [{ path: "doubled", kind: "number" }] },
   });
   await writeFile(join(sourceDir, "task.cjs"), "exports.run = async (io) => ({ doubled: Number(io.args.n ?? 0) * 2 });");
   const probeRunner = new ProbeRunner({ workspaceRoot: root, events, actor: "t" });

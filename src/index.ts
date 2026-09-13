@@ -169,3 +169,46 @@ export type {
   ExecutionEvidence,
   VerificationResult,
 } from "./isolation/sdk-types.js";
+// P14 (ADR 0048): durable mission recovery + verified actions. The recovery
+// orchestration over existing authorities (run store + step journal), the
+// digest-protected mission checkpoint, the fenced recovery-state machine,
+// and the governed approval contract. Provider-neutral composition surface:
+// no privileged recovery functions, no approval callbacks, no broker
+// internals are exposed.
+export {
+  MISSION_CHECKPOINT_VERSION,
+  parseMissionCheckpoint,
+  missionCheckpointDigest,
+  buildMissionCheckpoint,
+  reconcileMission,
+  journalStateDigest,
+  runRecordDigest,
+  assertRecoveryTransition,
+  JsonFileMissionCheckpointStore,
+  InMemoryMissionCheckpointStore,
+  serializeMissionCheckpoint,
+  type MissionCheckpoint,
+  type RecoveryDecision,
+  type RecoveryState,
+} from "./runtime/mission-lifecycle/mission-recovery.js";
+export {
+  APPROVAL_RECORD_VERSION,
+  ApprovalRunner,
+  canonicalProposalDigest,
+  approvalRecordDigest,
+  parseApprovalRecord,
+  ConsoleApprovalRunnerCallback,
+  DenyApprovalRunnerCallback,
+  type ApprovalRunnerCallback,
+  type ApprovalRecord,
+  type ApprovalRequestInput,
+  type ApprovalCallbackDecision,
+} from "./runtime/mission-lifecycle/approval-contract.js";
+export type {
+  RecoveryInfo,
+  MissionCheckpointInfo,
+  ApprovalInfo,
+  AdapterInfo,
+  AdapterVerificationStrategy,
+} from "./isolation/sdk-types.js";
+export { registerProductionAdapters } from "./isolation/production-adapters.js";

@@ -149,6 +149,44 @@ filesystem, or credential surfaces cross the SDK boundary, and nothing in
 the SDK can select or weaken a backend — isolation requirements come from
 deployer configuration only.
 
+P14 (ADR 0048) adds the durable recovery + verified-actions surface:
+
+- **Mission checkpoints** — `MISSION_CHECKPOINT_VERSION`,
+  `buildMissionCheckpoint`, `parseMissionCheckpoint`,
+  `missionCheckpointDigest`, `serializeMissionCheckpoint`, and the
+  `InMemoryMissionCheckpointStore`. Checkpoints are metadata-only
+  (identity, cursors, budget counters, binding digests — never prompts,
+  arguments, or secrets) and fail closed on tampering, unknown schema, and
+  cross-mission identity mismatch.
+- **Reconciliation** — `reconcileMission` derives the honest recovery
+  decision from durable records: SAFE_TO_RESUME with a verified safe
+  boundary, or REQUIRES_VERIFICATION when an ambiguous/dispatching attempt
+  exists (never a resume point over uncertainty). `assertRecoveryTransition`
+  fences the recovery state machine (CLEAN/RECOVERING/SAFE_TO_RESUME/
+  REQUIRES_VERIFICATION/AMBIGUOUS/TERMINAL) — illegal transitions throw.
+- **Approvals** — `ApprovalRunner`, `canonicalProposalDigest`,
+  `approvalRecordDigest`, `parseApprovalRecord`, and the
+  `ConsoleApprovalRunnerCallback`/`DenyApprovalRunnerCallback` defaults.
+  Approval is identity-bound to the canonical digest of the exact action
+  (capability, arguments, intent, mission, step), single-use (consumed at
+  exactly one dispatch), and never model-grantable: the proposing actor can
+  never be the approver, and model-supplied approval fields are data.
+- **Adapters** — `registerProductionAdapters` and
+  `WorkloadAdapterRegistry`: the first production workload adapters
+  (`quack.text.transform`, `quack.data.process`) are deterministic
+  READ_ONLY transforms with strict argument schemas (unknown fields
+  reject), declared verification strategies, network DENY, and
+  credentials NONE. The registry has no model-facing registration path.
+- **Inspection types** — `RecoveryState`, `RecoveryInfo`,
+  `MissionCheckpoint`, `MissionCheckpointInfo`, `ApprovalRecord`,
+  `ApprovalInfo`, `AdapterInfo`, `AdapterVerificationStrategy`.
+
+The recovery exports are inspection/composition contracts, not privileged
+operations: nothing in the SDK can force a resume, resolve an ambiguous
+step, forge an approval, or bypass broker authorization. Recovery resumes
+only through the governed loop itself, which re-verifies every safety
+condition.
+
 ## Requirements
 
 - Node.js 20+

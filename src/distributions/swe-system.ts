@@ -82,13 +82,18 @@ import { ActionRuntime, ActionProviderRegistry } from "../actions/runtime.js";
 import { GovernedMissionLoop, type MissionRunStore } from "../runtime/mission-lifecycle/governed-mission-loop.js";
 import { JsonFileMissionRunStore } from "../runtime/mission-lifecycle/mission-run-store.js";
 import { JsonFileStepAttemptJournal } from "../runtime/mission-lifecycle/step-attempt-journal.js";
-// P13 (ADR 0047): real isolation backends + verified execution.
-import { IsolationBackendRegistry } from "../isolation/backend-resolver.js";
-import { ProcessIsolationBackend } from "../isolation/process-backend.js";
-import { ContainerIsolationBackend } from "../isolation/container-backend.js";
-import { IsolationSupervisor } from "../isolation/supervisor.js";
-import { WorkloadAdapterRegistry } from "../isolation/workload-adapter.js";
-import { JsonFileExecutionEvidenceStore } from "../isolation/execution-evidence.js";
+  // P13 (ADR 0047): real isolation backends + verified execution.
+  import { IsolationBackendRegistry } from "../isolation/backend-resolver.js";
+  import { ProcessIsolationBackend } from "../isolation/process-backend.js";
+  import { ContainerIsolationBackend } from "../isolation/container-backend.js";
+  import { IsolationSupervisor } from "../isolation/supervisor.js";
+  import { WorkloadAdapterRegistry } from "../isolation/workload-adapter.js";
+  import { JsonFileExecutionEvidenceStore } from "../isolation/execution-evidence.js";
+  // P14 (ADR 0048): durable mission recovery + approval runner + first
+  // production workload adapters.
+  import { JsonFileMissionCheckpointStore } from "../runtime/mission-lifecycle/mission-recovery.js";
+  import { ApprovalRunner, ConsoleApprovalRunnerCallback } from "../runtime/mission-lifecycle/approval-contract.js";
+  import { registerProductionAdapters } from "../isolation/production-adapters.js";
 import { memoryCandidatesFromRetrieval } from "../memory/semantic/qie.js";
 import { InstructionObserver } from "../instruction/observer.js";
 import { type PermissionPolicy } from "../security/permissions.js";
@@ -274,6 +279,16 @@ export interface QuackSystem {
   readonly governedMissionLoop: GovernedMissionLoop;
   /** P11 durable run-record store (audit + idempotent replay, not resume). */
   readonly governedMissionRunStore: MissionRunStore;
+  /**
+   * P14 (ADR 0048): durable mission checkpoint store — the trusted
+   * recovery record (metadata only) the loop writes after every settled
+   * iteration and reconciles on restart. Inspection-only on surfaces.
+   */
+  readonly governedMissionCheckpointStore: import("../runtime/mission-lifecycle/mission-recovery.js").JsonFileMissionCheckpointStore;
+  /** P14: the governed approval runner (human decision surface). */
+  readonly missionApprovalRunner: import("../runtime/mission-lifecycle/approval-contract.js").ApprovalRunner;
+  /** P14: deployer-registered workload adapter registry (metadata-only views). */
+  readonly workloadAdapters: import("../isolation/workload-adapter.js").WorkloadAdapterRegistry;
   readonly workflowLoader: WorkflowLoader;
   readonly coreAgentRegistry: CoreAgentRegistry;
   readonly coreAgentMonitor: CoreAgentMonitor;
@@ -889,6 +904,17 @@ runtime = new QuackRuntime({
     evidenceStore: isolationEvidenceStore,
   });
   const workloadAdapters = new WorkloadAdapterRegistry();
+  // P14 (ADR 0048): the FIRST production workload adapters — deterministic
+  // READ_ONLY transforms (text, data). Fail-closed bootstrap: if the trusted
+  // sources cannot materialize, the registry stays EMPTY (no adapter is
+  // safer than a half-registered one) and the composition still runs.
+  try { registerProductionAdapters(workloadAdapters); } catch { /* empty registry, honest log-free fail-closed */ }
+  // P14: the governed approval runner for IRREVERSIBLE/DESTRUCTIVE actions.
+  // The console callback asks the operator; approval is a human decision
+  // surface, never model-decidable, and its absence keeps P13 fail-closed
+  // semantics for unapproved risk levels.
+  const missionApprovalRunner = new ApprovalRunner(new ConsoleApprovalRunnerCallback());
+  const governedMissionCheckpointStore = new JsonFileMissionCheckpointStore(config.dataDir);
   const governedMissionLoop = new GovernedMissionLoop({
     broker: capabilityBroker,
     actionRuntime,
@@ -911,6 +937,8 @@ runtime = new QuackRuntime({
     },
     runStore: governedMissionRunStore,
     stepJournal: governedStepJournal,
+    checkpointStore: governedMissionCheckpointStore,
+    approvalRunner: missionApprovalRunner,
     isolation: {
       supervisor: isolationSupervisor,
       adapters: workloadAdapters,
@@ -1077,6 +1105,9 @@ const agentLoop = new AgentLoop({
       ecosystem,
       governedMissionLoop,
       governedMissionRunStore,
+      governedMissionCheckpointStore,
+      missionApprovalRunner,
+      workloadAdapters,
       workflowLoader,
             coreAgentRegistry,
                                     coreAgentMonitor,

@@ -114,6 +114,7 @@ test("P13.S4 adapter-required level is trusted registration data — model canno
   adapters.register({
     capability: "fixture.cap", entry: "a.cjs", requiredLevel: "WORKER_PROCESS",
     sourceDirectory: "C:/trusted", description: "d", validateArguments: () => ({ ok: true }),
+    verification: { kind: "none", reason: "fixture adapter carries no verification" },
   });
   const resolution = adapters.resolve("fixture.cap", { requiredLevel: "IN_PROCESS", isolation: "none" });
   // Arguments demanding weaker isolation are DATA; the registered level wins.
@@ -464,6 +465,7 @@ test("P13.S27 output overflow: oversized isolated output never crosses the harne
     adapters.register({
       capability: "fixture.big", entry: "big.cjs", requiredLevel: "WORKER_PROCESS",
       sourceDirectory: sourceDir, description: "d", validateArguments: () => ({ ok: true }),
+      verification: { kind: "none", reason: "fixture adapter carries no verification" },
     });
     // Register the descriptor so capability resolution succeeds.
     const descriptor = {
@@ -531,6 +533,7 @@ test("P13.S30 shell injection through workload arguments stays DATA (no shell ex
     capability: "fixture.inject", entry: "safe.cjs", requiredLevel: "WORKER_PROCESS",
     sourceDirectory: "C:/trusted", description: "d",
     validateArguments: (args) => typeof args["payload"] === "string" ? { ok: true } : { ok: false, reason: "payload must be a string" },
+    verification: { kind: "none", reason: "fixture adapter carries no verification" },
   });
   // Even shell-metacharacter payloads resolve to the SAME registered entry:
   // the adapter registry has no command surface at all.
@@ -573,6 +576,7 @@ test("P13.S31 provider execution bypass: an isolation-requiring capability witho
     adapters.register({
       capability: "fixture.never", entry: "n.cjs", requiredLevel: "WORKER_PROCESS",
       sourceDirectory: ws.root, description: "d", validateArguments: () => ({ ok: true }),
+      verification: { kind: "none", reason: "fixture adapter carries no verification" },
     });
     const harness = new DefaultExecutionHarness(actionRuntime, broker, actionProviders, tools, events, {
       defaultTimeoutMs: 5_000, requireVerificationForIrreversible: true,
