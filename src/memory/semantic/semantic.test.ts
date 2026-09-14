@@ -347,7 +347,10 @@ test("P9.26 file knowledge stays inside the workspace root (traversal fails clos
   assert.equal(okFile.ok, true);
   assert.equal(okFile.data.content, "workspace note content");
 
-  const escape = await resolveKnowledgeSource({ kind: "file", path: "..\\..\\..\\windows\\win.ini" }, dir);
+  // Portable traversal probe: forward slashes are separators on every
+  // supported platform, so "../../../etc/passwd"-style escapes resolve
+  // outside the workspace root on Windows, Linux, and macOS alike.
+  const escape = await resolveKnowledgeSource({ kind: "file", path: "../../../outside-secret.md" }, dir);
   assert.equal(escape.ok, false);
   assert.equal(escape.ok ? 0 : escape.error.code, "knowledge.source_forbidden");
 

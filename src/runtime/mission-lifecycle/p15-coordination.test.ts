@@ -124,11 +124,11 @@ test("P15.A2 stale lease takeover: an expired owner loses authority atomically",
   const { dir, cleanup } = await tempDir();
   t.after(cleanup);
   const db = join(dir, "coordination.sqlite");
-  const store = new SqliteCoordinationStore(new SqliteConnection(db), { leaseMs: 50 });
+  const store = new SqliteCoordinationStore(new SqliteConnection(db), { leaseMs: 500 });
   const first = store.acquire("governed:m-stale", "owner-1");
   assert.equal(first.kind, "ACQUIRED");
   const version = first.kind === "ACQUIRED" ? first.lease.version : 1;
-  await new Promise(resolve => setTimeout(resolve, 120));
+  await new Promise(resolve => setTimeout(resolve, 1200));
   // Takeover bumps the fencing version: the old owner's fenced writes die.
   const takeover = store.acquire("governed:m-stale", "owner-2");
   assert.equal(takeover.kind, "TAKEOVER_STALE", "expired lease is takeable");
@@ -143,10 +143,10 @@ test("P15.A3 owner crash requires no manual surgery: expiry + takeover recovers 
   const { dir, cleanup } = await tempDir();
   t.after(cleanup);
   const db = join(dir, "coordination.sqlite");
-  const store = new SqliteCoordinationStore(new SqliteConnection(db), { leaseMs: 60 });
+  const store = new SqliteCoordinationStore(new SqliteConnection(db), { leaseMs: 500 });
   store.acquire("governed:m-crash", "doomed-owner");
   // "Crash": no release, no heartbeat. After expiry a fresh process takes over.
-  await new Promise(resolve => setTimeout(resolve, 130));
+  await new Promise(resolve => setTimeout(resolve, 1200));
   const healed = store.acquire("governed:m-crash", "fresh-owner");
   assert.equal(healed.kind, "TAKEOVER_STALE", "no manual DB surgery needed");
 });
@@ -192,12 +192,14 @@ test("P15.A6 heartbeat keeps a long run's lease alive across the default window"
   const { dir, cleanup } = await tempDir();
   t.after(cleanup);
   const db = join(dir, "coordination.sqlite");
-  const store = new SqliteCoordinationStore(new SqliteConnection(db), { leaseMs: 200 });
+  // Margins must survive slow CI runners: heartbeats renew well before
+  // expiry (3x headroom) while still spanning multiple lease windows.
+  const store = new SqliteCoordinationStore(new SqliteConnection(db), { leaseMs: 900 });
   const acquired = store.acquire("governed:m-hb", "hb-owner");
   assert.equal(acquired.kind, "ACQUIRED");
   // Heartbeat three times across 1.5 lease windows.
   for (let i = 0; i < 3; i += 1) {
-    await new Promise(resolve => setTimeout(resolve, 90));
+    await new Promise(resolve => setTimeout(resolve, 400));
     assert.equal(store.heartbeat("governed:m-hb", "hb-owner"), true, `heartbeat ${i + 1} renews the live lease`);
   }
   const contender = store.acquire("governed:m-hb", "contender");

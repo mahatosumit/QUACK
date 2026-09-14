@@ -224,7 +224,7 @@ test("P9.22 memory events refresh live surfaces over SSE", () => {
   const script = studioScript();
   // The full governed memory lifecycle refreshes the Evidence view.
   for (const type of ["memory.admitted", "memory.persisted", "memory.embedding.completed", "memory.indexed", "memory.retrieved", "memory.deleted", "memory.compacted"]) {
-    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`));
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
   }
 });
 
@@ -263,7 +263,7 @@ test("P10.14 ecosystem events refresh the panel live over SSE", () => {
   const script = studioScript();
   // The full extension lifecycle refreshes the Ecosystem route.
   for (const type of ["extension.discovered", "extension.validated", "extension.installed", "extension.enabled", "extension.disabled", "extension.quarantined", "extension.removed", "extension.rejected"]) {
-    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`));
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
   }
   // The ecosystem route is in the SSE re-render list.
   assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem","recovery"\]/);
@@ -273,7 +273,7 @@ test("P11 governed mission events refresh live surfaces over SSE", () => {
   const script = studioScript();
   // The full governed-loop step/action lifecycle is wired for live refresh.
   for (const type of ["mission.step.started", "mission.step.completed", "mission.step.failed", "mission.action.proposed", "mission.action.denied", "mission.action.completed", "mission.action.failed"]) {
-    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`), `${type} is in liveTypes`);
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
   }
   // Mission surfaces re-render on governed-loop activity.
   assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem","recovery"\]/);
@@ -284,7 +284,7 @@ test("P12 secure execution events refresh live surfaces over SSE", () => {
   // Execution policy/denial/timeout/cancellation events are metadata-only
   // and refresh mission surfaces.
   for (const type of ["execution.policy.resolved", "execution.denied", "execution.timeout", "execution.cancelled"]) {
-    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`), `${type} is in liveTypes`);
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
   }
 });
 
@@ -298,7 +298,7 @@ test("P14 recovery, approval, and verification events refresh live surfaces over
     "mission.checkpoint_written", "mission.approval_requested", "mission.approval_granted",
     "mission.approval_denied", "execution.verification_pending", "execution.verification_completed",
   ]) {
-    assert.match(script, new RegExp(`"${type.replace(/\./g, "\\.")}"`), `${type} is in liveTypes`);
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
   }
 });
 

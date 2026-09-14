@@ -220,13 +220,16 @@ test("START-4 startup with stale lease: a new owner takes over after expiry (no 
   const { SqliteConnection } = await import("../storage/sqlite.js");
   const { dir, cleanup } = await tempDir("quack-p16-start-lease-");
   try {
-    const store = new SqliteCoordinationStore(new SqliteConnection(join(dir, "coordination.sqlite")), { leaseMs: 50 });
+    // Lease margins must survive slow CI runners: the BUSY probe has to land
+    // well inside the live window, and expiry waits must exceed it by a
+    // comfortable multiple (observed >50ms acquire gaps on Windows runners).
+    const store = new SqliteCoordinationStore(new SqliteConnection(join(dir, "coordination.sqlite")), { leaseMs: 500 });
     const first = store.acquire("governed:gov_p16_start4", "owner-dead");
     assert.equal(first.kind, "ACQUIRED");
     // Busy while live.
     assert.equal(store.acquire("governed:gov_p16_start4", "owner-new").kind, "BUSY");
     // Wait deterministically for expiry, then takeover.
-    await new Promise((resolve) => setTimeout(resolve, 120));
+    await new Promise((resolve) => setTimeout(resolve, 1200));
     const takeover = store.acquire("governed:gov_p16_start4", "owner-new");
     assert.equal(takeover.kind, "TAKEOVER_STALE", "stale lease is taken over with a fencing bump");
     assert.equal(takeover.lease.version, first.lease.version + 1, "fencing version is monotonic");

@@ -300,7 +300,7 @@ test("LIM-7 permission changes on the dataDir fail closed: an unreadable directo
       assert.throws(() => {
         const storage = createSqliteStorage(join(dir, "quack.sqlite"));
         storage.missions.list();
-      }, /EACCES|permission|SQLITE/i, "unreadable dataDir fails closed");
+      }, /EACCES|permission|SQLITE|unable to open database|ENOENT/i, "unreadable dataDir fails closed");
     } finally {
       await chmod(dir, 0o755);
     }

@@ -246,7 +246,7 @@ test("P13.S15 filesystem traversal from inside an isolated workload is blocked a
   t.after(ws.cleanup);
   await writeFile(join(ws.root, "escape.cjs"), `
     exports.run = async (io) => {
-      const attempts = ["../outside.txt", "..\\\\..\\\\windows", "C:/Users", "/etc/shadow"];
+      const attempts = ["../outside.txt", "../../../escape", "C:/Users", "/etc/shadow"];
       const blocked = attempts.map((candidate) => { try { io.io.resolveInside(io.workspaceRoot, candidate); return false; } catch { return true; } });
       return { blocked };
     };
@@ -256,7 +256,22 @@ test("P13.S15 filesystem traversal from inside an isolated workload is blocked a
     workload: { kind: "module", entry: "escape.cjs", args: {} },
   });
   assert.equal(result.status, "SUCCEEDED");
-  assert.deepEqual(result.output!["blocked"], [true, true, true, true], "every traversal attempt blocked");
+  // Portable expectation: POSIX-only separators for the relative escapes
+  // (backslashes are filename characters, not separators, on POSIX), and the
+  // absolute attempts are blocked when they are actually outside the root
+  // on the executing platform. "C:/Users" is absolute on Windows and
+  // relative on POSIX (where it stays inside the sandbox as a harmless
+  // filename); "/etc/shadow" is absolute on POSIX and a drive-relative
+  // name on Windows. The security contract — resolveInside must block
+  // EVERY path that resolves outside the root — is asserted per platform.
+  const blocked = result.output!["blocked"] as boolean[];
+  assert.equal(blocked[0], true, "relative traversal blocked");
+  if (process.platform === "win32") {
+    assert.deepEqual(blocked, [true, true, true, true], "every traversal attempt blocked (win32)");
+  } else {
+    assert.equal(blocked[1], true, "deep relative traversal blocked");
+    assert.equal(blocked[3], true, "absolute outside-root path blocked");
+  }
 });
 
 test("P13.S17 host environment leakage: planted secrets stay out of the isolated child", async t => {

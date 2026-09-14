@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { mkdtemp, writeFile, rm, readdir, stat } from "node:fs/promises";
+import { realpathSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { ProcessIsolationBackend } from "./process-backend.js";
@@ -46,7 +47,10 @@ test("P13.PROC-1 child process executes a module workload with materialized envi
   assert.equal(result.status, "SUCCEEDED");
   assert.equal(result.output!["saw"], "true");
   // cwd is the isolated workspace root: the child cannot even NAME other dirs by accident.
-  assert.equal(result.output!["cwd"], ws.root);
+  // macOS reports the realpath (/var/folders → /private/var/folders); both
+  // spellings denote the same isolated directory.
+  const cwd = String(result.output!["cwd"]);
+  assert.ok(cwd === ws.root || cwd === realpathSync(ws.root), `cwd must be the isolated workspace root (got ${cwd})`);
 });
 
 test("P13.PROC-2 host secrets are SEALED: planted values are not inherited (OS env boundary)", async t => {
@@ -73,11 +77,14 @@ test("P13.PROC-2 host secrets are SEALED: planted values are not inherited (OS e
     assert.equal(result.output!["sawPolicy"], "true");
     // Windows injects OS-identity variables (SYSTEMROOT, default system
     // PATH, TEMP...) into every child process regardless of the passed
-    // environment; those are platform-required, not host secrets. Assert
-    // they are bounded to the OS-identity class: no user variables beyond
-    // QUACK runner internals appear.
+    // environment; those are platform-required, not host secrets. macOS
+    // likewise injects CoreFoundation encoding identity. Node injects
+    // NODE_V8_COVERAGE into every child when the TEST RUNNER itself runs
+    // under coverage (runner instrumentation, not a host variable).
+    // Assert the child env is bounded to these OS/runner identity classes:
+    // no user variables beyond QUACK runner internals appear.
     const keys = String(result.output!["envKeys"]).split(",");
-    const allowed = new Set(["QUACK_ISOLATION_SPEC", "NODE_OPTIONS", "NODE_ENV", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "PATH", "TEMP", "TMP", "HOMEDRIVE", "HOMEPATH", "HOMEDIR", "HOME", "USERDOMAIN", "USERNAME", "USERPROFILE", "LOGONSERVER", "COMSPEC", "PATHEXT", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS", "LANG", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA"]);
+    const allowed = new Set(["QUACK_ISOLATION_SPEC", "NODE_OPTIONS", "NODE_ENV", "NODE_V8_COVERAGE", "__CF_USER_TEXT_ENCODING", "SYSTEMROOT", "SYSTEMDRIVE", "WINDIR", "PATH", "TEMP", "TMP", "HOMEDRIVE", "HOMEPATH", "HOMEDIR", "HOME", "USERDOMAIN", "USERNAME", "USERPROFILE", "LOGONSERVER", "COMSPEC", "PATHEXT", "NUMBER_OF_PROCESSORS", "PROCESSOR_ARCHITECTURE", "OS", "LANG", "LOCALAPPDATA", "APPDATA", "PROGRAMDATA"]);
     const unexpected = keys.filter(key => !allowed.has(key));
     assert.deepEqual(unexpected, [], `unexpected env keys crossed the boundary: ${unexpected.join(",")}`);
   } finally {
