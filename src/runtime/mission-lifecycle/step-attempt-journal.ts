@@ -27,11 +27,20 @@ import { isMissingFile, atomicWriteFile } from "../../core/utils.js";
  * - FAILED     — terminal failure (denial/failure); no re-execution.
  * - AMBIGUOUS  — timeout / cancellation / crash-window; external state may
  *                have happened; requires verification or operator decision.
+ * - RELEASED   — P15: the reservation was withdrawn under TRUSTED
+ *                pre-execution evidence (a durable PENDING approval bound
+ *                to this exact attempt proves the previous process died
+ *                INSIDE the approval callback, before any execution could
+ *                begin). A RELEASED attempt may be re-reserved exactly once
+ *                per release; the release itself is recorded on the
+ *                EventBus audit trail. RELEASED is never settled state and
+ *                never blocks recovery: it is the ONE at-most-once exit
+ *                that requires evidence the external effect never started.
  */
 
 export const STEP_ATTEMPT_JOURNAL_VERSION = 1;
 
-export type StepAttemptState = "DISPATCHING" | "COMPLETED" | "FAILED" | "AMBIGUOUS";
+export type StepAttemptState = "DISPATCHING" | "COMPLETED" | "FAILED" | "AMBIGUOUS" | "RELEASED";
 
 export interface StepAttemptRecord {
   readonly version: typeof STEP_ATTEMPT_JOURNAL_VERSION;
@@ -44,13 +53,42 @@ export interface StepAttemptRecord {
   readonly executionId?: string;
   readonly executionState?: string;
   readonly recordedAt: string;
+  /** P15: provenance of a trusted RELEASE (evidence-backed pre-execution crash). */
+  readonly releasedBy?: string;
+  readonly releasedAt?: string;
+  readonly releaseReason?: string;
+  /** P15: provenance of a trusted ambiguous resolution (verify/refuse). */
+  readonly resolvedBy?: string;
+  readonly resolvedAt?: string;
+  readonly resolutionReason?: string;
+  /** P15: sha256 of the trusted evidence record that justified resolution. */
+  readonly resolutionEvidenceDigest?: string;
 }
 
 export interface StepAttemptJournal {
   /** Reserve a step for dispatch; false if the step already exists (replay/refusal). */
-  reserve(attempt: Omit<StepAttemptRecord, "version" | "state" | "recordedAt"> & { readonly executionId: string }): Promise<boolean>;
+  reserve(attempt: Omit<StepAttemptRecord, "version" | "state" | "recordedAt" | "releasedBy" | "releasedAt" | "releaseReason" | "resolvedBy" | "resolvedAt" | "resolutionReason" | "resolutionEvidenceDigest"> & { readonly executionId: string }): Promise<boolean>;
   /** Settle a reserved step. Unknown keys fail closed. */
   settle(attemptKey: string, settlement: { readonly state: "COMPLETED" | "FAILED" | "AMBIGUOUS"; readonly executionState?: string }): Promise<void>;
+  /**
+   * P15: trusted release of a DISPATCHING reservation. Legal ONLY with
+   * durable evidence the previous process died BEFORE any execution could
+   * start (a durable PENDING approval bound to this exact attempt proves
+   * the crash happened inside the approval gate). The reservation becomes
+   * re-reservable; the release is recorded on the attempt with provenance.
+   */
+  release(attemptKey: string, provenance: { readonly by: string; readonly reason: string }): Promise<void>;
+  /**
+   * P15: trusted resolution of an AMBIGUOUS attempt through verified
+   * evidence (COMPLETED) or a definitive negative / operator refusal
+   * (FAILED). Never legal from DISPATCHING; never without provenance.
+   */
+  resolveAmbiguous(attemptKey: string, resolution: {
+    readonly to: "COMPLETED" | "FAILED";
+    readonly by: string;
+    readonly reason: string;
+    readonly evidenceDigest?: string;
+  }): Promise<void>;
   /** Look up a step attempt. */
   load(attemptKey: string): Promise<StepAttemptRecord | undefined>;
   /**
@@ -63,8 +101,13 @@ export interface StepAttemptJournal {
    * Transition crash-window DISPATCHING entries to AMBIGUOUS. Called on
    * recovery paths only; records that were mid-flight in a dead process are
    * NEVER re-executed.
+   *
+   * P15: when missionId is provided, reconciliation is SCOPED to that
+   * mission. The caller must hold the mission's coordination lease: a live
+   * process's in-flight DISPATCHING records for OTHER missions must never
+   * be parked by an unrelated process sharing the dataDir.
    */
-  reconcileOrphans(): Promise<readonly StepAttemptRecord[]>;
+  reconcileOrphans(missionId?: string): Promise<readonly StepAttemptRecord[]>;
 }
 
 /** Attempt key identical to the P11 step idempotency key domain. */
@@ -76,9 +119,13 @@ export function stepAttemptKey(missionId: string, stepIndex: number, capability:
 export class JsonFileStepAttemptJournal implements StepAttemptJournal {
   constructor(private readonly dataDir: string) {}
 
-  async reserve(attempt: Omit<StepAttemptRecord, "version" | "state" | "recordedAt"> & { readonly executionId: string }): Promise<boolean> {
+  async reserve(attempt: Omit<StepAttemptRecord, "version" | "state" | "recordedAt" | "releasedBy" | "releasedAt" | "releaseReason" | "resolvedBy" | "resolvedAt" | "resolutionReason" | "resolutionEvidenceDigest"> & { readonly executionId: string }): Promise<boolean> {
     const existing = await this.load(attempt.attemptKey);
-    if (existing) return false;
+    // P15: a RELEASED attempt may be re-reserved — the release carried
+    // trusted pre-execution crash evidence (durable PENDING approval bound
+    // to this exact attempt). Every other existing state refuses.
+    if (existing && existing.state !== "RELEASED") return false;
+    if (existing?.state === "RELEASED" && existing.releasedBy === undefined) return false;
     const record: StepAttemptRecord = {
       version: STEP_ATTEMPT_JOURNAL_VERSION,
       ...attempt,
@@ -105,6 +152,44 @@ export class JsonFileStepAttemptJournal implements StepAttemptJournal {
     });
   }
 
+  async release(attemptKey: string, provenance: { readonly by: string; readonly reason: string }): Promise<void> {
+    const existing = await this.load(attemptKey);
+    if (!existing) throw new Error(`Step attempt journal: unknown attempt key '${attemptKey}'.`);
+    if (existing.state !== "DISPATCHING") {
+      throw new Error(`Step attempt journal: attempt '${attemptKey}' is ${existing.state}; only a DISPATCHING reservation can be released.`);
+    }
+    await this.persist({
+      ...existing,
+      state: "RELEASED",
+      releasedBy: provenance.by,
+      releasedAt: new Date().toISOString(),
+      releaseReason: provenance.reason,
+      recordedAt: new Date().toISOString(),
+    });
+  }
+
+  async resolveAmbiguous(attemptKey: string, resolution: {
+    readonly to: "COMPLETED" | "FAILED";
+    readonly by: string;
+    readonly reason: string;
+    readonly evidenceDigest?: string;
+  }): Promise<void> {
+    const existing = await this.load(attemptKey);
+    if (!existing) throw new Error(`Step attempt journal: unknown attempt key '${attemptKey}'.`);
+    if (existing.state !== "AMBIGUOUS") {
+      throw new Error(`Step attempt journal: attempt '${attemptKey}' is ${existing.state}; only an AMBIGUOUS attempt can be resolved.`);
+    }
+    await this.persist({
+      ...existing,
+      state: resolution.to,
+      resolvedBy: resolution.by,
+      resolvedAt: new Date().toISOString(),
+      resolutionReason: resolution.reason,
+      ...(resolution.evidenceDigest !== undefined ? { resolutionEvidenceDigest: resolution.evidenceDigest } : {}),
+      recordedAt: new Date().toISOString(),
+    });
+  }
+
   async load(attemptKey: string): Promise<StepAttemptRecord | undefined> {
     const record = await this.readRecordFile(this.filePath(attemptKey));
     if (!record) return undefined;
@@ -123,8 +208,10 @@ export class JsonFileStepAttemptJournal implements StepAttemptJournal {
       .sort((a, b) => a.stepIndex - b.stepIndex);
   }
 
-  async reconcileOrphans(): Promise<readonly StepAttemptRecord[]> {
-    const orphaned = (await this.readAllRecords()).filter((record) => record.state === "DISPATCHING");
+  async reconcileOrphans(missionId?: string): Promise<readonly StepAttemptRecord[]> {
+    const orphaned = (await this.readAllRecords())
+      .filter((record) => record.state === "DISPATCHING")
+      .filter((record) => missionId === undefined || record.missionId === missionId);
     const reconciled: StepAttemptRecord[] = [];
     for (const record of orphaned) {
       const updated: StepAttemptRecord = { ...record, state: "AMBIGUOUS", recordedAt: new Date().toISOString() };
@@ -202,8 +289,13 @@ export class JsonFileStepAttemptJournal implements StepAttemptJournal {
 export class InMemoryStepAttemptJournal implements StepAttemptJournal {
   private readonly records = new Map<string, StepAttemptRecord>();
 
-  async reserve(attempt: Omit<StepAttemptRecord, "version" | "state" | "recordedAt"> & { readonly executionId: string }): Promise<boolean> {
-    if (this.records.has(attempt.attemptKey)) return false;
+  async reserve(attempt: Omit<StepAttemptRecord, "version" | "state" | "recordedAt" | "releasedBy" | "releasedAt" | "releaseReason" | "resolvedBy" | "resolvedAt" | "resolutionReason" | "resolutionEvidenceDigest"> & { readonly executionId: string }): Promise<boolean> {
+    const existing = this.records.get(attempt.attemptKey);
+    // P15: RELEASED attempts are re-reservable — the release recorded
+    // trusted pre-execution crash evidence. The re-reserve clears release
+    // provenance (a new dispatch epoch owns the attempt now).
+    if (existing && existing.state !== "RELEASED") return false;
+    if (existing?.state === "RELEASED" && existing.releasedBy === undefined) return false;
     this.records.set(attempt.attemptKey, {
       version: STEP_ATTEMPT_JOURNAL_VERSION,
       ...attempt,
@@ -225,6 +317,40 @@ export class InMemoryStepAttemptJournal implements StepAttemptJournal {
     });
   }
 
+  async release(attemptKey: string, provenance: { readonly by: string; readonly reason: string }): Promise<void> {
+    const existing = this.records.get(attemptKey);
+    if (!existing) throw new Error(`Step attempt journal: unknown attempt key '${attemptKey}'.`);
+    this.assertDispatching(existing, attemptKey, "released");
+    this.records.set(attemptKey, {
+      ...existing,
+      state: "RELEASED",
+      releasedBy: provenance.by,
+      releasedAt: new Date().toISOString(),
+      releaseReason: provenance.reason,
+      recordedAt: new Date().toISOString(),
+    });
+  }
+
+  async resolveAmbiguous(attemptKey: string, resolution: {
+    readonly to: "COMPLETED" | "FAILED";
+    readonly by: string;
+    readonly reason: string;
+    readonly evidenceDigest?: string;
+  }): Promise<void> {
+    const existing = this.records.get(attemptKey);
+    if (!existing) throw new Error(`Step attempt journal: unknown attempt key '${attemptKey}'.`);
+    if (existing.state !== "AMBIGUOUS") throw new Error(`Step attempt journal: attempt '${attemptKey}' is ${existing.state}; only an AMBIGUOUS attempt can be resolved.`);
+    this.records.set(attemptKey, {
+      ...existing,
+      state: resolution.to,
+      resolvedBy: resolution.by,
+      resolvedAt: new Date().toISOString(),
+      resolutionReason: resolution.reason,
+      ...(resolution.evidenceDigest !== undefined ? { resolutionEvidenceDigest: resolution.evidenceDigest } : {}),
+      recordedAt: new Date().toISOString(),
+    });
+  }
+
   async load(attemptKey: string): Promise<StepAttemptRecord | undefined> {
     return this.records.get(attemptKey);
   }
@@ -235,10 +361,10 @@ export class InMemoryStepAttemptJournal implements StepAttemptJournal {
       .sort((a, b) => a.stepIndex - b.stepIndex);
   }
 
-  async reconcileOrphans(): Promise<readonly StepAttemptRecord[]> {
+  async reconcileOrphans(missionId?: string): Promise<readonly StepAttemptRecord[]> {
     const orphaned: StepAttemptRecord[] = [];
     for (const [key, record] of this.records) {
-      if (record.state === "DISPATCHING") {
+      if (record.state === "DISPATCHING" && (missionId === undefined || record.missionId === missionId)) {
         const reconciled = { ...record, state: "AMBIGUOUS" as const, recordedAt: new Date().toISOString() };
         this.records.set(key, reconciled);
         orphaned.push(reconciled);
@@ -246,8 +372,14 @@ export class InMemoryStepAttemptJournal implements StepAttemptJournal {
     }
     return orphaned;
   }
+
+  private assertDispatching(existing: StepAttemptRecord, attemptKey: string, operation: string): void {
+    if (existing.state !== "DISPATCHING") {
+      throw new Error(`Step attempt journal: attempt '${attemptKey}' is ${existing.state}; only a DISPATCHING reservation can be ${operation}.`);
+    }
+  }
 }
 
 function isAttemptState(state: unknown): state is StepAttemptState {
-  return state === "DISPATCHING" || state === "COMPLETED" || state === "FAILED" || state === "AMBIGUOUS";
+  return state === "DISPATCHING" || state === "COMPLETED" || state === "FAILED" || state === "AMBIGUOUS" || state === "RELEASED";
 }

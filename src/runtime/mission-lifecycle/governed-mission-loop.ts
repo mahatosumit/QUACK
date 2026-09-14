@@ -32,6 +32,9 @@ import {
   JsonFileMissionCheckpointStore, InMemoryMissionCheckpointStore,
   type MissionCheckpoint, type RecoveryDecision, type RecoveryState,
 } from "./mission-recovery.js";
+import { MissionOwnershipGuard, type OwnershipEventPayload } from "../ownership.js";
+import { SqliteConnection } from "../../storage/sqlite.js";
+import { JsonFileApprovalStore, DurableApprovalRunner, approvalRequestKey } from "./approval-store.js";
 
 /**
  * P11 (ADR 0045): the governed mission execution loop — the first REAL
@@ -53,9 +56,17 @@ import {
  * execution path exists. v1 executes READ_ONLY/REVERSIBLE capabilities
  * only (the harness fails closed on stronger risk levels).
  *
- * ponytail: mid-run durable resume (mapping LoopRun onto ExecutionRecovery
- * checkpoints) is future work; v1 persists the run record and relies on
- * idempotent replay via stable step keys.
+ * P15 (ADR 0049): when a coordination DB path is provided (or derived from
+ * the run store's dataDir), every run()/resume acquires the mission's
+ * coordination lease through the EXISTING MissionOwnershipGuard (ADR 0031
+ * primitive) — exactly one authoritative executor per mission across
+ * processes; durable writes are fenced; a crashed owner's lease expires
+ * and is taken over atomically. Journal reservation and orphan
+ * reconciliation are scoped to the LEASED mission only: a live process's
+ * in-flight steps for other missions are never parked. WAITING_APPROVAL
+ * steps park durably through the approval store and their DISPATCHING
+ * reservation is RELEASED under durable evidence the previous dispatch
+ * died inside the approval gate (before any execution).
  */
 
 export interface GovernedMissionLoopOptions {
@@ -130,12 +141,51 @@ export interface GovernedMissionLoopOptions {
    * everything else keeps the honest POLICY_RESTRICTED host path.
    */
   readonly isolation?: import("./harness.js").HarnessConfig["isolation"];
+  /**
+   * P15 (ADR 0049): SQLite coordination DB for multi-process mission
+   * ownership (the ADR 0031 primitive). When provided (production derives
+   * it from the dataDir), run()/resume acquires the mission lease first
+   * and fails closed on contention. Omit for single-process compositions
+   * (tests, embedded use) — no lease is acquired, no behavior changes.
+   */
+  readonly coordinationDbPath?: string;
+  /** P15: lease duration for mission ownership (default 30s, heartbeat /3). */
+  readonly ownershipLeaseMs?: number;
+  /**
+   * P15 (ADR 0049): the durable approval store backing WAITING_APPROVAL
+   * steps. When provided together with approvalRunner, approval requests
+   * park durably under the dataDir and survive restarts.
+   */
+  readonly approvalStore?: JsonFileApprovalStore;
+  /**
+   * P15 (ADR 0049): trusted ambiguous-step reconciliation inputs. When
+   * provided, a resume attempts trusted reconciliation of AMBIGUOUS journal
+   * records through durable evidence-bound probes BEFORE parking; missing
+   * probes/evidence leave the attempt AMBIGUOUS (fail closed).
+   */
+  readonly ambiguityReconciliation?: {
+    readonly probeRunner: import("../../isolation/probe-runner.js").ProbeRunner;
+    readonly evidenceStore: { load(executionId: string): Promise<import("../../isolation/execution-evidence.js").ExecutionEvidenceRecord | undefined> };
+    /** The trusted verification strategy the original dispatch carried. */
+    readonly strategyFor: (attempt: import("./step-attempt-journal.js").StepAttemptRecord) => import("./action-contract.js").VerificationStrategy | undefined;
+  };
 }
 
 export interface MissionRunStore {
   save(run: LoopRun): Promise<void>;
   load(missionId: string): Promise<LoopRun | undefined>;
   list(): Promise<readonly LoopRun[]>;
+}
+
+/** P15: mission ownership contention — the run must fail closed, never degrade. */
+export class MissionOwnershipError extends Error {
+  constructor(
+    public readonly failure: "OWNERSHIP_CONFLICT" | "LEASE_LOST" | "STALE_OWNER",
+    public readonly missionId: string,
+  ) {
+    super(`Mission ${missionId} is owned by another live process (${failure}); governed execution fails closed.`);
+    this.name = "MissionOwnershipError";
+  }
 }
 
 /** Result of one governed mission run. */
@@ -166,12 +216,21 @@ export class GovernedMissionLoop {
   private readonly actor: string;
   private readonly runs = new Map<string, LoopRun>();
   private readonly cancellers = new Map<string, AbortController>();
+  /** P15: active mission ownership guards (per missionId, fenced writes). */
+  private readonly ownerships = new Map<string, MissionOwnershipGuard>();
   /** P12: at-most-once step dispatch journal (durable when provided). */
   private readonly stepJournal: StepAttemptJournal;
   /** P12: in-process concurrency bound for governed executions. */
   private readonly maxConcurrentSteps: number;
   /** P14: durable mission checkpoint store. */
   private readonly checkpointStore: import("./mission-recovery.js").JsonFileMissionCheckpointStore | import("./mission-recovery.js").InMemoryMissionCheckpointStore;
+  /** P15: optional cross-process mission ownership (ADR 0031 primitive). */
+  private readonly ownershipConnection: SqliteConnection | undefined;
+  private readonly ownershipLeaseMs: number | undefined;
+  /** P15: durable approval store (WAITING_APPROVAL persistence). */
+  private readonly approvalStore: JsonFileApprovalStore | undefined;
+  /** P15: trusted ambiguous-step reconciliation inputs. */
+  private readonly ambiguityReconciliation: GovernedMissionLoopOptions["ambiguityReconciliation"];
   private activeSteps = 0;
 
   constructor(private readonly options: GovernedMissionLoopOptions) {
@@ -200,6 +259,56 @@ export class GovernedMissionLoop {
     this.stepJournal = options.stepJournal ?? new InMemoryStepAttemptJournal();
     this.maxConcurrentSteps = options.maxConcurrentSteps ?? DEFAULT_MAX_CONCURRENT_STEPS;
     this.checkpointStore = options.checkpointStore ?? new InMemoryMissionCheckpointStore();
+    this.ownershipConnection = options.coordinationDbPath ? new SqliteConnection(options.coordinationDbPath) : undefined;
+    this.ownershipLeaseMs = options.ownershipLeaseMs;
+    this.approvalStore = options.approvalStore;
+    this.ambiguityReconciliation = options.ambiguityReconciliation;
+  }
+
+  /**
+   * P15: acquire the mission's coordination lease (ADR 0031 primitive via
+   * MissionOwnershipGuard, `governed:` namespace — distinct from the legacy
+   * runtime's `mission:` leases in the same DB). Discriminated outcome; a
+   * BUSY lease fails closed with `mission.ownership_busy` and NEVER
+   * degrades to an unowned run.
+   */
+  private acquireOwnership(missionId: string): MissionOwnershipGuard | undefined {
+    if (!this.ownershipConnection) return undefined;
+    const guard = new MissionOwnershipGuard(this.ownershipConnection, {
+      ...(this.ownershipLeaseMs ? { leaseMs: this.ownershipLeaseMs } : {}),
+      emit: (type, payload: OwnershipEventPayload) => {
+        const mapped = type === "ownership.acquired" ? "coordination.acquired"
+          : type === "ownership.rejected" ? "coordination.contention"
+          : type === "ownership.lost" ? "coordination.expired"
+          : type === "ownership.released" ? "coordination.released" : undefined;
+        if (mapped) {
+          void this.options.events.emit(mapped, {
+            missionId: payload.missionId, owner: payload.owner ?? "", epoch: payload.epoch ?? -1,
+          }, { actor: this.actor }).catch(() => undefined);
+        }
+      },
+    });
+    const outcome = guard.acquire(`governed:${missionId}`);
+    if (outcome.kind === "FAILED") {
+      guard.close();
+      throw new MissionOwnershipError(outcome.failure, missionId);
+    }
+    guard.startHeartbeat(() => undefined);
+    this.ownerships.set(missionId, guard);
+    return guard;
+  }
+
+  /** P15: the active ownership guard for a mission (undefined in single-process mode). */
+  private ownershipOf(missionId: string): MissionOwnershipGuard | undefined {
+    return this.ownerships.get(missionId);
+  }
+
+  private releaseOwnership(missionId: string): void {
+    const guard = this.ownerships.get(missionId);
+    if (guard) {
+      this.ownerships.delete(missionId);
+      guard.close();
+    }
   }
 
   /** Run (or resume, when a stored non-terminal run exists) a governed mission. */
@@ -212,14 +321,56 @@ export class GovernedMissionLoop {
     if (!request.missionId || !request.objective) {
       return fail({ code: "mission.loop_invalid_input", message: "A governed mission requires a missionId and an objective.", category: "validation", recoverable: false });
     }
+    // P15: acquire the mission's coordination lease FIRST (when a
+    // coordination DB is wired). Contention fails closed — the run never
+    // proceeds unowned next to a live executor. When no coordination DB is
+    // wired (single-process compositions), behavior is unchanged.
+    let ownership: MissionOwnershipGuard | undefined;
+    try {
+      ownership = this.acquireOwnership(request.missionId);
+    } catch (error) {
+      if (error instanceof MissionOwnershipError) {
+        this.cancellers.delete(request.missionId);
+        return fail({
+          code: "mission.ownership_busy",
+          message: error.message,
+          category: "validation",
+          recoverable: false,
+        });
+      }
+      // P15-F: a coordination primitive failure (corrupt DB, locked DB,
+      // permission denied) fails the run CLOSED — the mission is never run
+      // unowned next to an unverifiable coordination state.
+      this.cancellers.delete(request.missionId);
+      return fail({
+        code: "mission.ownership_unavailable",
+        message: `Mission coordination is unavailable (${error instanceof Error ? error.message : String(error)}); the run fails closed rather than proceeding unowned.`,
+        category: "runtime",
+        recoverable: true,
+      });
+    }
+
     const controller = new AbortController();
     const signal = request.signal ? AbortSignal.any([request.signal, controller.signal]) : controller.signal;
     this.cancellers.set(request.missionId, controller);
 
-    // P12: on every run, reconcile crash-window step attempts left
+    // P15 (ADR 0049) recovery extension — MUST run BEFORE the P12 orphan
+    // pass: release DISPATCHING reservations whose previous process
+    // provably died INSIDE the approval gate (a durable PENDING approval
+    // request bound to the exact attempt). The orphan pass below would
+    // otherwise park those attempts AMBIGUOUS first, and a step that never
+    // started executing must be re-dispatchable, not parked.
+    // Fail-closed: without durable approval evidence the release never
+    // fires, and the orphan pass keeps P12 semantics.
+    await this.releaseApprovalCrashReservations(request.missionId).catch(() => undefined);
+
+    // P12/P15: on every run, reconcile crash-window step attempts left
     // DISPATCHING by a previous process. They become AMBIGUOUS and can
     // never be re-dispatched — this is the at-most-once recovery pass.
-    await this.stepJournal.reconcileOrphans().catch(() => undefined);
+    // P15 SCOPING: when the caller holds the mission lease, the pass is
+    // scoped to THIS mission — a live process's in-flight steps for OTHER
+    // missions are never parked by an unrelated sharer of the dataDir.
+    await this.stepJournal.reconcileOrphans(ownership ? request.missionId : undefined).catch(() => undefined);
 
     // Idempotent resume: a stored TERMINAL run fails closed (never silently
     // re-executed); a stored non-terminal run RECONCILES its durable records
@@ -241,6 +392,17 @@ export class GovernedMissionLoop {
       // durable records: every recorded attempt must have settled, and any
       // ambiguous attempt parks the mission — the loop never blindly
       // replays an uncertain action, and never steps over one.
+      //
+      // P15 (ADR 0049) recovery extensions, in order:
+      //   1. WAITING_APPROVAL release — a DISPATCHING attempt whose durable
+      //      approval request is still PENDING proves the previous process
+      //      died INSIDE the approval gate (before any execution); the
+      //      reservation is RELEASED (re-dispatchable) rather than parked.
+      //   2. Trusted ambiguity reconciliation — AMBIGUOUS attempts with a
+      //      trusted probe strategy reconcile through durable evidence-bound
+      //      probes; unresolved ones park exactly as in P14.
+      await this.releaseApprovalCrashReservations(request.missionId).catch(() => undefined);
+      await this.attemptAmbiguityReconciliation(request.missionId);
       const decision = await this.reconcileForResume(request.missionId, stored);
       if (decision.state !== "SAFE_TO_RESUME") {
         this.cancellers.delete(request.missionId);
@@ -343,18 +505,22 @@ export class GovernedMissionLoop {
           break;
         }
 
-        const iteration = await this.executeStep(run, request, index, signal);
+        const iteration = await this.executeStep(run, request, index, signal, ownership);
         // P14 budget recovery: the iteration record carries the authoritative
         // cumulative usage snapshot (written inside iteration()); append
         // folds it into run.usage so a restart reconstructs consumed budget.
         run = appendIteration(run, iteration);
-        await this.options.runStore?.save(run).catch(() => undefined);
+        // P15 write fencing: a fenced-out (takeover-losing) process stops
+        // writing durable mission state; the new owner owns the record.
+        if (this.durableWritesPermitted(ownership)) {
+          await this.options.runStore?.save(run).catch(() => undefined);
+          // P14 (ADR 0048): durable checkpoint AFTER the settled iteration and
+          // its durable records — closing crash window G (settlement done, next
+          // checkpoint not yet written). Checkpoint failures are surfaced but
+          // never block the run: the journal + run record remain authoritative.
+          await this.writeCheckpoint(run, index).catch(() => undefined);
+        }
         this.runs.set(request.missionId, run);
-        // P14 (ADR 0048): durable checkpoint AFTER the settled iteration and
-        // its durable records — closing crash window G (settlement done, next
-        // checkpoint not yet written). Checkpoint failures are surfaced but
-        // never block the run: the journal + run record remain authoritative.
-        await this.writeCheckpoint(run, index).catch(() => undefined);
 
         if (iteration.stopReason) {
           run = terminateRun(run, iteration.stopReason);
@@ -376,14 +542,122 @@ export class GovernedMissionLoop {
       return ok({ run, finalState: state });
     } finally {
       this.cancellers.delete(request.missionId);
-      await this.options.runStore?.save(run).catch(() => undefined);
+      // P15 write fencing: after a lease loss/takeover, this process is NO
+      // LONGER the authoritative owner — a final save here would clobber
+      // the new owner's reconciled record (last-writer-wins corruption).
+      // Skip the durable save when ownership is lost; the takeover process
+      // owns the record now. Single-process mode (no guard) saves as before.
+      const fenced = !this.durableWritesPermitted(ownership);
+      if (!fenced) {
+        await this.options.runStore?.save(run).catch(() => undefined);
+      }
       this.runs.set(request.missionId, run);
+      // P15: release the coordination lease AFTER the final durable
+      // persist — the guard tombstones the lease so the next owner's
+      // fencing epoch stays monotonic (ADR 0031). A crashed process that
+      // never reaches here leaves a stale lease that expiry + takeover
+      // handles; release() failure must not mask the mission outcome.
+      this.releaseOwnership(request.missionId);
     }
   }
 
   // -----------------------------------------------------------------
   // P14 (ADR 0048): durable recovery over existing records.
   // -----------------------------------------------------------------
+
+  /**
+   * P15: release DISPATCHING reservations whose previous process provably
+   * died INSIDE the approval gate. The trusted evidence is a durable
+   * PENDING (or EXPIRED-pending) approval request bound to the exact
+   * (mission, step, capability): the P14/P15 dispatch order is
+   * journal.reserve → harness.execute → approval gate → execution, so a
+   * parked request with an unsettled DISPATCHING attempt means execution
+   * never started. The attempt is RELEASED — re-dispatchable — instead of
+   * parked AMBIGUOUS.
+   *
+   * Fail-closed: any ambiguity (missing request but DISPATCHING, corrupt
+   * store) leaves the reservation untouched (the P12 orphan pass parks it
+   * AMBIGUOUS as before).
+   */
+  private async releaseApprovalCrashReservations(missionId: string): Promise<void> {
+    if (!this.approvalStore) return;
+    const attempts = await this.stepJournal.listByMission(missionId);
+    if (attempts.length === 0) return;
+    let parked;
+    try {
+      parked = await this.approvalStore.list();
+    } catch {
+      return; // fail closed: no durable evidence, no release
+    }
+    for (const attempt of attempts) {
+      if (attempt.state !== "DISPATCHING") continue;
+      // A PENDING approval request for this exact binding is durable
+      // proof the dispatch died before execution. A DECIDED record is NOT
+      // proof (the decision may have been consumed by an execution that
+      // then crashed mid-flight) — decided bindings keep P14 semantics.
+      const match = parked.find((entry) =>
+        "stepIndex" in entry && entry.missionId === attempt.missionId
+        && entry.stepIndex === attempt.stepIndex && entry.capability === attempt.capability
+        && !("decision" in entry));
+      if (match) {
+        try {
+          await this.stepJournal.release(attempt.attemptKey, {
+            by: "approval-crash-recovery",
+            reason: "durable PENDING approval request proves the previous dispatch died inside the approval gate before execution",
+          });
+          await this.options.events.emit("mission.recovery_parked", {
+            missionId, stepIndex: attempt.stepIndex, capability: attempt.capability,
+            action: "reservation-released",
+          }, { actor: this.actor }).catch(() => undefined);
+        } catch {
+          // Another writer raced (settled/released concurrently): leave it
+          // to the standard orphan pass — fail closed.
+        }
+      }
+    }
+  }
+
+  /**
+   * P15: attempt TRUSTED ambiguous-step reconciliation on resume. Only
+   * attempts with a trusted probe strategy and a matching durable evidence
+   * record can leave AMBIGUOUS (ADR 0049); everything else parks exactly
+   * as in P14. Reconciliation failures never block the resume — the
+   * decision still comes from reconcileMission over the journal state.
+   */
+  private async attemptAmbiguityReconciliation(missionId: string): Promise<void> {
+    if (!this.ambiguityReconciliation) return;
+    const { reconcileMissionAmbiguity } = await import("./ambiguity-reconciliation.js");
+    const attempts = await this.stepJournal.listByMission(missionId);
+    if (!attempts.some((attempt) => attempt.state === "AMBIGUOUS")) return;
+    await this.options.events.emit("mission.ambiguity_detected", { missionId }, { actor: this.actor }).catch(() => undefined);
+    await reconcileMissionAmbiguity({
+      missionId,
+      journal: this.stepJournal,
+      probeRunner: this.ambiguityReconciliation.probeRunner,
+      evidenceStore: this.ambiguityReconciliation.evidenceStore,
+      events: this.options.events,
+      actor: this.actor,
+      strategyFor: this.ambiguityReconciliation.strategyFor,
+    }).catch(() => undefined);
+  }
+
+  /**
+   * P15 write fencing: true when this process still holds the mission
+   * lease. After a takeover (crash + expiry + new owner), the loser process
+   * must stop writing durable mission state — its writes would clobber
+   * the new owner's records. Single-process mode (no guard) always writes.
+   */
+  private durableWritesPermitted(ownership: MissionOwnershipGuard | undefined): boolean {
+    if (!ownership) return true;
+    switch (ownership.lifecycle) {
+      case "OWNED":
+      case "HEARTBEATING":
+      case "COMPLETING":
+        return true;
+      default:
+        return false;
+    }
+  }
 
   /**
    * Reconcile durable records for a stored non-terminal run and write the
@@ -491,6 +765,7 @@ export class GovernedMissionLoop {
     request: { readonly missionId: string; readonly objective: string; readonly constraints?: readonly string[] },
     stepIndex: number,
     signal: AbortSignal,
+    ownership?: MissionOwnershipGuard,
   ): Promise<IterationRecord> {
     const iterationId = createIterationId();
     const startedAt = now();
@@ -618,6 +893,15 @@ export class GovernedMissionLoop {
       // AMBIGUOUS on recovery — never re-executed.
       const attemptKey = stepAttemptKey(request.missionId, stepIndex, proposal.capability);
       const harnessExecutionId = createId("exec");
+      // P15: the reserve gate is ownership-fenced — a process that lost the
+      // mission lease (takeover after crash) must NOT start a new dispatch;
+      // its reservation could race the new owner's. Fail the step closed;
+      // the resume-under-new-owner path re-proposes from the safe boundary.
+      if (!this.durableWritesPermitted(ownership)) {
+        return this.failedIteration(run, iterationId, stepIndex, startedAt, usage,
+          "mission.ownership_lost",
+          "Mission ownership was lost to another process; this step fails closed instead of racing the new owner.");
+      }
       const reserved = await this.stepJournal.reserve({
         attemptKey,
         missionId: request.missionId,

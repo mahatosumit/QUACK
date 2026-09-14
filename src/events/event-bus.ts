@@ -193,7 +193,23 @@ export type QuackEventType =
   | "mission.approval_denied"
   /** P14 verification observability (metadata-only; ADR 0048). */
   | "execution.verification_pending"
-  | "execution.verification_completed";
+  | "execution.verification_completed"
+  /** P15 production-hardening observability (metadata-only; ADR 0049). */
+  | "coordination.acquired"
+  | "coordination.contention"
+  | "coordination.expired"
+  | "coordination.released"
+  | "mission.approval_parked"
+  | "mission.approval_restored"
+  | "mission.approval_consumed"
+  | "mission.ambiguity_detected"
+  | "mission.reconciliation_attempted"
+  | "mission.reconciliation_verified"
+  | "mission.reconciliation_unresolved"
+  | "mission.recovery_parked"
+  | "mission.recovery_denied"
+  | "adapter.admitted"
+  | "adapter.rejected";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

@@ -93,6 +93,9 @@ import { JsonFileStepAttemptJournal } from "../runtime/mission-lifecycle/step-at
   // production workload adapters.
   import { JsonFileMissionCheckpointStore } from "../runtime/mission-lifecycle/mission-recovery.js";
   import { ApprovalRunner, ConsoleApprovalRunnerCallback } from "../runtime/mission-lifecycle/approval-contract.js";
+  // P15 (ADR 0049): durable approval queue + trusted ambiguity reconciliation.
+  import { JsonFileApprovalStore, DurableApprovalRunner } from "../runtime/mission-lifecycle/approval-store.js";
+  import { ProbeRunner } from "../isolation/probe-runner.js";
   import { registerProductionAdapters } from "../isolation/production-adapters.js";
 import { memoryCandidatesFromRetrieval } from "../memory/semantic/qie.js";
 import { InstructionObserver } from "../instruction/observer.js";
@@ -909,11 +912,16 @@ runtime = new QuackRuntime({
   // sources cannot materialize, the registry stays EMPTY (no adapter is
   // safer than a half-registered one) and the composition still runs.
   try { registerProductionAdapters(workloadAdapters); } catch { /* empty registry, honest log-free fail-closed */ }
-  // P14: the governed approval runner for IRREVERSIBLE/DESTRUCTIVE actions.
-  // The console callback asks the operator; approval is a human decision
-  // surface, never model-decidable, and its absence keeps P13 fail-closed
-  // semantics for unapproved risk levels.
-  const missionApprovalRunner = new ApprovalRunner(new ConsoleApprovalRunnerCallback());
+  // P15 (ADR 0049): the DURABLE governed approval runner — the same P14
+  // human-decision surface (console callback), now backed by the durable
+  // approval store: WAITING_APPROVAL steps park durably under the dataDir,
+  // survive restarts, enforce server-side TTL, and can never be replayed or
+  // upgraded after a decision. Model output never reaches this seam.
+  const missionApprovalStore = new JsonFileApprovalStore(config.dataDir);
+  const durableApproval = new DurableApprovalRunner(missionApprovalStore, new ConsoleApprovalRunnerCallback(), {
+    events,
+    actor: "governed-approval-runner",
+  });
   const governedMissionCheckpointStore = new JsonFileMissionCheckpointStore(config.dataDir);
   const governedMissionLoop = new GovernedMissionLoop({
     broker: capabilityBroker,
@@ -938,7 +946,23 @@ runtime = new QuackRuntime({
     runStore: governedMissionRunStore,
     stepJournal: governedStepJournal,
     checkpointStore: governedMissionCheckpointStore,
-    approvalRunner: missionApprovalRunner,
+    approvalRunner: durableApproval,
+    // P15 (ADR 0049): production multi-process coordination — the same
+    // ADR 0031 SQLite primitive the legacy durable path uses, in the
+    // `governed:` lease namespace. Two CLI/server processes sharing one
+    // dataDir can never both be the authoritative executor of a mission.
+    coordinationDbPath: join(config.dataDir, "coordination.sqlite"),
+    approvalStore: missionApprovalStore,
+    // P15 (ADR 0049): trusted ambiguous-step reconciliation over the
+    // existing probe runner + durable evidence store. Strategies are
+    // looked up by the trusted (mission, step, capability) identity the
+    // ORIGINAL dispatch carried — recorded in the production adapter
+    // registry's verification strategies, never re-read from model output.
+    ambiguityReconciliation: {
+      probeRunner: new ProbeRunner({ workspaceRoot: createIsolatedWorkspaceRoot(), events, actor: "ambiguity-reconciliation" }),
+      evidenceStore: isolationEvidenceStore,
+      strategyFor: (attempt) => workloadAdapters.verificationStrategyFor(attempt.capability),
+    },
     isolation: {
       supervisor: isolationSupervisor,
       adapters: workloadAdapters,
@@ -1106,7 +1130,7 @@ const agentLoop = new AgentLoop({
       governedMissionLoop,
       governedMissionRunStore,
       governedMissionCheckpointStore,
-      missionApprovalRunner,
+      missionApprovalRunner: durableApproval,
       workloadAdapters,
       workflowLoader,
             coreAgentRegistry,

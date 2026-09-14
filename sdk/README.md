@@ -171,6 +171,10 @@ P14 (ADR 0048) adds the durable recovery + verified-actions surface:
   (capability, arguments, intent, mission, step), single-use (consumed at
   exactly one dispatch), and never model-grantable: the proposing actor can
   never be the approver, and model-supplied approval fields are data.
+  The P15 runtime composes these through a DURABLE approval store
+  (PENDING/GRANTED/DENIED/CONSUMED survive restarts; server-side TTL;
+  reason text redacted before persistence) — the durability layer is a
+  runtime composition detail, not a new SDK authority.
 - **Adapters** — `registerProductionAdapters` and
   `WorkloadAdapterRegistry`: the first production workload adapters
   (`quack.text.transform`, `quack.data.process`) are deterministic

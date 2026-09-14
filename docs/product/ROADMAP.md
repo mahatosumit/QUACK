@@ -544,6 +544,69 @@ credential-demanding adapters (v1 adapters are READ_ONLY transforms only),
 extension adapter registration (extensions remain NOT-EXECUTABLE), and any
 P15+ functionality.**
 
+### P15 — Production Hardening + Release Qualification — COMPLETE
+
+- **P15-A** multi-process coordination — the EXISTING ADR 0031
+  `MissionOwnershipGuard`/SQLite lease primitive reused unchanged (no new
+  consensus mechanism); every `run()` acquires the mission lease in the
+  `governed:` namespace when a coordination DB is wired; exactly one
+  authoritative executor per mission (loser fails closed
+  `mission.ownership_busy`); fenced durable writes (takeover-losing
+  processes stop writing durable state); crash takeover without surgery
+  (lease expiry + monotonic fencing epoch); scoped orphan reconciliation
+  (other missions' in-flight steps never parked); coordination failures
+  fail closed `mission.ownership_unavailable` — SHIPPED
+- **P15-B** durable approvals — P14 contract unchanged; `JsonFileApprovalStore`
+  + `DurableApprovalRunner` add durability: PENDING requests park before the
+  callback (crash mid-ask survives restart), GRANTED/DENIED decisions
+  persist (DENIED can never be upgraded by re-asking; live GRANTED is
+  reused, never re-asked), CONSUMED persists (no replay), server-side TTL
+  (client fields cannot extend), deterministic binding keys, digest
+  integrity; P15-F security fix: model-derived reason text redacted through
+  the single repository redaction authority BEFORE persistence — SHIPPED
+- **P15-C** trusted ambiguous-step reconciliation — AMBIGUOUS leaves parking
+  ONLY through identity-bound durable evidence + trusted probes
+  (`ambiguity-reconciliation.ts`): PASSED → COMPLETED with provenance;
+  observable absence of the declared effect → FAILED; INCONCLUSIVE/
+  missing/foreign/conflicting/malformed → stays AMBIGUOUS; strategy from
+  the REGISTERED adapter (deployer data), never re-read from model output;
+  evidence-observability honesty (probes needing raw output honestly fail);
+  no verifier = parked forever (P14 semantics preserved) — SHIPPED
+- **P15-E** crash matrix — real SIGKILL at deterministic durable-write
+  boundaries through the shared child harness (before/after persistence,
+  after reservation, after execution, WAITING_APPROVAL gate, RECOVERING
+  pass): no duplicate execution, no budget reset, no approval bypass
+  (durable PENDING evidence releases the reservation — the one
+  at-most-once exit with trusted pre-execution proof), AMBIGUOUS stays
+  parked, no cross-mission settlement, one authoritative recovery owner,
+  terminal runs never replay — SHIPPED
+- **P15-F** operational hardening — every durable surface fails closed
+  (malformed run records/checkpoints/journal, corrupt coordination,
+  contention, stale owners, unavailable model/probe/approval/persistence,
+  duplicate/invalid adapter registration); settlement failures EMITTED
+  never swallowed; metadata-only telemetry with secret redaction at
+  persistence — SHIPPED
+- **P15-H** release qualification — executable checks over the real
+  runtime: single-authority construction (one broker, one harness seam, one
+  recovery path, no bypass route), model can never approve/verify/choose
+  isolation/touch checkpoint or recovery state, execution gates fail closed
+  individually, approval identity binding/single-use/TTL/concurrent
+  consumption, budget monotonic across restart, authority-after-restart ≤
+  authority-before, at-most-once with honest AMBIGUOUS — SHIPPED
+- Production wiring (`swe-system`) coordinates via the dataDir SQLite DB;
+  two processes sharing one dataDir can never both execute one mission —
+  SHIPPED
+
+**P15 COMPLETE. Release qualification: CONDITIONAL PASS (all critical
+security/recovery properties pass with executable evidence; scope bounded by
+documented limitations). Explicitly NOT in P15: exactly-once external
+effects (at-most-once + honest AMBIGUOUS is the guarantee), distributed/
+multi-host coordination (single-host SQLite lease only), cryptographic
+authenticity against a persistence-store-writing attacker (integrity
+digests only), automatic resolution of all ambiguous effects (trusted
+verifier required), arbitrary extension execution, unrestricted network/
+credentials (v1 adapters remain READ_ONLY transforms). ADR 0049.**
+
 ## Dependencies
 
 P1 → P2 → P3 → P4 → P5 (Console and streaming enable harness eval UX);

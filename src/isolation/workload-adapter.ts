@@ -150,6 +150,33 @@ export class WorkloadAdapterRegistry {
   entryDigest(entry: string): string {
     return createHash("sha256").update(entry).digest("hex").slice(0, 16);
   }
+
+  /**
+   * P15 (ADR 0049): the TRUSTED verification strategy declared by the
+   * adapter REGISTERED for a capability — deployer-registered data, never
+   * model output. Used by ambiguous-step reconciliation to re-verify a
+   * crashed dispatch through durable evidence: only capabilities with a
+   * registered adapter AND a deterministic probe declaration can ever leave
+   * AMBIGUOUS automatically. UNREGISTERED capabilities get `undefined` and
+   * stay AMBIGUOUS (fail closed).
+   */
+  verificationStrategyFor(capability: string): import("../runtime/mission-lifecycle/action-contract.js").VerificationStrategy | undefined {
+    const adapter = this.adapters.get(capability);
+    if (!adapter) return undefined;
+    if (adapter.verification.kind === "deterministic_result") {
+      const probes = adapter.verification.probes.map((probe) => ({
+        kind: "output_field" as const,
+        path: probe.path,
+      }));
+      return {
+        kind: "probe_external_state",
+        capability,
+        arguments: {},
+        expected: { description: adapter.description, successProbes: probes },
+      };
+    }
+    return undefined;
+  }
 }
 
 /**
