@@ -364,13 +364,14 @@ test("P15.A12 crashed owner's lease expires and a fresh process takes over (real
   const seeded: LoopRun = { ...createLoopRun({ missionId: "m-crash-mp", goal: "g", actor: "test", budget: { maxIterations: 8 } }), currentState: "RUNNING" };
   await runStore.save(seeded);
   // First child takes the lease with a SHORT lease and pauses (holding it).
-  const holder = spawnGovernedChild(dir, "hold-lease", { missionId: "m-crash-mp", leaseMs: "500" });
+  // Margins survive slow CI runners (node child boot can exceed 500ms).
+  const holder = spawnGovernedChild(dir, "hold-lease", { missionId: "m-crash-mp", leaseMs: "5000" });
   const held = await holder.firstMessage;
   assert.equal(String(held["type"]), "lease-held", "child acquired the lease");
   holder.child.kill("SIGKILL");
   await new Promise<void>(resolve => holder.child.once("exit", () => resolve()));
   // Wait past expiry, then a fresh process must recover WITHOUT surgery.
-  await new Promise(resolve => setTimeout(resolve, 900));
+  await new Promise(resolve => setTimeout(resolve, 12000));
   const resume = spawnGovernedChild(dir, "resume", { missionId: "m-crash-mp", leaseMs: "30000" });
   const outcome = await resume.firstMessage;
   assert.equal(String(outcome["type"]), "resumed", `takeover + resume succeeds after crash: ${JSON.stringify(outcome)}`);

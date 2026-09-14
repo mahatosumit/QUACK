@@ -115,8 +115,10 @@ test("P15.E2 crash after admission, before any durable step write: lease expiry 
   const { dir, cleanup } = await tempDir();
   t.after(() => cleanup());
   const missionId = "m-e2";
-  // SHORT lease: the crashed owner's lease expires quickly.
-  const crashed = spawnChild(dir, "run-crash", { missionId, boundary: "after-proposal-persist", leaseMs: "400" });
+  // SHORT lease: the crashed owner's lease expires quickly. Margins must
+  // survive slow CI runners: the live-lease probe below has to land inside
+  // the window (node child boot can exceed 400ms on loaded runners).
+  const crashed = spawnChild(dir, "run-crash", { missionId, boundary: "after-proposal-persist", leaseMs: "5000" });
   await crashed.firstMessage;
   await killChild(crashed.child);
   const state = await verifyRecords(dir, missionId);
@@ -131,7 +133,7 @@ test("P15.E2 crash after admission, before any durable step write: lease expiry 
   assert.equal(String(immediateOutcome["type"]), "ownership-conflict", `live lease fails closed: ${JSON.stringify(immediateOutcome)}`);
   await killChild(immediate.child);
   // After expiry the restart owns the mission — no surgery, no double run.
-  await new Promise(resolve => setTimeout(resolve, 900));
+  await new Promise(resolve => setTimeout(resolve, 12000));
   const restart = spawnChild(dir, "resume", { missionId, leaseMs: "30000" });
   const outcome = await restart.firstMessage;
   assert.notEqual(String(outcome["type"]), "ownership-conflict", "the crashed owner's lease expired; the restart owns the mission");

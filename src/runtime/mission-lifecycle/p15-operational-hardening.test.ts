@@ -415,12 +415,13 @@ test("P15.F15 stale coordination owner in a REAL process: takeover recovers the 
   const runStore = new JsonFileMissionRunStore(dir);
   await runStore.save(seededRun("m-f15"));
   // A dead holder (short lease) + expiry + a fresh resume: automatic.
-  const holder = spawnGovernedChild(dir, "hold-lease", { missionId: "m-f15", leaseMs: "400" });
+  // Margins survive slow CI runners (node child boot can exceed 400ms).
+  const holder = spawnGovernedChild(dir, "hold-lease", { missionId: "m-f15", leaseMs: "5000" });
   const held = await holder.firstMessage;
   assert.equal(String(held["type"]), "lease-held");
   holder.child.kill("SIGKILL");
   await new Promise<void>(resolve => holder.child.once("exit", () => resolve()));
-  await new Promise(resolve => setTimeout(resolve, 900));
+  await new Promise(resolve => setTimeout(resolve, 12000));
   const resume = spawnGovernedChild(dir, "resume", { missionId: "m-f15", leaseMs: "30000" });
   const outcome = await resume.firstMessage;
   assert.equal(String(outcome["type"]), "resumed", `stale-owner takeover recovers automatically: ${JSON.stringify(outcome)}`);
