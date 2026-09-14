@@ -607,6 +607,32 @@ digests only), automatic resolution of all ambiguous effects (trusted
 verifier required), arbitrary extension execution, unrestricted network/
 credentials (v1 adapters remain READ_ONLY transforms). ADR 0049.**
 
+
+
+## P16 - Production Deployment + Readiness Qualification (SHIPPED 2026-09-14)
+
+Deployment qualification, not feature expansion. Five suites in
+`src/deployment/` (configuration 19/19 CFG+SEC; backup-migration 15/15
+BKR+MIG; startup-provider 17/17 START/STOP/PROV; sqlite-isolation 13/13
+ISO+LIM; production-smoke 5/5 SMOKE): fail-closed configuration and secret
+handling, real quack-solo-backup-v1 backup/restore, forward-only migrations,
+startup/shutdown semantics, provider-failure containment, SQLite lease
+limits, real OS-process execution lifecycle with verified evidence. Release
+artifact qualified (npm pack inspection, public-manifest checks 8/8, local
+installer-smoke equivalent). Health surfaces documented (/health identity
++ counts, quack doctor deep checks; observability only, never authority).
+Documentation debt corrected: docs/DEPLOYMENT.md docker-compose claim
+removed (no Docker application artifact exists; Docker is an
+execution-isolation backend, BEST_EFFORT, daemon-dependent), Node >= 22.5.
+New docs: docs/deployment/PRODUCTION_TOPOLOGY.md, DATA_LIFECYCLE.md,
+RELEASE_QUALIFICATION.md (criterion classification + decision).
+
+**P16 COMPLETE. Release decision: CONDITIONAL GO - single-host
+npm-primary deployment (at-most-once dispatch, integrity-not-authenticity
+data guarantees, container isolation environment-dependent, no Docker
+application artifact, GitHub CI runtime execution NOT VERIFIED in the
+qualification session; local equivalents passed).**
+
 ## Dependencies
 
 P1 → P2 → P3 → P4 → P5 (Console and streaming enable harness eval UX);
