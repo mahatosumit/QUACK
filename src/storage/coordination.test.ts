@@ -179,7 +179,11 @@ test("process crash mid-hold: lease goes stale and another process recovers owne
   const { dbPath, cleanup } = await tempDb();
   const resourceId = createId("res");
   try {
-    const crashed = spawnWorker(dbPath, "crash-hold", resourceId, "owner-a", 200);
+    // The holder's lease must survive the message round-trip + kill +
+    // re-open sequence on a loaded CI runner (node worker boot can exceed
+    // the old 200ms window there), and the expiry wait must cross it
+    // comfortably.
+    const crashed = spawnWorker(dbPath, "crash-hold", resourceId, "owner-a", 5_000);
     const held = await workerResult(crashed);
     assert.equal(held["acquired"], true);
 
@@ -194,7 +198,7 @@ test("process crash mid-hold: lease goes stale and another process recovers owne
     assert.equal(busy.kind, "BUSY");
 
     // After lease expiry the new process takes over and recovers.
-    await new Promise((resolve) => setTimeout(resolve, 250));
+    await new Promise((resolve) => setTimeout(resolve, 12_000));
     const takeover = store.acquire(resourceId, "owner-b");
     assert.equal(takeover.kind, "TAKEOVER_STALE");
     assert.equal(takeover.lease.owner, "owner-b");
