@@ -38,7 +38,11 @@ import { createId, type JsonObject } from "../core/types.js";
 
 async function tempDir(prefix = "quack-p16-smoke-"): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
-  return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  // maxRetries: on macOS, a lazily-closed SQLite handle can recreate a WAL
+  // sidecar while the recursive delete is in flight, surfacing ENOTEMPTY
+  // from rmdir; force alone ignores only ENOENT. Retrying the final
+  // unlinks resolves the race without weakening any assertion.
+  return { dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 async function shutdownSystem(system: ReturnType<typeof createQuackSystem>): Promise<void> {

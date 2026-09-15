@@ -30,7 +30,7 @@ const TEST_BUDGET: Budget = { maxIterations: 8, maxModelCalls: 16, maxToolCalls:
 
 async function tempDir(prefix = "quack-p16-bkr-"): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
-  return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 /** Seed a REAL durable mission state snapshot into a dataDir. */

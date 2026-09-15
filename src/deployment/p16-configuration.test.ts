@@ -31,7 +31,7 @@ import { createId, type JsonObject } from "../core/types.js";
 
 async function tempDir(prefix = "quack-p16-cfg-"): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
-  return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 /** All allowlisted provider credential names — used for leak scans. */
