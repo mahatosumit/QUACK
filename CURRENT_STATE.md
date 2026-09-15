@@ -47,10 +47,10 @@ historical architecture audits remain context, not proof of current behavior.
 | 4J delegation fan-out | ✅ | Phase 3 (ADR 0036), 12+1 tests; parallel children remain future work |
 | 4K cross-platform process/fs | ✅ | all production shell strings migrated; static guard active; 4 GitStatusTool tests; full suite green |
 | 4L SQLite coordination | ✅ (primitive) | `src/storage/coordination.ts`; 9 real-fork multi-process tests; recovery rewiring deliberately deferred per ADR 0031 |
-| 4M CI matrix | 🟡 implementation complete / CI execution evidence pending | ci.yml windows/linux/macos × node 22/24 + arm64 job; all command shapes verified locally on Windows; no GitHub Actions run yet |
+| 4M CI matrix | ✅ | ci.yml windows/linux/macos × node 22/24 + arm64 job; GREEN on GitHub for 7bf01dd (run 34927956602, all 14 jobs) via PR #4 after three test-only CI-hardening commits (272f7ec, db93ce2, 7bf01dd) |
 | 4N adversarial cross-suite | ✅ | 20 tests, `src/security/adversarial-cross-suite.test.ts`; found + fixed 2 real bugs (registry durability, migration race) |
 | 4O documentation | ✅ | docs/platform/{architecture,windows,linux,macos}.md, docs/skills/ (7), docs/security/ (6), docs/recovery/ (3); every capability labeled SUPPORTED/BEST_EFFORT/UNSUPPORTED |
-| 4P production gate | ✅ (local) | all local gates green 2026-09-07; static security + governance audits passed; CI execution evidence unavailable (no git remote) → release decision **PRODUCTION CANDIDATE**, blocker: Linux/macOS/ARM64 runtime verification |
+| 4P production gate | ✅ | all local gates green; static security + governance audits passed; GitHub CI matrix GREEN for the P16 release lineage (f9da6b4 + test-only CI fixes, head 7bf01dd): Windows/Ubuntu/macOS × Node 22/24, installer-smoke 6/6, arm64 2/2, coverage, codeql, secrets-scan, docs → P16 release decision **GO** (see docs/deployment/RELEASE_QUALIFICATION.md and RELEASE_CANDIDATE.md) |
 
 ## Phase 5 stage status (2026-09-08, finalization session)
 
