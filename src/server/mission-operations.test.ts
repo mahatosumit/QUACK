@@ -304,7 +304,7 @@ async function collectSse(baseUrl: string, ms: number): Promise<string[]> {
 async function removeDir(path: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      await rm(path, { recursive: true, force: true });
+      await rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       return;
     } catch (error) {
       if (!isRetryable(error) || attempt === 4) throw error;

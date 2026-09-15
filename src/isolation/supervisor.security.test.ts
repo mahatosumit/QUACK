@@ -30,7 +30,7 @@ async function fixture() {
   const supervisor = new IsolationSupervisor({
     registry, events, actor: "test", workspaceRoot: root, evidenceStore: store,
   });
-  return { root, events, registry, store, supervisor, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return { root, events, registry, store, supervisor, cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 const workloadSource = (payload: string) => `exports.run = async (io) => (${payload});`;
@@ -168,7 +168,7 @@ test("P13.SUP-7 settleVerification refuses evidence from a different execution (
 
 test("P13.SUP-8 crash-window evidence (PENDING cleanup) reconciles to UNCERTAIN + UNVERIFIED", async t => {
   const root = await mkdtemp(join(tmpdir(), "quack-evi-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileExecutionEvidenceStore(root);
   const pending = createExecutionEvidence({
     identity: { missionId: "m8", stepIndex: 0, capability: "cap", executionId: "exec-8", backendId: "os-process" },
@@ -189,7 +189,7 @@ test("P13.SUP-8 crash-window evidence (PENDING cleanup) reconciles to UNCERTAIN 
 
 test("P13.SUP-9 durable evidence store rejects tampered files on load", async t => {
   const root = await mkdtemp(join(tmpdir(), "quack-evi2-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   await mkdir(join(root, "execution-evidence"), { recursive: true });
   await writeFile(join(root, "execution-evidence", "exec-9.json"),
     JSON.stringify({ version: 1, identity: { missionId: "m", stepIndex: 0, capability: "c", executionId: "exec-9", backendId: "b" },
@@ -258,7 +258,7 @@ test("P13.PROBE-4 external_check probes fail closed: no second execution authori
 
 test("P13.PROBE-5 fs-effect probe observes only inside the governed workspace (traversal rejected)", async t => {
   const root = await mkdtemp(join(tmpdir(), "quack-fs-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   await writeFile(join(root, "effect.txt"), "data");
   const runner = new ProbeRunner({ workspaceRoot: root });
   const inside = await runner.verifyFilesystemEffect("effect.txt", { exists: true });

@@ -85,7 +85,7 @@ async function rewindCompletedMission(dataDir: string, taskId: string, memorySta
 
 test("configured admitted memory provider supplies bounded planning context and canonical completion write", async t => {
   const dataDir = await mkdtemp(join(tmpdir(), "quack-memory-binding-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  t.after(() => rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const observed: { context?: readonly ContextFragment[]; toolCalls: number } = { toolCalls: 0 };
   const writes: Array<{ input: MemoryStoreInput; context: MemoryProviderContext }> = [];
   const memory = memoryProvider({ store: async (input, context) => {
@@ -149,7 +149,7 @@ test("configured provider failures surface structured mission errors without too
 
 test("provider output cannot replace host mission or execution identity", async t => {
   const dataDir = await mkdtemp(join(tmpdir(), "quack-memory-identity-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  t.after(() => rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const observed: { toolCalls: number } = { toolCalls: 0 };
   const memory = memoryProvider({ store: async input => ok(stored(input, "tampered") as MemoryItem & { relatedMission: string }) });
   const original = memory.store.bind(memory);
@@ -188,7 +188,7 @@ test("extension policy and configured provider selection remain fail closed", as
 
 test("resume reuses acknowledged memory writes and does not depend on volatile provider state", async t => {
   const dataDir = await mkdtemp(join(tmpdir(), "quack-memory-resume-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  t.after(() => rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   let writes = 0;
   const memory = memoryProvider({ store: async input => { writes++; return ok(stored(input, "completion-record")); } });
   const firstObserved: { toolCalls: number } = { toolCalls: 0 };
@@ -215,7 +215,7 @@ test("resume reuses acknowledged memory writes and does not depend on volatile p
 test("ambiguous or changed memory binding on resume fails closed without duplicate write", async t => {
   for (const mode of ["ambiguous", "removed", "namespace"] as const) await t.test(mode, async t => {
     const dataDir = await mkdtemp(join(tmpdir(), `quack-memory-${mode}-`));
-    t.after(() => rm(dataDir, { recursive: true, force: true }));
+    t.after(() => rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     let writes = 0;
     const memory = memoryProvider({ store: async input => { writes++; return ok(stored(input, "completion-record")); } });
     const observed: { toolCalls: number } = { toolCalls: 0 };

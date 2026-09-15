@@ -109,7 +109,7 @@ function harness(options: {
 
 test("P15.C1 trusted positive probe resolves AMBIGUOUS → COMPLETED with evidence-bound provenance", async t => {
   const dir = await tempDir();
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const { journal, emitted, base } = harness({ evidence: evidenceRecord() });
   await journal.reserve({ attemptKey: stepAttemptKey(MISSION, 2, CAP), missionId: MISSION, stepIndex: 2, capability: CAP, executionId: EXEC_ID });
   await journal.settle(stepAttemptKey(MISSION, 2, CAP), { state: "AMBIGUOUS", executionState: "EXECUTION_AMBIGUOUS" });

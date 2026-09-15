@@ -16,7 +16,7 @@ function fields(overrides: Partial<UniversalSkillFields> = {}): UniversalSkillFi
 
 test("derived skill profiles default to least privilege", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-skillprof-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   const profile = deriveSkillExecutionProfile({
     executionId: "exec-1", skillId: "fixture.safe", missionId: "mission-1", actor: "observer",
@@ -35,7 +35,7 @@ test("derived skill profiles default to least privilege", async t => {
 
 test("HIGH risk and claimed IN_PROCESS skills are held at worker isolation", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-skillprof-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   const high = deriveSkillExecutionProfile({
     executionId: "exec-2", skillId: "fixture.risky", missionId: "mission-1", actor: "observer",
@@ -50,7 +50,7 @@ test("HIGH risk and claimed IN_PROCESS skills are held at worker isolation", asy
 
 test("EXPLICIT secret policy without materialized secrets fails closed", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-skillprof-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   const profile = deriveSkillExecutionProfile({
     executionId: "exec-3", skillId: "fixture.secret", missionId: "mission-1", actor: "observer",

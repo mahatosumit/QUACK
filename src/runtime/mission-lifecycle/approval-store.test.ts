@@ -49,7 +49,7 @@ class ScriptedCallback implements ApprovalRunnerCallback {
 
 async function tempDir(): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "quack-appr-"));
-  return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 // ---------------------------------------------------------------------------

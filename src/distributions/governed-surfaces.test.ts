@@ -8,7 +8,7 @@ import type { GovernedModelRuntimeSurface } from "../models/governed-runtime.js"
 
 test("SWE system model surface cannot bypass governed authority", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-govsurf-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const system = createQuackSystem({ dataDir: join(dir, "state"), workspaceRoot: dir });
   const modelRuntime = system.modelRuntime as unknown as GovernedModelRuntimeSurface;
 

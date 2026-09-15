@@ -28,8 +28,8 @@ test("QuackApi exposes mission submission status traces and evaluations", async 
     assert.ok(system.api.getTrace(status.loopId) !== undefined, "Trace should be retrievable");
     assert.ok(system.api.getEvaluation(status.loopId) !== undefined, "Evaluation should be retrievable");
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -49,6 +49,6 @@ test("API uses canonical run evidence and records mission learning only once", a
     assert.equal((await fixture.runtime.listTasks()).length, 1);
   } finally {
     await fixture.runtime.shutdown();
-    await rm(workspaceRoot, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

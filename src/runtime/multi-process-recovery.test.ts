@@ -54,7 +54,7 @@ function spawnChild(dataDir: string, mode: string, crashPoint?: string, extra?: 
 
 async function tempDataDir(): Promise<{ dataDir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "quack-mp-"));
-  return { dataDir: dir, cleanup: () => rm(dir, { recursive: true, force: true }).catch(() => rm(dir, { recursive: true, force: true })) };
+  return { dataDir: dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 })) };
 }
 
 async function lines(dir: string, filename: string): Promise<string[]> {

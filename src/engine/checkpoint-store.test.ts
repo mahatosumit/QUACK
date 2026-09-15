@@ -18,7 +18,7 @@ function fixture(id: string): Checkpoint {
 
 test("checkpoint concurrent reads and mutations preserve legacy data and serialize writes", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "quack-checkpoint-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const path = join(dir, "checkpoints.json");
   await writeFile(path, JSON.stringify({ checkpoints: [fixture("old")] }));
   const store = new JsonFileCheckpointStore(path);
@@ -34,7 +34,7 @@ test("checkpoint concurrent reads and mutations preserve legacy data and seriali
 for (const kind of ["memory", "file"] as const) {
   test(`${kind} checkpoint store isolates snapshots`, async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "quack-checkpoint-"));
-    t.after(() => rm(dir, { recursive: true, force: true }));
+    t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const store = kind === "memory" ? new InMemoryCheckpointStore() : new JsonFileCheckpointStore(join(dir, "state.json"));
     const checkpoint = fixture("one");
     const pending = store.save(checkpoint);
@@ -51,7 +51,7 @@ for (const kind of ["memory", "file"] as const) {
 for (const raw of ["{", "{}", JSON.stringify({ version: 2, checkpoints: [] }), JSON.stringify({ checkpoints: [{ id: "bad" }] }), JSON.stringify({ checkpoints: [fixture("one"), fixture("one")] }), JSON.stringify({ checkpoints: [{ ...fixture("bad"), workflowState: {} }] })]) {
   test(`checkpoint invalid data repeatedly rejects: ${raw.slice(0, 40)}`, async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "quack-checkpoint-"));
-    t.after(() => rm(dir, { recursive: true, force: true }));
+    t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const path = join(dir, "state.json");
     await writeFile(path, raw);
     const store = new JsonFileCheckpointStore(path);
@@ -66,7 +66,7 @@ for (const raw of ["{", "{}", JSON.stringify({ version: 2, checkpoints: [] }), J
 
 test("failed checkpoint save delete and prune preserve cached state and queue recovers", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "quack-checkpoint-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const path = join(dir, "state.json");
   const store = new JsonFileCheckpointStore(path);
   await store.save(fixture("old"));
@@ -92,7 +92,7 @@ test("checkpoint manager saves before pruning retained checkpoints", async () =>
 
 test("checkpoint store preserves extension fields across loading and mutation", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "quack-checkpoint-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const path = join(dir, "state.json");
   const checkpoint = { ...fixture("old"), recovery: { version: 1, nested: { value: true } } };
   await writeFile(path, JSON.stringify({ version: 1, checkpoints: [checkpoint] }));

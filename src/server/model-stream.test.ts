@@ -169,8 +169,8 @@ async function createStreamFixture(options: { grantInvoke?: boolean; injectLeaky
     providerContacts: 0,
     cleanup: async () => {
       await system.events.drain();
-      await rm(workspaceRoot, { recursive: true, force: true }).catch(() => undefined);
-      await rm(dataDir, { recursive: true, force: true }).catch(() => undefined);
+      await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
+      await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
     },
   };
 }

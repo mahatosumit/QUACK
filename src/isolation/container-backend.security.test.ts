@@ -47,7 +47,7 @@ test("P13.CT-2 availability is cached within its window (probe stability)", asyn
 });
 
 test("P13.CT-3 unavailable daemon fails closed: CONTAINER_ISOLATED execution denies, never downgrades", async t => {
-  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct-")), cleanup: () => rm(ws.root, { recursive: true, force: true }) };
+  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct-")), cleanup: () => rm(ws.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
   t.after(() => ws.cleanup());
   const availability = await backend.availability();
   if (availability.available) {
@@ -67,7 +67,7 @@ test("P13.CT-3 unavailable daemon fails closed: CONTAINER_ISOLATED execution den
 });
 
 test("P13.CT-4 ALLOWLIST network policy fails closed (network none is the only enforceable mode)", async t => {
-  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct2-")), cleanup: () => rm(ws.root, { recursive: true, force: true }) };
+  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct2-")), cleanup: () => rm(ws.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
   t.after(() => ws.cleanup());
   const result = await backend.execute({
     missionId: "m", executionId: "e", actor: "a",
@@ -79,7 +79,7 @@ test("P13.CT-4 ALLOWLIST network policy fails closed (network none is the only e
 });
 
 test("P13.CT-5 secrets fail closed across the container boundary", async t => {
-  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct3-")), cleanup: () => rm(ws.root, { recursive: true, force: true }) };
+  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct3-")), cleanup: () => rm(ws.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
   t.after(() => ws.cleanup());
   const result = await backend.execute({
     missionId: "m", executionId: "e", actor: "a",
@@ -90,7 +90,7 @@ test("P13.CT-5 secrets fail closed across the container boundary", async t => {
 });
 
 test("P13.CT-6 resolver never selects an unavailable container backend", async t => {
-  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct4-")), cleanup: () => rm(ws.root, { recursive: true, force: true }) };
+  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct4-")), cleanup: () => rm(ws.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
   t.after(() => ws.cleanup());
   const registry = new IsolationBackendRegistry();
   registry.register(new ContainerIsolationBackend());
@@ -125,7 +125,7 @@ test("P13.CT-8 supported levels list only CONTAINER_ISOLATED (no weaker-level ex
 
 test("P13.CT-9 container executes a module workload with sealed network and env (enforcement)", async t => {
   if (!(await containerAvailable())) { t.skip("docker daemon unavailable or not opted in (QUACK_P13_CONTAINER=1); fail-closed path covered above"); return; }
-  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct5-")), cleanup: () => rm(ws.root, { recursive: true, force: true }) };
+  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct5-")), cleanup: () => rm(ws.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
   t.after(() => ws.cleanup());
   const { writeFile } = await import("node:fs/promises");
   await writeFile(join(ws.root, "net-probe.cjs"), `
@@ -146,7 +146,7 @@ test("P13.CT-9 container executes a module workload with sealed network and env 
 
 test("P13.CT-10 container memory limit is kernel-enforced (OOM kills excess allocation)", async t => {
   if (!(await containerAvailable())) { t.skip("docker daemon unavailable or not opted in"); return; }
-  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct6-")), cleanup: () => rm(ws.root, { recursive: true, force: true }) };
+  const ws = { root: await mkdtemp(join(tmpdir(), "quack-ct6-")), cleanup: () => rm(ws.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
   t.after(() => ws.cleanup());
   const { writeFile } = await import("node:fs/promises");
   await writeFile(join(ws.root, "oom.cjs"), `

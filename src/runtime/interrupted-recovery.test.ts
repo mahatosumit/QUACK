@@ -17,7 +17,7 @@ async function crash(t: TestContext, boundary: CrashBoundary, safety: RetrySafet
   let stderr = "";
   child.stderr?.on("data", chunk => { stderr += String(chunk); });
   const exited = new Promise<void>(resolve => { child.once("exit", () => resolve()); });
-  t.after(async () => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); await exited; await rm(dir, { recursive: true, force: true }); });
+  t.after(async () => { if (child.exitCode === null && child.signalCode === null) child.kill("SIGKILL"); await exited; await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
   const taskId = await new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => reject(new Error(`Crash fixture timed out at ${boundary}: ${stderr}`)), 15000);
     const cleanup = () => clearTimeout(timer);
@@ -102,7 +102,7 @@ for (const safety of ["NON_IDEMPOTENT_WRITE", "DESTRUCTIVE", "UNKNOWN"] as const
 
 test("retry-safe acknowledged failures use a fresh attempt under the node retry policy", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-retry-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir, { safety: "READ_ONLY", failAttempts: 1, maxRetries: 1 });
   t.after(() => fixture.runtime.shutdown());
   const result = await fixture.runtime.submitGoal(fixture.graph.description, "observer");

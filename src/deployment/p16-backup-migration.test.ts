@@ -147,8 +147,8 @@ test("BKR-1 clean backup and restore to a fresh data directory preserves complet
     const result = await restoreQuackBackup(backupDir, fresh);
     assert.ok(result.restoredFiles > 0);
     await verifyRestoredState(fresh, "gov_p16_bkr1", false);
-    await rm(fresh, { recursive: true, force: true });
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+    await rm(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("BKR-2 backup during WAITING_APPROVAL preserves the durable pending approval (no duplicate execution authority)", async () => {
@@ -165,8 +165,8 @@ test("BKR-2 backup during WAITING_APPROVAL preserves the durable pending approva
     const approvalFiles = await readdir(join(fresh, "mission-approvals"));
     assert.equal(approvalFiles.length, 1, "no duplicate approval records created by restore");
     await verifyRestoredState(fresh, "gov_p16_bkr2", false);
-    await rm(fresh, { recursive: true, force: true });
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+    await rm(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("BKR-3 backup containing an AMBIGUOUS mission restores it still parked — never silently resumable", async () => {
@@ -178,8 +178,8 @@ test("BKR-3 backup containing an AMBIGUOUS mission restores it still parked — 
     const fresh = join(dir, "..", `bkr3-restored-${Date.now()}`);
     await restoreQuackBackup(backupDir, fresh);
     await verifyRestoredState(fresh, "gov_p16_bkr3", true);
-    await rm(fresh, { recursive: true, force: true });
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+    await rm(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("BKR-4 a corrupted backup is rejected before any live data is touched", async () => {
@@ -197,8 +197,8 @@ test("BKR-4 a corrupted backup is rejected before any live data is touched", asy
     await writeFile(join(live, "keep.txt"), "untouched");
     await assert.rejects(() => restoreQuackBackup(backupDir, live), /integrity/i, "restore of a corrupt backup is refused");
     assert.equal(await readFile(join(live, "keep.txt"), "utf8"), "untouched", "live data untouched by the refused restore");
-    await rm(live, { recursive: true, force: true });
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+    await rm(live, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("BKR-5 a partial backup (missing manifest file) is rejected without touching the target", async () => {
@@ -212,7 +212,7 @@ test("BKR-5 a partial backup (missing manifest file) is rejected without touchin
     const firstMissionFile = manifest.files.find((file: { path: string }) => file.path.includes("governed-missions"));
     await rm(join(backupDir, "payload", firstMissionFile.path));
     await assert.rejects(() => verifyQuackBackup(backupDir), /integrity|ENOENT/i, "a backup missing listed files fails verification");
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("BKR-6 an unsupported backup format (incompatible/old schema marker) fails closed", async () => {
@@ -222,7 +222,7 @@ test("BKR-6 an unsupported backup format (incompatible/old schema marker) fails 
     await mkdir(join(backupDir, "payload"), { recursive: true });
     await writeFile(join(backupDir, "manifest.json"), JSON.stringify({ format: "quack-solo-backup-v0", files: [] }));
     await assert.rejects(() => verifyQuackBackup(backupDir), /unsupported/i, "unknown backup format fails closed, never coerced");
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("BKR-7 backup restore never restores secrets: a secret-named file in the source is excluded and reported", async () => {
@@ -236,8 +236,8 @@ test("BKR-7 backup restore never restores secrets: a secret-named file in the so
     const fresh = join(dir, "..", `bkr7-restored-${Date.now()}`);
     await restoreQuackBackup(backupDir, fresh);
     await assert.rejects(() => readFile(join(fresh, "api-credentials.json")), { code: "ENOENT" }, "the excluded secret file is not restored");
-    await rm(fresh, { recursive: true, force: true });
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+    await rm(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("BKR-8 restore is atomic with rollback: a mid-restore failure preserves the original data directory", async () => {
@@ -254,7 +254,7 @@ test("BKR-8 restore is atomic with rollback: a mid-restore failure preserves the
     await assert.rejects(() => restoreQuackBackup(backupDir, join(backupDir, "nested")), /overlap/i);
     const manifest = await verifyQuackBackup(backupDir);
     assert.ok(manifest.files.length > 0, "backup remains verifiable after the refused restore");
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 // ===========================================================================
@@ -410,6 +410,6 @@ test("BKR/MIG-9 backup of an active SQLite coordination DB restores a working co
     // A second owner still gets BUSY: restored authority is not duplicated.
     const second = restored.acquire("governed:gov_p16_bkr9", "owner-2");
     assert.equal(second.kind, "BUSY", "restored coordination still enforces single ownership");
-    await rm(fresh, { recursive: true, force: true });
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+    await rm(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });

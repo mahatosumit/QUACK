@@ -260,7 +260,7 @@ test("LIM-5 database copied to another host: coordination data is host-independe
     // Honest limitation: two hosts sharing a copy both hold "valid" state —
     // cross-host fencing is NOT CLAIMED. The copy below proves data survives;
     // single-host semantics are the documented deployment boundary.
-  } finally { await rm(copyDir, { recursive: true, force: true }); await cleanup(); }
+  } finally { await rm(copyDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("LIM-6 backup while active: a backup of a live dataDir restores a usable SQLite store", async () => {
@@ -280,8 +280,8 @@ test("LIM-6 backup while active: a backup of a live dataDir restores a usable SQ
     const missions = restored.missions.list();
     assert.equal(missions.length, 1, "mission data restored from an active-time backup");
     assert.equal(missions[0].id, "m-lim6");
-    await rm(fresh, { recursive: true, force: true });
-  } finally { await rm(backupDir, { recursive: true, force: true }); await cleanup(); }
+    await rm(fresh, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+  } finally { await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); await cleanup(); }
 });
 
 test("LIM-7 permission changes on the dataDir fail closed: an unreadable directory refuses operations (never silent degradation)", async () => {

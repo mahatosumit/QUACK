@@ -10,7 +10,7 @@ const backend = new WorkerProcessIsolationBackend();
 
 async function workspace(): Promise<{ root: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "quack-sbx-"));
-  return { root: dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { root: dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 function request(root: string, workload: IsolationRequest["workload"], overrides: Partial<IsolationRequest> = {}): IsolationRequest {

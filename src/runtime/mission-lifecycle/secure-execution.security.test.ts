@@ -337,7 +337,7 @@ test("P12.S13 crash replay: DISPATCHING entries reconcile to AMBIGUOUS and refus
     assert.equal(orphaned[0]?.state, "AMBIGUOUS");
     assert.equal(await second.reserve({ attemptKey: key, missionId: "crash-mission", stepIndex: 0, capability: "fixture.read", executionId: "e-post-crash" }), false, "re-dispatch refused");
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -583,6 +583,6 @@ test("P12.S26 journal tampering: a forged record file fails closed on load", asy
     // The DOCTRINE test: a COMPLETED record is terminal — reserve refuses.
     assert.equal(await journal.reserve({ attemptKey: key, missionId: "tamper-m", stepIndex: 0, capability: "fixture.read", executionId: "e2" }), false);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

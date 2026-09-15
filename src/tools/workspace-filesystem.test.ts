@@ -49,8 +49,8 @@ test("workspace tools list and read files through runtime permission checks", as
     assert.equal(decisions.every((event) => event.payload["decision"] === "allowed"), true);
     assert.deepEqual(decisions[1].payload["resource"], { kind: "workspace", path: "hello.txt" });
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -84,8 +84,8 @@ test("workspace tools are denied when workspace.read is not granted", async () =
     assert.equal(denied[0].payload["decision"], "denied");
     assert.equal(denied[0].payload["capabilityId"], "permission.workspace.read");
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -161,8 +161,8 @@ test("workspace tools respect bootstrapped mission capability grants", async () 
     const persistedAllowed = await restarted.runtime.executeTool("core.workspace.read-file", { path: "docs/allowed.txt" }, { taskId: "task-2", actor: "test" });
     assert.equal(persistedAllowed.ok, true);
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -193,8 +193,8 @@ test("workspace tools are denied when a mission capability is missing", async ()
     assert.equal(result.error.context?.["requiredCapability"], "permission.workspace.read");
     assert.match(String(result.error.context?.["reason"]), /has no capability grants/);
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -239,7 +239,7 @@ test("workspace tools are denied after mission capability revocation", async () 
     assert.equal(result.error.context?.["requiredCapability"], "permission.workspace.read");
     assert.match(String(result.error.context?.["reason"]), /No active grant permits permission\.workspace\.read/);
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

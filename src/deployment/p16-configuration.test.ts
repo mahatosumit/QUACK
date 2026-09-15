@@ -375,6 +375,6 @@ test("SEC-10 backup excludes secret-bearing files and redacts secret-shaped JSON
     assert.ok(!created.manifest.files.some((file) => file.path === "credentials.json"), "secret-named files excluded from the manifest");
     const settings = await readFile(join(backupDir, "payload", "settings.json"), "utf8");
     assert.ok(!settings.includes("must-not-leak-p16"), "secret-shaped JSON values redacted in the backup payload");
-    await rm(backupDir, { recursive: true, force: true });
+    await rm(backupDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   } finally { await cleanup(); }
 });

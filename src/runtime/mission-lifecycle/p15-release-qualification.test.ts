@@ -205,7 +205,7 @@ function seededRun(missionId: string, iterations = 0, usage?: { modelCalls: numb
 
 async function tempDir(prefix = "quack-p15h-"): Promise<{ dir: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), prefix));
-  return { dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 // ===========================================================================

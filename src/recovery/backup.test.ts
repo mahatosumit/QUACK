@@ -29,7 +29,7 @@ test("backup excludes secret files, redacts JSON secrets, and restores atomicall
     assert.equal(await readFile(join(restored, "quack.sqlite"), "utf8"), "database");
     assert.ok(result.rollbackDirectory);
     await assert.rejects(() => readFile(join(restored, "unlisted.txt")), { code: "ENOENT" });
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
 test("malformed JSON is not copied past backup sanitization", async () => {
@@ -39,7 +39,7 @@ test("malformed JSON is not copied past backup sanitization", async () => {
     await writeFile(join(root, "data", "settings.json"), '{"apiKey":"fixture-sensitive"');
     await assert.rejects(() => createQuackBackup(join(root, "data"), join(root, "backup")), /sanitize/i);
     await assert.rejects(() => readFile(join(root, "backup", "manifest.json")), { code: "ENOENT" });
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
 test("corrupt backup is rejected before live data is replaced", async () => {
@@ -53,5 +53,5 @@ test("corrupt backup is rejected before live data is replaced", async () => {
     await assert.rejects(() => verifyQuackBackup(backup), /integrity/i);
     await assert.rejects(() => restoreQuackBackup(backup, live), /integrity/i);
     assert.equal(await readFile(join(live, "keep.txt"), "utf8"), "untouched");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });

@@ -63,7 +63,7 @@ test("CLI parseArgs parses production interface commands", () => {
 
 test("runQuackDoctor executes system health checks cleanly", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "quack-cli-test-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const system = createQuackSystem({ workspaceRoot: root, dataDir: join(root, "state") });
   const reports: string[] = [];
   context.mock.method(console, "log", (message: unknown) => { reports.push(String(message)); });
@@ -77,7 +77,7 @@ test("P8.8 commandInstructions lists valid records, filters by mission, and excl
   const { commandInstructions } = await import("./cli/commands.js");
   const { loadCliConfig } = await import("./cli/config.js");
   const root = await mkdtemp(join(tmpdir(), "quack-instructions-test-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const dataDir = join(root, "state");
   const system = createQuackSystem({ workspaceRoot: root, dataDir });
   try {
@@ -179,7 +179,7 @@ test("P9.24 commandMemory lists, inspects, and deletes governed semantic memory"
   const { commandMemory } = await import("./cli/commands.js");
   const { loadCliConfig } = await import("./cli/config.js");
   const root = await mkdtemp(join(tmpdir(), "quack-memory-cli-test-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const dataDir = join(root, "state");
 
   const system = createQuackSystem({ workspaceRoot: root, dataDir });
@@ -235,7 +235,7 @@ test("P9.24 commandMemory search reports honest unavailability without embedding
   const { commandMemory } = await import("./cli/commands.js");
   const { loadCliConfig } = await import("./cli/config.js");
   const root = await mkdtemp(join(tmpdir(), "quack-memory-cli-search-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const dataDir = join(root, "state");
   const system = createQuackSystem({ workspaceRoot: root, dataDir });
   await system.events.drain();
@@ -273,7 +273,7 @@ test("P10.13 commandExtension validates, installs, and lifecycle-manages extensi
   const { loadCliConfig } = await import("./cli/config.js");
   const { packageDigest } = await import("./ecosystem/index.js");
   const root = await mkdtemp(join(tmpdir(), "quack-extension-cli-test-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const dataDir = join(root, "state");
   await mkdir(join(root, "state"), { recursive: true }).catch(() => undefined);
   const packDir = join(root, "demo-tool");
@@ -378,7 +378,7 @@ test("P11 commandGovMission requires an objective and honest provider.invoke con
   const { commandGovMission } = await import("./cli/commands.js");
   const { loadCliConfig } = await import("./cli/config.js");
   const root = await mkdtemp(join(tmpdir(), "quack-govmission-cli-test-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const config = loadCliConfig({ cli: { dataDir: join(root, "state"), workspaceRoot: root } });
   const lines: string[] = [];
   context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });
@@ -407,7 +407,7 @@ test("P11 commandGovMission status lists persisted runs across processes and exi
   const { JsonFileMissionRunStore } = await import("./runtime/mission-lifecycle/mission-run-store.js");
   const { createLoopRun, terminateRun } = await import("./runtime/mission-lifecycle/executive-loop.js");
   const root = await mkdtemp(join(tmpdir(), "quack-govmission-status-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const config = loadCliConfig({ cli: { dataDir: join(root, "state"), workspaceRoot: root } });
   const lines: string[] = [];
   context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });
@@ -443,7 +443,7 @@ test("P14 commandGovMission recover inspects durable recovery state and fails cl
   const { JsonFileStepAttemptJournal } = await import("./runtime/mission-lifecycle/step-attempt-journal.js");
   const { createLoopRun, appendIteration, createIterationId } = await import("./runtime/mission-lifecycle/executive-loop.js");
   const root = await mkdtemp(join(tmpdir(), "quack-govmission-recover-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const config = loadCliConfig({ cli: { dataDir: join(root, "state"), workspaceRoot: root } });
   const lines: string[] = [];
   context.mock.method(console, "log", (message: unknown) => { lines.push(String(message)); });

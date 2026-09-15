@@ -19,7 +19,7 @@ const backend = new ProcessIsolationBackend();
 
 async function workspace(): Promise<{ root: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "quack-proc-sbx-"));
-  return { root: dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { root: dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 function profile(root: string, overrides: Partial<IsolationProfile> = {}): IsolationProfile {

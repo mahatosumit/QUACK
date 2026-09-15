@@ -7,7 +7,7 @@ import { TerminalTool } from "./terminal.js";
 
 test("terminal tool never leaks secret-shaped environment variables to children", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-terminal-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   process.env.QUACK_TEST_SECRET_TOKEN = "super-secret-value";
   process.env.QUACK_TEST_API_KEY = "api-key-value";
   try {
@@ -28,7 +28,7 @@ test("terminal tool never leaks secret-shaped environment variables to children"
 
 test("terminal tool blocks dangerous commands before execution", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-terminal-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const tool = new TerminalTool({ workspaceRoot: dir });
   await assert.rejects(tool.execute({ command: "rm -rf /" }, { taskId: "task-1", actor: "tester" }), /blocked for safety/);
   await assert.rejects(tool.execute({ command: "dd if=/dev/zero of=/dev/sda" }, { taskId: "task-1", actor: "tester" }), /blocked for safety/);
@@ -36,7 +36,7 @@ test("terminal tool blocks dangerous commands before execution", async t => {
 
 test("terminal tool keeps non-secret environment usable by children", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-terminal-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   await writeFile(join(dir, "probe-path.js"), "console.log(typeof process.env.PATH);");
   const tool = new TerminalTool({ workspaceRoot: dir });
   const result = await tool.execute({

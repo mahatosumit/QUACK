@@ -144,7 +144,7 @@ test("P11.S4 policy injection inside the objective stays in the objective lane (
 
 test("P11.S5 replay: a terminal mission never re-executes", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "quack-p11-sec-replay-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const { loop } = hostile([
     JSON.stringify({ capability: "core.echo", arguments: { message: "first run" } }),
     JSON.stringify({ done: true }),
@@ -260,7 +260,7 @@ test("P11.S7 event payloads never leak prompts, model output, or secrets", async
 
 test("P11.S8 persisted run record contains no prompt text, model output, or secrets", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "quack-p11-sec-record-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionRunStore(root);
   const events = new EventBus();
   const broker = new PermissionBackedCapabilityBroker(new AllowListPermissionPolicy(["workspace.read"]), new InMemoryCapabilityGrantRegistry());
@@ -303,7 +303,7 @@ test("P11.S8 persisted run record contains no prompt text, model output, or secr
 
 test("P11.S9 forged mission identity in a stored record fails closed on load", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "quack-p11-sec-forge-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   await mkdir(join(root, "governed-missions"), { recursive: true });
   // A record saved under one mission id claiming a different identity.
   await writeFile(join(root, "governed-missions", "sec_forged.json"), JSON.stringify({

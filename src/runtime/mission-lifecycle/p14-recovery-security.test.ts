@@ -231,7 +231,7 @@ test("P14.R1 tampered checkpoint fails closed (digest mismatch)", async () => {
 
 test("P14.R2 checkpoint identity mismatch fails closed on load", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r2-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionCheckpointStore(root);
   const checkpoint = buildMissionCheckpoint({
     run: crashedRun("m-id-a", 1),
@@ -267,7 +267,7 @@ test("P14.R3 checkpoint schema mismatch fails closed (unknown version + unknown 
 
 test("P14.R4 budget survives restart: consumed counters persist across processes", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r4-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionRunStore(root);
   // A crashed run that consumed 2 model calls + 2 tool calls (snapshots).
   const run = crashedRun("m-budget", 2);
@@ -293,7 +293,7 @@ test("P14.R4 budget survives restart: consumed counters persist across processes
 
 test("P14.R4b exhausted budget after crash terminates instead of consuming more", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r4b-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionRunStore(root);
   const journal = new JsonFileStepAttemptJournal(root);
   const run = crashedRun("m-exhaust", 1);
@@ -319,7 +319,7 @@ test("P14.R4b exhausted budget after crash terminates instead of consuming more"
 
 test("P14.R5 replay after crash: the same (mission, step, capability) can be reserved at most once across processes", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r5-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const key = stepAttemptKey("m-replay", 0, "core.echo");
   // First process reserves and settles step 0.
   const first = new JsonFileStepAttemptJournal(root);
@@ -341,7 +341,7 @@ test("P14.R5 replay after crash: the same (mission, step, capability) can be res
 
 test("P14.R6 ambiguous execution replay: AMBIGUOUS steps are never re-executed — recovery parks the mission", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r6-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const journal = new JsonFileStepAttemptJournal(root);
   const key = stepAttemptKey("m-amb", 0, "core.echo");
   assert.equal(await journal.reserve({ attemptKey: key, missionId: "m-amb", stepIndex: 0, capability: "core.echo", executionId: "e-crash" }), true);
@@ -369,7 +369,7 @@ test("P14.R6 ambiguous execution replay: AMBIGUOUS steps are never re-executed �
 
 test("P14.R7 execution identity mismatch: a journal record under another mission's key fails closed", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r7-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const journal = new JsonFileStepAttemptJournal(root);
   const key = stepAttemptKey("m-identity", 0, "core.echo");
   assert.equal(await journal.reserve({ attemptKey: key, missionId: "m-identity", stepIndex: 0, capability: "core.echo", executionId: "e-1" }), true);
@@ -706,7 +706,7 @@ test("P14.R28 adapter network/credential/risk downgrade attempts fail at registr
 
 test("P14.R29 crash before dispatch: nothing dispatched, resume restarts the step cleanly", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r29-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const journal = new JsonFileStepAttemptJournal(root);
   const store = new JsonFileMissionRunStore(root);
   // Run record has 2 iterations, but NO journal attempts (crash between
@@ -719,7 +719,7 @@ test("P14.R29 crash before dispatch: nothing dispatched, resume restarts the ste
 
 test("P14.R30/R31 crash during execution (DISPATCHING) and after execution before settlement (DISPATCHING)", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r30-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const journal = new JsonFileStepAttemptJournal(root);
   const store = new JsonFileMissionRunStore(root);
   const key = stepAttemptKey("m-win-b", 0, "core.echo");
@@ -735,7 +735,7 @@ test("P14.R30/R31 crash during execution (DISPATCHING) and after execution befor
 
 test("P14.R32/R33 crash after verification/settlement: resume continues AFTER the settled step", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r32-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const journal = new JsonFileStepAttemptJournal(root);
   const store = new JsonFileMissionRunStore(root);
   // Step 0 COMPLETED + step 1 COMPLETED, crash before the checkpoint write.
@@ -753,7 +753,7 @@ test("P14.R32/R33 crash after verification/settlement: resume continues AFTER th
 
 test("P14.R33b crash after verification but before settlement is AMBIGUOUS — verification never survives an uncertain window", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r33b-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const evidenceStore = new InMemoryExecutionEvidenceStore();
   // PENDING-cleanup evidence + DISPATCHING journal = crash window D/E.
   const { createExecutionEvidence } = await import("../../isolation/execution-evidence.js");
@@ -775,7 +775,7 @@ test("P14.R33b crash after verification but before settlement is AMBIGUOUS — v
 
 test("P14.R34 journal settlement failure classifies the step AMBIGUOUS (loop path)", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r34-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   class FailingJournal extends InMemoryStepAttemptJournal {
     override async settle(): Promise<void> {
       throw new Error("journal write failed");
@@ -800,7 +800,7 @@ test("P14.R34 journal settlement failure classifies the step AMBIGUOUS (loop pat
 
 test("P14.R35 checkpoint write failure never blocks the run — records remain authoritative", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r35-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionRunStore(root);
   await store.save(crashedRun("m-cpfail", 1));
   // Corrupt the checkpoint directory: writes fail; the loop must still run.
@@ -822,7 +822,7 @@ test("P14.R35 checkpoint write failure never blocks the run — records remain a
 
 test("P14.R36 cleanup failure is recorded honestly (UNCERTAIN/CLEANUP_FAILED, never hidden)", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r36-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const { InMemoryExecutionEvidenceStore: MemStore, createExecutionEvidence } = await import("../../isolation/execution-evidence.js");
   const store = new MemStore();
   await store.save(createExecutionEvidence({
@@ -846,7 +846,7 @@ test("P14.R37 budget exhaustion after restart refuses further execution (covered
 
 test("P14.R38 cross-mission checkpoint reuse fails on identity", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r38-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionCheckpointStore(root);
   const checkpoint = buildMissionCheckpoint({
     run: crashedRun("m-ck-a", 1),
@@ -884,7 +884,7 @@ test("P14.R41 cross-mission evidence reuse is impossible (evidenceMatchesIdentit
 
 test("P14.R42 recovery authority bypass: recovery never grants capability — a resumed mission still needs grants", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r42-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionRunStore(root);
   await store.save(crashedRun("m-noauth", 1));
   // DO NOT provision grants: the broker must deny even though recovery
@@ -930,7 +930,7 @@ test("P14.R44 direct execution bypass: no harness-less execution path exists for
 
 test("P14.R45 shell execution attempt through adapter arguments stays DATA", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r45-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const events = new EventBus();
   const registry = new IsolationBackendRegistry();
   registry.register(new ProcessIsolationBackend());
@@ -962,7 +962,7 @@ test("P14.R45 shell execution attempt through adapter arguments stays DATA", asy
 
 test("P14.R46 credential leakage: checkpoints and approvals carry no secrets", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r46-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const checkpoint = buildMissionCheckpoint({
     run: { ...crashedRun("m-secret", 1), goal: "sk-live-abcdef1234567890 Bearer deadbeef" },
     recovery: "SAFE_TO_RESUME", nextStepIndex: 1, lastSettledStep: 0, ambiguousStep: -1,
@@ -981,7 +981,7 @@ test("P14.R46 credential leakage: checkpoints and approvals carry no secrets", a
 
 test("P14.R47 trusted-store access: adapter workspaces never address dataDir (dedicated root)", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-r47-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const events = new EventBus();
   const registry = new IsolationBackendRegistry();
   registry.register(new ProcessIsolationBackend());
@@ -1092,7 +1092,7 @@ test("P14.APPROVAL-PROPERTY approval identity is the canonical digest of the exa
 
 test("P14.ADAPTER-PROPERTY broker authorization + adapter + isolation + valid args are ALL required (integration)", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-adapter-prop-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const events = new EventBus();
   // No permission allowlist: the broker denies everything.
   const grants = new InMemoryCapabilityGrantRegistry();
@@ -1151,7 +1151,7 @@ test("P14.ADAPTER-PROPERTY broker authorization + adapter + isolation + valid ar
 
 test("P14.PROD-1 production adapters execute deterministically in the REAL isolated process", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-prod-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const events = new EventBus();
   const registry = new IsolationBackendRegistry();
   registry.register(new ProcessIsolationBackend());
@@ -1184,7 +1184,7 @@ test("P14.PROD-1 production adapters execute deterministically in the REAL isola
 
 test("P14.PROD-2 checkpoint round-trip through the durable store", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-prod2-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionCheckpointStore(root);
   const run = crashedRun("m-rt", 2);
   const checkpoint = buildMissionCheckpoint({
@@ -1208,7 +1208,7 @@ test("P14.PROD-2 checkpoint round-trip through the durable store", async (t) => 
 
 test("P14.PROD-3 mission recovery event flow: started → ambiguous/completed with metadata-only payloads", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-prod3-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const journal = new JsonFileStepAttemptJournal(root);
   const key = stepAttemptKey("m-events", 0, "core.echo");
   assert.equal(await journal.reserve({ attemptKey: key, missionId: "m-events", stepIndex: 0, capability: "core.echo", executionId: "e" }), true);
@@ -1234,7 +1234,7 @@ test("P14.PROD-3 mission recovery event flow: started → ambiguous/completed wi
 
 test("P14.PROD-4 data-process adapter full verification chain (deterministic probes pass)", async (t) => {
   const root = await mkdtemp(join(tmpdir(), "quack-prod4-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const events = new EventBus();
   const registry = new IsolationBackendRegistry();
   registry.register(new ProcessIsolationBackend());

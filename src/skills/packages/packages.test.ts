@@ -224,7 +224,7 @@ async function writePackage(
 async function removeFixtureDir(path: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      await rm(path, { recursive: true, force: true });
+      await rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       return;
     } catch (error) {
       if (!isRetryableRmError(error) || attempt === 4) throw error;

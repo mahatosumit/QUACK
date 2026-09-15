@@ -138,7 +138,7 @@ async function reviewFixture(): Promise<Fixture> {
       missionId, capabilities: ["permission.workspace.read"],
       approval: { approvedBy: "t", reason: "t", approvedAt: new Date().toISOString() },
     }),
-    cleanup: () => rm(root, { recursive: true, force: true }),
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 
@@ -258,7 +258,7 @@ test("P13.FIX3 resolver rejects a BEST_EFFORT-process backend for a real isolati
 test("P13.FIX4 symlink entry is DENIED at materialization — never copied into the isolated workspace", async t => {
   const events = new EventBus();
   const root = await mkdtemp(join(tmpdir(), "quack-fix4-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   // Trusted source dir holds the real module; the ADAPTER entry is a symlink to it.
   const sourceDir = join(root, "trusted");
   const outsideDir = join(root, "outside");
@@ -426,7 +426,7 @@ test("P13.FIX9 governed loop: journal-settlement failure classifies the step AMB
 
 test("P13.FIX10 fs-effect probe rejects a symlink that resolves outside the workspace", async t => {
   const root = await mkdtemp(join(tmpdir(), "quack-fix10-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const outside = join(root, "..", "quack-fix10-outside-target");
   await mkdir(outside, { recursive: true });
   await writeFile(join(outside, "secret.txt"), "outside");
@@ -437,13 +437,13 @@ test("P13.FIX10 fs-effect probe rejects a symlink that resolves outside the work
     assert.equal(leaked.passed, false, "symlink escape rejected — lexically inside, resolved outside");
     assert.match(String(leaked.reason), /outside|symlink/i);
   } finally {
-    await rm(outside, { recursive: true, force: true }).catch(() => undefined);
+    await rm(outside, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
   }
 });
 
 test("P13.FIX11 fs-effect probe rejects a nested symlink (directory component) escape", async t => {
   const root = await mkdtemp(join(tmpdir(), "quack-fix11-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const outside = join(root, "..", "quack-fix11-outside-dir");
   await mkdir(outside, { recursive: true });
   await writeFile(join(outside, "x.txt"), "outside");
@@ -458,13 +458,13 @@ test("P13.FIX11 fs-effect probe rejects a nested symlink (directory component) e
     const legit = await runner.verifyFilesystemEffect("sub/real.txt", { exists: true });
     assert.equal(legit.passed, true, "real nested paths still pass");
   } finally {
-    await rm(outside, { recursive: true, force: true }).catch(() => undefined);
+    await rm(outside, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
   }
 });
 
 test("P13.FIX12 fs-effect probe: a realpath outside the workspace fails even when the lexical string is inside", async t => {
   const root = await mkdtemp(join(tmpdir(), "quack-fix12-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   // Windows junction-style: symlink the workspace ROOT itself pointing to a
   // sibling directory and probe through it.
   const sibling = join(root, "..", `quack-fix12-sib-${Date.now()}`);
@@ -476,13 +476,13 @@ test("P13.FIX12 fs-effect probe: a realpath outside the workspace fails even whe
     const result = await runner.verifyFilesystemEffect("mirror/f.txt", { exists: true });
     assert.equal(result.passed, false, "realpath containment catches the mirror escape");
   } finally {
-    await rm(sibling, { recursive: true, force: true }).catch(() => undefined);
+    await rm(sibling, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined);
   }
 });
 
 test("P13.FIX13 fs-effect probe keeps rejecting lexical traversal and honors absence", async t => {
   const root = await mkdtemp(join(tmpdir(), "quack-fix13-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   await writeFile(join(root, "present.txt"), "x");
   const runner = new ProbeRunner({ workspaceRoot: root });
   assert.equal((await runner.verifyFilesystemEffect("../../etc/passwd", { exists: true })).passed, false, "traversal still rejected");
@@ -548,8 +548,8 @@ test("P13.FIX14 isolated workspaces never contain trusted stores (dedicated root
     assert.equal(dataEntries.some((name) => name.startsWith("quack-isolated-")), false,
       "isolated workspaces are never created beside trusted stores");
   } finally {
-    await rm(dataDir, { recursive: true, force: true });
-    await rm(isolatedRoot, { recursive: true, force: true });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(isolatedRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -558,7 +558,7 @@ test("P13.FIX15 supervisor never exposes trusted dataDir paths to isolated execu
   // workspace. The supervisor passes ONLY that root to the backend; the
   // trusted dataDir never appears in the request the backend receives.
   const root = await mkdtemp(join(tmpdir(), "quack-fix15-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   await writeFile(join(root, "task.cjs"), "exports.run = async (io) => ({ root: io.workspaceRoot });");
 
   let observedProfileRoot: string | undefined;

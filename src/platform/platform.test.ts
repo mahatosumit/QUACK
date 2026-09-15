@@ -42,7 +42,7 @@ test("windows shell adapter prefers ComSpec with argv prefix", () => {
 
 test("path policy allows containment and rejects traversal", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-path-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const root = resolve(dir);
 
   const okInside = resolveInsideRoot(root, "nested/file.txt");
@@ -67,9 +67,9 @@ test("path policy rejects UNC, device paths, alternate data streams, and NUL", (
 
 test("path policy rejects symlink escape of an existing target", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-path-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const outside = await mkdtemp(join(tmpdir(), "quack-outside-"));
-  t.after(() => rm(outside, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const root = resolve(dir);
   await writeFile(join(outside, "secret.txt"), "secret");
   const linkPath = join(root, "link");
@@ -83,9 +83,9 @@ test("path policy rejects symlink escape of an existing target", async t => {
 
 test("path policy rejects symlink parent escape for new-file targets", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-path-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const outside = await mkdtemp(join(tmpdir(), "quack-outside-"));
-  t.after(() => rm(outside, { recursive: true, force: true }));
+  t.after(() => rm(outside, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const root = resolve(dir);
   const linkPath = join(root, "dirlink");
   await symlink(outside, linkPath, "junction");
@@ -100,9 +100,9 @@ test("path policy accepts candidates spelled through a symlinked root while stil
   // operator-configured root is a symlink; absolute candidates are spelled
   // through the logical form while the canonical real form differs.
   const real = await mkdtemp(join(tmpdir(), "quack-path-real-"));
-  t.after(() => rm(real, { recursive: true, force: true }));
+  t.after(() => rm(real, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const logicalParent = await mkdtemp(join(tmpdir(), "quack-path-link-"));
-  t.after(() => rm(logicalParent, { recursive: true, force: true }));
+  t.after(() => rm(logicalParent, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const rootLink = join(logicalParent, "rootlink");
   await symlink(real, rootLink, "junction");
   await mkdir(join(real, "nested"), { recursive: true });
@@ -124,7 +124,7 @@ test("path policy accepts candidates spelled through a symlinked root while stil
 
 test("argv process execution runs without a shell and with materialized env only", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-proc-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   const printEnv = process.execPath;
   const result = await executeProcess({
@@ -143,7 +143,7 @@ test("argv process execution runs without a shell and with materialized env only
 
 test("shell strings are not executed as commands", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-proc-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   // A shell string passed as argv must fail to start rather than run a shell.
   const result = await executeProcess({
     command: "echo hello && whoami",
@@ -158,7 +158,7 @@ test("shell strings are not executed as commands", async t => {
 
 test("process timeout terminates runaway processes", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-proc-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const result = await executeProcess({
     command: process.execPath,
     args: ["-e", "setInterval(() => {}, 1000)"],
@@ -171,7 +171,7 @@ test("process timeout terminates runaway processes", async t => {
 
 test("process cancellation terminates the process deterministically", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-proc-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const controller = new AbortController();
   const execution = executeProcess({
     command: process.execPath,
@@ -188,7 +188,7 @@ test("process cancellation terminates the process deterministically", async t =>
 
 test("huge stdout is truncated to the configured bound", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-proc-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const result = await executeProcess({
     command: process.execPath,
     args: ["-e", "process.stdout.write('x'.repeat(100000))"],
@@ -203,7 +203,7 @@ test("huge stdout is truncated to the configured bound", async t => {
 
 test("nonzero exit codes are captured as COMPLETED with the code", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-proc-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const result = await executeProcess({
     command: process.execPath,
     args: ["-e", "process.exit(3)"],

@@ -56,7 +56,7 @@ function fakeBackend(id: string, levels: readonly IsolationProfile["level"][], o
 
 async function scratchDir(prefix: string): Promise<{ root: string; cleanup: () => Promise<void> }> {
   const root = await mkdtemp(join(tmpdir(), prefix));
-  return { root, cleanup: () => rm(root, { recursive: true, force: true }) };
+  return { root, cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 const simpleProfile = (root: string, level: IsolationProfile["level"] = "WORKER_PROCESS"): IsolationProfile => ({

@@ -45,7 +45,7 @@ function taskFixture(id: string): Task {
 
 test("concurrent initial reads and saves preserve persisted and new tasks", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "quack-task-store-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const path = join(dir, "tasks.json");
   const old = taskFixture("old");
   await writeFile(path, JSON.stringify({ tasks: [old] }));
@@ -63,7 +63,7 @@ test("concurrent initial reads and saves preserve persisted and new tasks", asyn
 for (const kind of ["memory", "file"] as const) {
   test(`${kind} task store isolates input and returned objects`, async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "quack-task-store-"));
-    t.after(() => rm(dir, { recursive: true, force: true }));
+    t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const store = kind === "memory" ? new InMemoryTaskStore() : new JsonFileTaskStore(join(dir, "tasks.json"));
     const task = taskFixture("task");
     const saving = store.save(task);
@@ -81,7 +81,7 @@ for (const kind of ["memory", "file"] as const) {
 for (const raw of ["{", "{}", JSON.stringify({ version: 2, tasks: [] }), JSON.stringify({ tasks: [{ id: "bad" }] }), JSON.stringify({ tasks: [taskFixture("duplicate"), taskFixture("duplicate")] })]) {
   test(`invalid persisted state repeatedly rejects: ${raw.slice(0, 40)}`, async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "quack-task-store-"));
-    t.after(() => rm(dir, { recursive: true, force: true }));
+    t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const path = join(dir, "tasks.json");
     await writeFile(path, raw);
     const store = new JsonFileTaskStore(path);
@@ -94,7 +94,7 @@ for (const raw of ["{", "{}", JSON.stringify({ version: 2, tasks: [] }), JSON.st
 
 test("failed persistence preserves visible state and subsequent saves recover", async (t) => {
   const dir = await mkdtemp(join(tmpdir(), "quack-task-store-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const path = join(dir, "tasks.json");
   const store = new JsonFileTaskStore(path);
   await store.save(taskFixture("old"));

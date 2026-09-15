@@ -9,7 +9,7 @@ import type { Checkpoint } from "../engine/types.js";
 
 test("a completed durable mission carries a receipt citing the durable evidence chain", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-receipt-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
 

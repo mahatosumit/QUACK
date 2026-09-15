@@ -220,6 +220,6 @@ test("P12 journal: durable JSON-file journal survives process boundaries and fai
     await writeFile(join(root, "step-attempts", "forged_0_x.json"), JSON.stringify({ version: 1, attemptKey: "other:0:x", state: "DISPATCHING" }));
     await assert.rejects(() => second.load(forged), /identity mismatch/);
   } finally {
-    await rm(root, { recursive: true, force: true });
+    await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

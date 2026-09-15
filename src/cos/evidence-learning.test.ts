@@ -118,7 +118,7 @@ test("evidence experience store persists cloned machine-readable evidence", asyn
     assert.equal((records[0].evidence[0].observedValue), true);
     assert.equal(records[0].execution.workflowId, "workflow-run-1");
   } finally {
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -233,8 +233,8 @@ test("validated runtime fixture records persisted evidence without bypassing too
     } else {
       process.env["NVIDIA_API_KEY"] = previousNvidiaKey;
     }
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

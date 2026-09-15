@@ -275,7 +275,7 @@ test("P9.18 deleted records never surface even with a surviving stale index entr
 
 test("P9.6 store persists and reloads records with fail-closed tamper exclusion", async (context) => {
   const dir = await scratch();
-  context.after(async () => rm(dir, { recursive: true, force: true }));
+  context.after(async () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const path = join(dir, "semantic-memory.json");
 
   const store = new SemanticMemoryStore(path);
@@ -298,7 +298,7 @@ test("P9.6 store persists and reloads records with fail-closed tamper exclusion"
 
 test("P9.18 store deletion removes the canonical record durably", async (context) => {
   const dir = await scratch();
-  context.after(async () => rm(dir, { recursive: true, force: true }));
+  context.after(async () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new SemanticMemoryStore(join(dir, "semantic-memory.json"));
   const record = activeRecord({ memoryId: "smem_del" });
   await store.persist({ record, chunks: [] });
@@ -312,7 +312,7 @@ test("P9.18 store deletion removes the canonical record durably", async (context
 
 test("P9.19 store compaction reuses the ADR 0030 engine and never drops protected records", async (context) => {
   const dir = await scratch();
-  context.after(async () => rm(dir, { recursive: true, force: true }));
+  context.after(async () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new SemanticMemoryStore(join(dir, "semantic-memory.json"));
   await store.persist({ record: activeRecord({ memoryId: "keep", createdAt: "2026-01-01T00:00:00.000Z", metadata: { protected: true } }), chunks: [] });
   await store.persist({ record: activeRecord({ memoryId: "drop", content: "old ordinary record", createdAt: "2020-01-01T00:00:00.000Z" }), chunks: [] });
@@ -328,7 +328,7 @@ test("P9.19 store compaction reuses the ADR 0030 engine and never drops protecte
 
 test("P9.26 inline knowledge resolves with provenance; network sources are unsupported", async (context) => {
   const dir = await scratch();
-  context.after(async () => rm(dir, { recursive: true, force: true }));
+  context.after(async () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const inline = await resolveKnowledgeSource({ kind: "inline", text: "handbook excerpt", title: "handbook" }, join(dir, "ws"));
   assert.equal(inline.ok, true);
   assert.equal(inline.data.provenance.sourceKind, "user");
@@ -340,7 +340,7 @@ test("P9.26 inline knowledge resolves with provenance; network sources are unsup
 
 test("P9.26 file knowledge stays inside the workspace root (traversal fails closed)", async (context) => {
   const dir = await scratch();
-  context.after(async () => rm(dir, { recursive: true, force: true }));
+  context.after(async () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const { writeFile } = await import("node:fs/promises");
   await writeFile(join(dir, "notes.md"), "workspace note content", "utf8");
   const okFile = await resolveKnowledgeSource({ kind: "file", path: "notes.md" }, dir);

@@ -179,7 +179,7 @@ test("validated completed tasks survive a system restart", async () => {
     } finally { await restored.runtime.shutdown(); }
   } finally {
     await system.runtime.shutdown();
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

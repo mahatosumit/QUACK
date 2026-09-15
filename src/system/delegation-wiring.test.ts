@@ -51,7 +51,7 @@ function fanOutExtension(graph: ReturnType<typeof graphFixture>): ExtensionDefin
 
 test("createQuackSystem wires governed delegation when a parent grant and depth are configured", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-delegationwire-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   // Default: delegation disabled.
   const disabled = createQuackSystem({ dataDir: join(dir, "state-a"), workspaceRoot: dir } as Partial<QuackConfig>);

@@ -104,7 +104,7 @@ test("P10.12 evaluation dimensions score from metadata-only evidence", () => {
 
 test("P10.4/P10.5 full install flow: validate -> resolve -> register -> lifecycle -> remove", async (context) => {
   const dir = await scratch();
-  context.after(async () => rm(dir, { recursive: true, force: true }));
+  context.after(async () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const events = new EventBus();
   const service = new EcosystemService({ dataDir: dir, events, broker: allowBroker, actor: "operator" });
   await service.ensureLayout();

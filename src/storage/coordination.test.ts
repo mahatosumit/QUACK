@@ -40,7 +40,7 @@ function workerResult(child: ChildProcess, timeoutMs = 20_000): Promise<WorkerRe
 
 async function tempDb(): Promise<{ dbPath: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "quack-coord-"));
-  return { dbPath: join(dir, "coordination.sqlite"), cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { dbPath: join(dir, "coordination.sqlite"), cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 test("acquire is free-first, and a valid lease rejects a second owner across processes", async () => {

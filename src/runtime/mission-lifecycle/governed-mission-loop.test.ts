@@ -218,7 +218,7 @@ test("P11.6 cancellation produces CANCELLED through the canonical state machine"
 
 test("P11.7 run record persists and terminal runs refuse re-run (idempotency)", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "quack-gov-runstore-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const store = new JsonFileMissionRunStore(root);
   const scripts = [
     JSON.stringify({ capability: "core.echo", arguments: { message: "persisted" } }),
@@ -239,7 +239,7 @@ test("P11.7 run record persists and terminal runs refuse re-run (idempotency)", 
 
 test("P11.8 a completed run never silently re-executes on 'resume'", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "quack-gov-resume-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const scripts = [
     JSON.stringify({ capability: "core.echo", arguments: { message: "before crash" } }),
     JSON.stringify({ done: true, finalMessage: "resumed and finished" }),

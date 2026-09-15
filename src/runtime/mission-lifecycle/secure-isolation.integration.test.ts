@@ -148,7 +148,7 @@ async function integrationFixture() {
       capabilities: ["permission.workspace.read"],
       approval: { approvedBy: "test-standing-consent", reason: "Test fixture grant.", approvedAt: new Date().toISOString() },
     }),
-    cleanup: () => rm(root, { recursive: true, force: true }),
+    cleanup: () => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }),
   };
 }
 
@@ -279,7 +279,7 @@ test("P13.INT-6 broker denial blocks isolated execution too (broker remains the 
   actionProviders.register(transformDescriptorProvider() as never);
   const actionRuntime = new ActionRuntime(actionProviders, { decidePermission: async () => ({ allowed: true, reason: "f" }) });
   const root = await mkdtemp(join(tmpdir(), "quack-int6-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
+  t.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const registry = new IsolationBackendRegistry();
   registry.register(new ProcessIsolationBackend());
   const supervisor = new IsolationSupervisor({

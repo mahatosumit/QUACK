@@ -33,7 +33,7 @@ it("retains the canonical execution checkpoint when reopening a session", async 
     await reopened.createSession("session");
     assert.deepEqual(await reopened.loadExecution("session", "workflow"), saved);
     await assert.rejects(reopened.initializeExecution("session", graph, recovery), /already exists/);
-  } finally { await rm(dir, { recursive: true, force: true }); }
+  } finally { await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });
 
 it("serializes concurrent updates and isolates failed mutations and saves", async () => {
