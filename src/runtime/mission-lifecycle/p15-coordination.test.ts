@@ -350,11 +350,44 @@ test("P15.A11 simultaneous recovery in REAL processes: at most one authoritative
   const second = spawnGovernedChild(dir, "resume", { missionId: "m-mp", leaseMs: "30000" });
   t.after(() => { first.child.kill("SIGKILL"); second.child.kill("SIGKILL"); });
   const [a, b] = await Promise.all([first.firstMessage, second.firstMessage]);
-  const outcomes = [String(a["type"]), String(b["type"])];
+  const messages = [a, b];
+  const outcomes = messages.map((m) => String(m["type"]));
   const resumed = outcomes.filter(type => type === "resumed").length;
-  const conflicted = outcomes.filter(type => type === "ownership-conflict").length;
+  // The security property is AT MOST ONE AUTHORITATIVE RESUMER. The loser
+  // may legitimately report any documented governed denial class:
+  //   - ownership-conflict  (mission.ownership_busy)         live-owner contention
+  //   - resumed-other       (mission.ownership_unavailable)  coordination primitive failure (SQLite busy at boot)
+  //   - resumed-other       (mission.loop_already_terminal)  delayed boot: the winner finished and released the
+  //                                                          lease first, so the late process acquired only a
+  //                                                          REFUSED lease over the now-terminal run and never
+  //                                                          executed anything.
+  // Ownership is never duplicated: the late process can acquire only AFTER
+  // the winner's final durable save and lease release, so it can never hold
+  // concurrent authority — it is handed a terminal record and refuses.
+  const GOVERNED_DENIAL_CODES = new Set([
+    "mission.ownership_busy",
+    "mission.ownership_unavailable",
+    "mission.loop_already_terminal",
+  ]);
+  const denials = messages.filter((m) => {
+    const code = String(m["code"] ?? "");
+    return GOVERNED_DENIAL_CODES.has(code);
+  });
   assert.ok(resumed <= 1, `two processes must never both resume: ${JSON.stringify(outcomes)}`);
-  assert.ok(resumed + conflicted === 2, `both outcomes must be governed (resumed/conflict): ${JSON.stringify(outcomes)}`);
+  assert.ok(resumed === 1, `exactly one authoritative resumer is proven by the fixture (the other is Busy or terminal-refused): ${JSON.stringify(outcomes)}`);
+  assert.ok(resumed + denials.length === 2, `both outcomes must be governed (one resumed + one documented denial): ${JSON.stringify(messages)}`);
+  // Durable single-authority proof: exactly one terminal settlement, no
+  // duplicate reservation, no duplicate execution, no second settlement.
+  // Read through FRESH store/journal instances: the seeding instances cache
+  // their own writes and would mask the children's durable records.
+  const durableRunStore = new JsonFileMissionRunStore(dir);
+  const durableJournal = new JsonFileStepAttemptJournal(dir);
+  const finalRun = await durableRunStore.load("m-mp");
+  assert.ok(finalRun !== undefined, "the resumed run record exists");
+  assert.ok(finalRun!.stopReason !== undefined, "the run reached exactly one terminal settlement");
+  const attempts = await durableJournal.listByMission("m-mp");
+  assert.equal(attempts.length, 1, "no second reservation was ever created");
+  assert.equal(attempts[0]!.state, "COMPLETED", "the seeded attempt was settled exactly once, never re-executed");
 });
 
 test("P15.A12 crashed owner's lease expires and a fresh process takes over (real SIGKILL)", { timeout: 120_000 }, async t => {

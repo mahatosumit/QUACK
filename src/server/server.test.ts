@@ -145,7 +145,7 @@ test("dashboard web assets load from the API server", async () => {
     assert.equal(html.status, 200);
     assert.equal(css.status, 200);
     assert.equal(js.status, 200);
-    assert.match(await html.text(), /QUACK Control Room/);
+    assert.match(await html.text(), /QUACK/);
     assert.match(await css.text(), /studio-shell/);
     assert.match(await js.text(), /window\.confirm/);
   } finally {

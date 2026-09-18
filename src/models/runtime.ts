@@ -13,6 +13,7 @@ export interface TokenUsage {
 
 export interface ModelRequest {
   readonly prompt: string;
+  readonly system?: string;
   readonly model?: string;
   readonly capability?: ModelCapability;
   readonly metadata?: JsonObject;
@@ -279,12 +280,16 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   async generate(request: ModelRequest & { readonly model: string }): Promise<QuackResult<ModelResponse>> {
     const started = Date.now();
     try {
+      const systemPrompt = request.system ?? "You are the QUACK autonomous execution agent. You must decide the next action step. You MUST respond with ONLY a single raw JSON object matching the outputContract. Do NOT explain the instructions, do NOT write markdown commentary, do NOT write tutorial text.";
       const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { ...this.headers(), "Content-Type": "application/json" },
         body: JSON.stringify({
           model: request.model,
-          messages: [{ role: "user", content: request.prompt }],
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: request.prompt },
+          ],
           stream: false,
           temperature: request.temperature ?? 0.1,
           max_tokens: request.maxTokens,
@@ -315,12 +320,16 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest & { readonly model: string }): AsyncIterable<ModelStreamChunk> {
+    const systemPrompt = request.system ?? "You are the QUACK autonomous execution agent. You must decide the next action step. You MUST respond with ONLY a single raw JSON object matching the outputContract. Do NOT explain the instructions, do NOT write markdown commentary, do NOT write tutorial text.";
     const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify({
         model: request.model,
-        messages: [{ role: "user", content: request.prompt }],
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: request.prompt },
+        ],
         stream: true,
         stream_options: { include_usage: true },
         temperature: request.temperature ?? 0.1,

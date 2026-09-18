@@ -108,11 +108,25 @@ export function parseActionProposal(raw: string, options: ParseProposalOptions):
   if (raw.length > MAX_RAW_PROPOSAL_CHARS) {
     return reject("mission.proposal_oversized", "Model output exceeds the bounded size.");
   }
+  let jsonText = raw.trim();
+  const fenceMatch = jsonText.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/i);
+  if (fenceMatch) {
+    jsonText = fenceMatch[1].trim();
+  }
   let value: unknown;
   try {
-    value = JSON.parse(raw);
+    value = JSON.parse(jsonText);
   } catch {
-    return reject("mission.proposal_malformed", "Model output is not valid JSON.");
+    const objMatch = jsonText.match(/(\{[\s\S]*\})/);
+    if (objMatch) {
+      try {
+        value = JSON.parse(objMatch[1].trim());
+      } catch {
+        return reject("mission.proposal_malformed", "Model output is not valid JSON.");
+      }
+    } else {
+      return reject("mission.proposal_malformed", "Model output is not valid JSON.");
+    }
   }
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return reject("mission.proposal_malformed", "Model output must be a JSON object.");
@@ -267,7 +281,7 @@ export interface GovernedMissionContextInput {
  * (MEMORY trust, admitted through the P8.3 firewall by the loop before
  * selection). Fails closed when the plan itself fails QIE validation.
  */
-export function buildIterationPlan(input: GovernedMissionContextInput, stepIndex: number): QuackResult<InstructionPlan> {
+export function buildIterationPlan(input: GovernedMissionContextInput, stepIndex: number, capabilities?: readonly string[]): QuackResult<InstructionPlan> {
   const runtimeSource = "governed-mission-loop";
   const layers: InstructionLayer[] = [];
   const push = (name: InstructionLayer["name"], items: readonly ContextSourceItem[]): void => {
@@ -284,6 +298,13 @@ export function buildIterationPlan(input: GovernedMissionContextInput, stepIndex
     provenance: { source: runtimeSource, category: "mission", trust: "TRUSTED_RUNTIME" },
     data: { objective: input.objective, step: stepIndex },
   }]);
+  if (capabilities && capabilities.length > 0) {
+    push("capabilities", [{
+      id: `capabilities:${input.missionId}`,
+      provenance: { source: runtimeSource, category: "capability", trust: "TRUSTED_RUNTIME" },
+      data: { availableCapabilities: capabilities },
+    }]);
+  }
   if (input.constraints && input.constraints.length > 0) {
     push("constraints", input.constraints.map((text, i) => ({
       id: `constraint:${input.missionId}:${i}`,
@@ -304,7 +325,8 @@ export function buildIterationPlan(input: GovernedMissionContextInput, stepIndex
     layers,
     budget: { maxInstructionChars: 24_000, reservedOutputChars: 4_000, maxItemChars: 2_000 },
     outputContract: { kind: "toolIntent", schemaRef: ACTION_PROPOSAL_SCHEMA_REF, requirements: {
-      format: "single JSON object matching quack:action-proposal:v1",
+      directive: "Execute the objective by choosing a capability from availableCapabilities or setting done=true. Output ONLY a valid JSON object matching the format below. Do NOT explain the instructions or include commentary.",
+      format: "single JSON object: {\"capability\":\"<id>\",\"arguments\":{...},\"intent\":\"<description>\"} OR {\"done\":true,\"finalMessage\":\"<summary>\"}",
       capability: "registered action or tool id only",
       completion: "done=true with bounded finalMessage when the objective is met",
     } },

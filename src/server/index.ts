@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync, readdirSync, statSync, readFileSync } from "node:fs";
+import { resolve, relative, join } from "node:path";
+import { executeProcess } from "../platform/process.js";
 import { createId, type JsonObject } from "../core/types.js";
 import { type QuackEvent } from "../events/event-bus.js";
 import { createQuackSystem, type QuackSystem } from "../distributions/swe-system.js";
@@ -9,6 +12,8 @@ import { buildDashboardState } from "../dashboard/web/index.js";
 import { studioHtml, studioScript, studioStyles } from "../dashboard/web/studio.js";
 import { type AppRecipeCategory } from "../recipes/types.js";
 import { redactSecrets } from "../security/secret-provider.js";
+import { isPermission } from "../security/permissions.js";
+import { QueuedApprovalCallback } from "../security/approval-queue.js";
 
 export interface ApiServerConfig {
   readonly host?: string;
@@ -49,6 +54,7 @@ export interface ApiMissionRecord {
   readonly model?: string;
   readonly safetyMode?: string;
   readonly dryRun?: boolean;
+  readonly stopReason?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -73,7 +79,8 @@ export class QuackHttpServer {
 
   constructor(config: ApiServerConfig = {}) {
     if (!isLoopbackHost(config.host ?? "127.0.0.1")) throw new Error("QUACK API refuses non-loopback binding: remote authentication is not implemented.");
-    this.system = config.system ?? createQuackSystem(config.systemConfig);
+    const approver = config.systemConfig?.approver ?? new QueuedApprovalCallback();
+    this.system = config.system ?? createQuackSystem({ ...config.systemConfig, approver });
     if (!config.system) this.system.companyRuntime.reconcileInterrupted();
     this.host = config.host ?? "127.0.0.1";
     this.port = config.port ?? 0;
@@ -152,6 +159,11 @@ export class QuackHttpServer {
     }
     if (method === "GET" && path === "/dashboard") this.issueDashboardSession(response);
     if (!isPublicRoute(method, path)) this.requireAuthentication(request, method);
+
+    if (method === "GET" && path === "/health") {
+      this.writeJson(response, 200, this.health());
+      return;
+    }
 
     if (method === "POST" && path === "/missions") {
       await this.createMission(request, response);
@@ -281,6 +293,22 @@ export class QuackHttpServer {
       await this.getGovernedMissions(response);
       return;
     }
+    if (method === "POST" && path === "/governed-missions") {
+      await this.createGovernedMission(request, response);
+      return;
+    }
+    if (method === "GET" && path.startsWith("/governed-missions/")) {
+      await this.getGovernedMissionById(path, response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/governed-missions/") && path.endsWith("/cancel")) {
+      await this.cancelGovernedMission(path, request, response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/governed-missions/") && path.endsWith("/resume")) {
+      await this.resumeGovernedMission(path, request, response);
+      return;
+    }
     if (method === "GET" && path === "/settings") {
       this.writeJson(response, 200, this.settings());
       return;
@@ -293,8 +321,16 @@ export class QuackHttpServer {
       this.writeJson(response, 200, { agents: this.system.workforce.registry.list() });
       return;
     }
-    if (method === "GET" && path === "/health") {
-      this.writeJson(response, 200, this.health());
+    if (method === "GET" && path === "/workspace/tree") {
+      await this.getWorkspaceTree(response);
+      return;
+    }
+    if (method === "GET" && path === "/workspace/file") {
+      await this.getWorkspaceFile(url.searchParams.get("path"), response);
+      return;
+    }
+    if (method === "GET" && path === "/workspace/git") {
+      await this.getWorkspaceGit(response);
       return;
     }
     if (method === "GET" && path === "/dashboard") {
@@ -349,6 +385,8 @@ export class QuackHttpServer {
     this.missions.set(id, record);
     if (body.dryRun) {
       this.updateMission(id, { state: "COMPLETED", error: "Dry run completed: request was validated and no mission execution was started." });
+    } else if (body.mode === "governed" || body.engine === "governed") {
+      this.runGovernedMission(id, body.goal, actor, body.constraints, body.permissions);
     } else {
       this.runMission(id, { missionId: body.missionId, goal: body.goal, actor });
     }
@@ -871,6 +909,197 @@ export class QuackHttpServer {
     }
   }
 
+  private async createGovernedMission(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = await this.readJson(request);
+    if (!isRecord(body)) {
+      this.writeError(response, 400, "governed_mission.invalid_request", "Request body must be an object.");
+      return;
+    }
+    const rawGoal = body["objective"] ?? body["goal"];
+    if (typeof rawGoal !== "string" || !rawGoal.trim()) {
+      this.writeError(response, 400, "governed_mission.invalid_request", "Request body must include a non-empty string 'objective' or 'goal'.");
+      return;
+    }
+    const objective = rawGoal.trim();
+    const actor = typeof body["actor"] === "string" && body["actor"].trim() ? body["actor"].trim() : "api-operator";
+    const missionId = typeof body["missionId"] === "string" && body["missionId"].trim()
+      ? body["missionId"].trim()
+      : `gov_${createId("mission")}`;
+    const constraints = Array.isArray(body["constraints"])
+      ? body["constraints"].filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+      : undefined;
+    const permissions = Array.isArray(body["permissions"])
+      ? body["permissions"].filter((p): p is string => typeof p === "string" && isPermission(p))
+      : undefined;
+
+    const id = missionId;
+    const now = new Date().toISOString();
+    const record: ApiMissionRecord = {
+      id,
+      state: "RUNNING",
+      goal: objective,
+      actor,
+      missionId,
+      iterations: 0,
+      mode: "governed",
+      safetyMode: "supervised",
+      dryRun: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.missions.set(id, record);
+
+    this.runGovernedMission(id, objective, actor, constraints, permissions);
+
+    this.writeJson(response, 202, {
+      id,
+      missionId,
+      state: "RUNNING",
+      objective,
+      actor,
+      mode: "governed",
+      createdAt: now,
+    });
+  }
+
+  private runGovernedMission(
+    id: string,
+    objective: string,
+    actor: string,
+    constraints?: readonly string[],
+    explicitPermissions?: readonly string[],
+  ): void {
+    const controller = new AbortController();
+    this.missionControllers.set(id, controller);
+
+    const permissions = explicitPermissions && explicitPermissions.length > 0
+      ? explicitPermissions
+      : ["provider.invoke", "workspace.read", "workspace.write"];
+
+    for (const perm of permissions) {
+      this.system.capabilityGrants.ensureGrant({
+        missionId: id,
+        capabilities: [`permission.${perm}`],
+        approval: {
+          approvedBy: `operator:${actor}`,
+          reason: `Operator capability declaration for governed mission ${id}.`,
+          approvedAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    void (async () => {
+      try {
+        const result = await this.system.governedMissionLoop.run({
+          missionId: id,
+          objective,
+          constraints,
+          signal: controller.signal,
+        });
+        if (result.ok) {
+          const { run, finalState } = result.data;
+          this.updateMission(id, {
+            state: finalState === "SUCCEEDED" ? "COMPLETED" : "FAILED",
+            iterations: run.iterations.length,
+            stopReason: run.stopReason ?? null,
+          });
+        } else {
+          this.updateMission(id, {
+            state: "FAILED",
+            error: result.error.message,
+          });
+        }
+      } catch (err) {
+        const cancelled = controller.signal.aborted;
+        this.updateMission(id, {
+          state: "FAILED",
+          error: cancelled ? `Governed mission cancelled: ${err instanceof Error ? err.message : String(err)}` : (err instanceof Error ? err.message : String(err)),
+        });
+      } finally {
+        this.missionControllers.delete(id);
+      }
+    })();
+  }
+
+  private async getGovernedMissionById(path: string, response: ServerResponse): Promise<void> {
+    const missionId = decodeURIComponent(path.slice("/governed-missions/".length));
+    try {
+      const runs = await this.system.governedMissionLoop.listRuns();
+      const run = runs.find((r) => r.missionId === missionId);
+      if (!run) {
+        this.writeError(response, 404, "governed_mission.not_found", `Governed mission ${missionId} was not found.`);
+        return;
+      }
+      const checkpoint = await this.system.governedMissionLoop.getCheckpoint(missionId).catch(() => undefined);
+      const recovery = await this.system.governedMissionLoop.inspectRecovery(missionId).catch(() => undefined);
+      this.writeJson(response, 200, JSON.parse(redactSecrets(JSON.stringify({
+        missionId: run.missionId,
+        runId: run.runId,
+        state: run.currentState ?? "RUNNING",
+        stopReason: run.stopReason ?? null,
+        iterations: run.iterations.length,
+        startedAt: run.startedAt,
+        endedAt: run.endedAt ?? null,
+        recovery: recovery ? {
+          state: recovery.state,
+          nextStepIndex: recovery.nextStepIndex,
+          lastSettledStep: recovery.lastSettledStep,
+          ambiguousStep: recovery.ambiguousStep,
+        } : null,
+        checkpoint: checkpoint ? {
+          version: checkpoint.version,
+          recovery: checkpoint.recovery,
+          nextStepIndex: checkpoint.nextStepIndex,
+          recordedAt: checkpoint.recordedAt,
+          usage: checkpoint.usage,
+        } : null,
+        steps: run.iterations.map((step) => ({
+          step: step.index,
+          capability: step.selectedAction?.capability ?? null,
+          status: step.executionResult?.actionResult.status ?? null,
+          verification: step.verification?.status ?? null,
+          decision: step.permissionDecision?.decision ?? null,
+          executionState: step.observations["executionState"] ?? null,
+          isolation: step.observations["isolation"] ?? null,
+          backend: step.observations["backend"] ?? null,
+          code: step.observations["code"] ?? null,
+          stopReason: step.stopReason ?? null,
+        })),
+      }))));
+    } catch (err) {
+      this.writeError(response, 500, "governed_mission.query_failed", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private async cancelGovernedMission(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(path.slice("/governed-missions/".length, -"/cancel".length));
+    await this.readOptionalJson(request);
+    const controller = this.missionControllers.get(id);
+    const record = this.missions.get(id);
+    if (controller) {
+      controller.abort(new Error("Mission cancelled through the Governed Mission API."));
+      this.writeJson(response, 202, { id, state: "CANCELLING", note: "Cancellation was requested; the governed mission record reflects the terminal state shortly." });
+      return;
+    }
+    if (record) {
+      this.writeError(response, 409, "governed_mission.not_cancellable", `Governed mission ${id} is not running (state ${record.state}).`);
+      return;
+    }
+    this.writeError(response, 404, "governed_mission.not_found", `Governed mission ${id} was not found.`);
+  }
+
+  private async resumeGovernedMission(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(path.slice("/governed-missions/".length, -"/resume".length));
+    const body = await this.readOptionalJson(request);
+    const record = this.missions.get(id);
+    const objective = record?.goal ?? (isRecord(body) && typeof body["objective"] === "string" ? body["objective"] : "Resume interrupted mission");
+    const actor = record?.actor ?? "api-operator";
+
+    this.updateMission(id, { state: "RUNNING" });
+    this.runGovernedMission(id, objective, actor);
+    this.writeJson(response, 202, { id, state: "RUNNING", note: "Governed mission resume dispatched through the recovery path." });
+  }
+
   private async getMemory(response: ServerResponse): Promise<void> {
     const [missionMemory, evidenceMemory, identityMemory, tasks, semantic] = await Promise.all([
       this.system.memory.search({ limit: 100 }),
@@ -1120,6 +1349,120 @@ export class QuackHttpServer {
     this.writeJson(response, 200, { servers, supportedTransports: ["stdio", "streamable-http"], legacySse: false });
   }
 
+  private async getWorkspaceTree(response: ServerResponse): Promise<void> {
+    const root = this.system.config.workspaceRoot;
+    const ignoreSet = new Set(["node_modules", ".git", "dist", ".gemini", "coverage", ".next", ".turbo"]);
+    const buildTree = (dir: string, depth: number = 0): unknown[] => {
+      if (depth > 4) return [];
+      try {
+        const entries = readdirSync(dir, { withFileTypes: true });
+        const items = [];
+        for (const entry of entries) {
+          if (ignoreSet.has(entry.name)) continue;
+          const fullPath = join(dir, entry.name);
+          const relPath = relative(root, fullPath).replace(/\\/g, "/");
+          if (entry.isDirectory()) {
+            items.push({
+              name: entry.name,
+              path: relPath,
+              type: "directory",
+              children: buildTree(fullPath, depth + 1),
+            });
+          } else {
+            let size = 0;
+            try { size = statSync(fullPath).size; } catch {}
+            items.push({
+              name: entry.name,
+              path: relPath,
+              type: "file",
+              size,
+            });
+          }
+        }
+        return items;
+      } catch {
+        return [];
+      }
+    };
+    this.writeJson(response, 200, { root, tree: buildTree(root) });
+  }
+
+  private async getWorkspaceFile(rawPath: string | null, response: ServerResponse): Promise<void> {
+    if (!rawPath) {
+      this.writeError(response, 400, "workspace.invalid_path", "Path query parameter required.");
+      return;
+    }
+    const root = resolve(this.system.config.workspaceRoot);
+    const full = resolve(root, rawPath);
+    if (!full.startsWith(root) || !existsSync(full)) {
+      this.writeError(response, 404, "workspace.file_not_found", `File ${rawPath} not found within workspace.`);
+      return;
+    }
+    try {
+      const stats = statSync(full);
+      if (stats.isDirectory()) {
+        this.writeError(response, 400, "workspace.is_directory", `${rawPath} is a directory.`);
+        return;
+      }
+      if (stats.size > 1024 * 1024) {
+        this.writeError(response, 400, "workspace.file_too_large", `File exceeds 1MB preview limit.`);
+        return;
+      }
+      const content = readFileSync(full, "utf-8");
+      this.writeJson(response, 200, {
+        path: relative(root, full).replace(/\\/g, "/"),
+        size: stats.size,
+        content,
+      });
+    } catch (err) {
+      this.writeError(response, 500, "workspace.read_error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private async getWorkspaceGit(response: ServerResponse): Promise<void> {
+    const root = this.system.config.workspaceRoot;
+    try {
+      const branchRes = await executeProcess({
+        command: "git",
+        args: ["branch", "--show-current"],
+        workingDirectory: root,
+        environment: { PATH: process.env["PATH"] ?? "" },
+        timeoutMs: 3000,
+      });
+      const branch = branchRes.stdout.trim();
+
+      const statusRes = await executeProcess({
+        command: "git",
+        args: ["status", "--porcelain"],
+        workingDirectory: root,
+        environment: { PATH: process.env["PATH"] ?? "" },
+        timeoutMs: 3000,
+      });
+      const statusOut = statusRes.stdout.trim();
+      const lines = statusOut ? statusOut.split("\n") : [];
+      const modified: string[] = [];
+      const untracked: string[] = [];
+      for (const line of lines) {
+        const file = line.slice(3).trim();
+        if (line.startsWith("??")) untracked.push(file);
+        else modified.push(file);
+      }
+      this.writeJson(response, 200, {
+        branch: branch || "main",
+        clean: lines.length === 0,
+        modified,
+        untracked,
+      });
+    } catch {
+      this.writeJson(response, 200, {
+        branch: "detached",
+        clean: true,
+        modified: [],
+        untracked: [],
+      });
+    }
+  }
+
   private async getSystemStatus(response: ServerResponse): Promise<void> {
     const actions = await this.system.storage.actionExecutions.list(500);
     this.writeJson(response, 200, {
@@ -1252,11 +1595,14 @@ function isMissionSubmission(value: unknown): value is StudioMissionSubmission {
     value["goal"].trim().length > 0 &&
     (value["actor"] === undefined || typeof value["actor"] === "string") &&
     (value["missionId"] === undefined || typeof value["missionId"] === "string") &&
+    (value["engine"] === undefined || typeof value["engine"] === "string") &&
     (value["mode"] === undefined || typeof value["mode"] === "string") &&
     (value["providerId"] === undefined || typeof value["providerId"] === "string") &&
     (value["model"] === undefined || typeof value["model"] === "string") &&
     (value["safetyMode"] === undefined || typeof value["safetyMode"] === "string") &&
-    (value["dryRun"] === undefined || typeof value["dryRun"] === "boolean");
+    (value["dryRun"] === undefined || typeof value["dryRun"] === "boolean") &&
+    (value["permissions"] === undefined || (Array.isArray(value["permissions"]) && value["permissions"].every((p) => typeof p === "string"))) &&
+    (value["constraints"] === undefined || (Array.isArray(value["constraints"]) && value["constraints"].every((c) => typeof c === "string")));
 }
 
 function isSkillImportRequest(value: unknown): value is { readonly path: string } {

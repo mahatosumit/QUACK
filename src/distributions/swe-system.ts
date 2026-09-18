@@ -31,6 +31,7 @@ import { WorkspaceWriteFileTool } from "../tools/workspace-write.js";
 import { CodeSearchTool } from "../tools/code-search.js";
 import { TerminalTool } from "../tools/terminal.js";
 import { GitStatusTool } from "../tools/git-status.js";
+import { GitCommitTool, TestRunTool, DocsGenerateTool } from "../tools/swe-tools.js";
 import { AgentReachTool, AgentReachToolAdapter } from "../tools/agent-reach.js";
 import { AppRecipeRegistry, AWESOME_LLM_APPS_RECIPES } from "../recipes/index.js";
 import { SemanticLayer } from "../intelligence/semantic-layer.js";
@@ -44,7 +45,7 @@ import {
   SkillExecutor,
   type SkillRegistryLoadResult,
 } from "../skills/index.js";
-import { createModelRuntime, ModelRegistry, ModelRouter, type ModelRuntime } from "../models/index.js";
+import { createModelRuntime, loadModelRuntimeConfig, ModelRegistry, ModelRouter, type ModelRuntime } from "../models/index.js";
 import { GovernedModelRuntime, governModelRuntime } from "../models/governed-runtime.js";
 import { WorkspaceManager } from "../workspace/index.js";
 import { PluginRegistry } from "../plugins/index.js";
@@ -76,7 +77,7 @@ import { Planner } from "../engine/planner.js";
 import { LifecycleManager as CoreLifecycleManager, AgentRegistry as CoreAgentRegistry, AgentMonitor as CoreAgentMonitor } from "../core/agents/index.js";
 import { CodeImprovementController, JsonFileCodeExperimentStore } from "../selfmod/index.js";
 import { AgentLoop } from "../agent-loop/index.js";
-import { createHarness, type LegacyHarness } from "../harness/index.js";
+import { createHarness, type LegacyHarness, createHarnessRegistry, registerQuackNativeHarness, registerDeepSeekHarness, type HarnessRegistry } from "../harness/index.js";
 import { QuackNativeHarness } from "../harness/registry.js";
 import { ActionRuntime, ActionProviderRegistry } from "../actions/runtime.js";
 import { GovernedMissionLoop, type MissionRunStore } from "../runtime/mission-lifecycle/governed-mission-loop.js";
@@ -298,6 +299,7 @@ export interface QuackSystem {
   readonly coreLifecycle: CoreLifecycleManager;
   readonly agentLoop: AgentLoop;
     readonly harness: LegacyHarness;
+    readonly harnessRegistry?: HarnessRegistry;
     /** Controlled self-modification gate: proposal -> isolated worktree -> verification -> human-gated review. Never auto-merges. */
     readonly selfModification: CodeImprovementController;
   }
@@ -321,13 +323,19 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   };
   const storage = createSqliteStorage(join(config.dataDir, "quack.sqlite"));
   const browserHosts = (process.env["QUACK_BROWSER_ALLOW_HOSTS"] ?? "").split(",").map((host) => host.trim()).filter(Boolean);
-  const openAiHosts = [process.env["QUACK_OPENAI_BASE_URL"], process.env["QUACK_VLLM_BASE_URL"]].flatMap((url) => {
+  const openAiHosts = [
+    process.env["QUACK_OPENAI_BASE_URL"],
+    process.env["QUACK_VLLM_BASE_URL"],
+    "https://api.openai.com/v1",
+    "https://openrouter.ai/api/v1",
+    "https://api.groq.com/openai/v1",
+  ].flatMap((url) => {
     try { return url ? [new URL(url).hostname] : []; } catch { return []; }
   });
   const networkPolicy = new NetworkPolicyEngine({
     rules: [
       { id: "ollama-loopback", mode: "LOCAL_SERVICE", purposes: ["provider.ollama", "model.provider"], requesters: ["provider.ollama", "model.runtime"], hosts: ["127.0.0.1", "localhost"], ports: [11434], schemes: ["http:"] },
-      { id: "nvidia-api", mode: "ALLOWLIST", purposes: ["provider.nvidia"], requesters: ["provider.nvidia-nim"], hosts: ["integrate.api.nvidia.com"], ports: [443], schemes: ["https:"] },
+      { id: "nvidia-api", mode: "ALLOWLIST", purposes: ["provider.nvidia", "model.provider"], requesters: ["provider.nvidia-nim", "model.runtime"], hosts: ["integrate.api.nvidia.com"], ports: [443], schemes: ["https:"] },
       // Configured provider endpoints only: the host must come from the same
       // env var the provider was registered with, not from an arbitrary URL.
       ...(openAiHosts.length > 0 ? [{ id: "provider-configured-endpoints", mode: "ALLOWLIST" as const, purposes: ["provider.openai-compatible", "provider.vllm", "model.provider"], requesters: ["provider.openai-compatible", "provider.vllm", "model.runtime"], hosts: [...new Set(openAiHosts)], schemes: ["http:" as const, "https:" as const] }] : []),
@@ -360,6 +368,19 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
     const registered = tools.register(tool);
     if (!registered.ok) throw new Error(registered.error.message);
   }
+  // Register full SWE capabilities
+  const sweTools = [
+    new GitCommitTool({ workspaceRoot: config.workspaceRoot }, "core.git.commit"),
+    new GitCommitTool({ workspaceRoot: config.workspaceRoot }, "swe.git.commit"),
+    new TestRunTool({ workspaceRoot: config.workspaceRoot }, "core.test.run"),
+    new TestRunTool({ workspaceRoot: config.workspaceRoot }, "swe.test.run"),
+    new DocsGenerateTool({ workspaceRoot: config.workspaceRoot }, "core.docs.generate"),
+    new DocsGenerateTool({ workspaceRoot: config.workspaceRoot }, "swe.docs.generate"),
+  ];
+  for (const tool of sweTools) {
+    const registered = tools.register(tool);
+    if (!registered.ok) throw new Error(registered.error.message);
+  }
   tools.register(new AgentReachTool(researchTool));
 
   // --- Register providers ---
@@ -371,7 +392,8 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   // Provider credential resolution flows through the SecretProvider boundary
   // (Phase 7A contract): allowlist + consumer binding enforced at boot; raw
   // process.env credential reads live ONLY in the security layer.
-  const openAiKey = readProviderCredentialForBoot("QUACK_OPENAI_API_KEY", "provider.openai-compatible");
+  const openAiKey = readProviderCredentialForBoot("QUACK_OPENAI_API_KEY", "provider.openai-compatible")
+    ?? readProviderCredentialForBoot("OPENAI_API_KEY", "provider.openai-compatible");
   if (openAiKey) {
     const baseUrl = process.env["QUACK_OPENAI_BASE_URL"] ?? "https://api.openai.com/v1";
     registerProvider(
@@ -386,7 +408,45 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
         runtime: "openai-compatible",
         boundary: "cloud",
         endpoint: baseUrl,
-        credentialEnvironmentVariables: ["QUACK_OPENAI_API_KEY"],
+        credentialEnvironmentVariables: ["QUACK_OPENAI_API_KEY", "OPENAI_API_KEY"],
+      },
+    );
+  }
+  const openRouterKey = readProviderCredentialForBoot("OPENROUTER_API_KEY", "provider.openai-compatible");
+  if (openRouterKey && !openAiKey) {
+    const baseUrl = process.env["QUACK_OPENAI_BASE_URL"] ?? "https://openrouter.ai/api/v1";
+    registerProvider(
+      new OpenAiCompatibleProvider({
+        apiKey: openRouterKey,
+        baseUrl,
+        defaultModel: process.env["QUACK_OPENAI_MODEL"] ?? "anthropic/claude-3.5-sonnet",
+        fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.openai-compatible", requester: "provider.openai-compatible" }, init),
+      }),
+      {
+        displayName: "OpenRouter",
+        runtime: "openai-compatible",
+        boundary: "cloud",
+        endpoint: baseUrl,
+        credentialEnvironmentVariables: ["OPENROUTER_API_KEY"],
+      },
+    );
+  }
+  const groqKey = readProviderCredentialForBoot("GROQ_API_KEY", "provider.openai-compatible");
+  if (groqKey && !openAiKey && !openRouterKey) {
+    const baseUrl = process.env["QUACK_OPENAI_BASE_URL"] ?? "https://api.groq.com/openai/v1";
+    registerProvider(
+      new OpenAiCompatibleProvider({
+        apiKey: groqKey,
+        baseUrl,
+        defaultModel: process.env["QUACK_OPENAI_MODEL"] ?? "llama-3.3-70b-versatile",
+        fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.openai-compatible", requester: "provider.openai-compatible" }, init),
+      }),
+      {
+        displayName: "Groq",
+        runtime: "openai-compatible",
+        boundary: "cloud",
+        endpoint: baseUrl,
+        credentialEnvironmentVariables: ["GROQ_API_KEY"],
       },
     );
   }
@@ -532,8 +592,29 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   const modelRouter = new ModelRouter();
   // Provider egress flows through the SAME network policy as the other
   // provider adapters (model.ollama / model.openai-compatible purposes).
+  const nvidiaKeyForRuntime = readProviderCredentialForBoot("NVIDIA_API_KEY", "provider.nvidia-nim");
+  let runtimeConfig = loadModelRuntimeConfig();
+  if (nvidiaKeyForRuntime && (!process.env["QUACK_OLLAMA_BASE_URL"] && !process.env["QUACK_OLLAMA_MODEL"])) {
+    const baseUrl = process.env["QUACK_NVIDIA_BASE_URL"] ?? "https://integrate.api.nvidia.com/v1";
+    const defaultModel = process.env["QUACK_NVIDIA_MODEL"] ?? "meta/llama-3.2-11b-vision-instruct";
+    runtimeConfig = {
+      provider: "openai-compatible",
+      model: defaultModel,
+      providers: [
+        {
+          provider: "openai-compatible",
+          id: "provider.nvidia-nim",
+          model: defaultModel,
+          baseUrl,
+          apiKey: nvidiaKeyForRuntime,
+          fallback: false,
+        },
+      ],
+      fallbackProviderId: "provider.nvidia-nim",
+    };
+  }
   const modelRuntime = createModelRuntime(
-    undefined,
+    runtimeConfig,
     (input, init) => networkPolicy.fetch({ url: String(input), purpose: "model.provider", requester: "model.runtime" }, init),
   );
   modelRegistry.register({
@@ -1046,6 +1127,10 @@ const agentLoop = new AgentLoop({
     // Create api early so it can be referenced in the system object
     const api = new QuackApi();
 
+    const harnessRegistry = createHarnessRegistry(events);
+    registerQuackNativeHarness(harnessRegistry, { runtime, providers });
+    registerDeepSeekHarness(harnessRegistry, { runtime, providers });
+
     const system: QuackSystem = {
       runtime,
       events,
@@ -1138,6 +1223,7 @@ const agentLoop = new AgentLoop({
                                     coreLifecycle,
                                     agentLoop,
                                     harness: legacyHarness,
+                                    harnessRegistry,
                                     selfModification,
           };
           api.setSystem(system);

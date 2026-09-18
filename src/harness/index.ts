@@ -50,4 +50,38 @@ export {
   traceSignature,
   type HarnessRegistry,
 };
+export {
+  createHarnessRegistry,
+  registerQuackNativeHarness,
+  registerComposableHarness,
+  registerDeepSeekHarness,
+  DefaultHarnessRegistry,
+  QuackNativeHarness,
+} from "./registry.js";
+export {
+  ComposableAgentHarness,
+  createComposableAgentHarness,
+  DeepSeekHarness,
+  createDeepSeekHarness,
+  SandboxPlugin,
+  TrajectoryPlugin,
+  SafetyGuardPlugin,
+  ResourceBudgetPlugin,
+  PtcBatchPlugin,
+  TASK_PROFILES,
+  replayTrajectory,
+  type RuntimeProfileMode,
+  type DeepSeekRuntimeMode,
+  type TaskProfile,
+  type HarnessPlugin,
+  type TrajectoryEvent,
+  type TrajectoryEventKind,
+  type ComposableHarnessOptions,
+  type DeepSeekHarnessOptions,
+  type ReplayReport,
+} from "./composable-harness.js";
+export * from "./contract.js";
+export * from "./conformance.js";
 export * from "./types.js";
+
+

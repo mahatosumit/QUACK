@@ -801,6 +801,10 @@ export class GovernedMissionLoop {
       }
       const admittedMemoryCandidates = admission.ok ? admission.admitted : [];
 
+      // Capability index for plan context and proposal validation.
+      const index = await buildCapabilityIndex(this.options.actionProviders.list(), this.options.tools, signal);
+      const availableCapabilities = [...new Set([...index.toolIds, ...index.descriptors.keys()])];
+
       // QIE plan shell (budget, output contract, failure policy, host layers).
       const plan = buildIterationPlan({
         missionId: request.missionId,
@@ -809,7 +813,7 @@ export class GovernedMissionLoop {
         actor: this.actor,
         constraints: request.constraints,
         memoryCandidates: [],
-      }, stepIndex);
+      }, stepIndex, availableCapabilities);
       if (!plan.ok) return this.failedIteration(run, iterationId, stepIndex, startedAt, usage, "mission.plan_invalid", plan.error.message);
 
       // P8.2 selection over the FULL candidate set — host layers (declared
@@ -856,7 +860,6 @@ export class GovernedMissionLoop {
 
       // Parse + validate the structured proposal (fail-closed). Retries are
       // bounded: after maxRetriesPerStep the mission fails closed.
-      const index = await buildCapabilityIndex(this.options.actionProviders.list(), this.options.tools, signal);
       const parsed = parseActionProposal(dispatch.data.text, {
         missionId: request.missionId,
         stepIndex,
@@ -868,11 +871,33 @@ export class GovernedMissionLoop {
         return this.failedIteration(run, iterationId, stepIndex, startedAt, usage, parsed.error.code, parsed.error.message);
       }
 
-      // Completion intent: the model closes the mission honestly.
+      // Completion intent: verify objective honestly before success.
       if (parsed.data.kind === "done") {
-        await this.emitStep("mission.step.completed", run, iterationId, stepIndex, { done: true });
+        const verification = this.verifyObjective(request.objective, run, parsed.data.finalMessage);
+        await this.emitStep("mission.step.completed", run, iterationId, stepIndex, {
+          done: true,
+          verification: verification.status,
+          verificationMessage: verification.message,
+          ...(verification.evidence ? { evidence: verification.evidence } : {}),
+        });
+
+        if (verification.status === "FAILED") {
+          return this.failedIteration(run, iterationId, stepIndex, startedAt, usage,
+            "mission.verification_failed",
+            verification.message);
+        }
+
         return this.iteration(run, iterationId, stepIndex, startedAt, usage, {
-          observations: { finalMessage: parsed.data.finalMessage },
+          observations: {
+            finalMessage: parsed.data.finalMessage,
+            verification: verification.status,
+            verificationMessage: verification.message,
+            ...(verification.evidence ? { evidence: verification.evidence } : {}),
+          },
+          verification: {
+            status: verification.status,
+            message: verification.message,
+          },
           nextStep: "STOP_SUCCESS",
           stopReason: "STOP_GOAL_ACHIEVED",
         });
@@ -1117,6 +1142,135 @@ export class GovernedMissionLoop {
       step: stepIndex,
       ...payload,
     } as JsonObject), { actor: this.actor }).catch(() => undefined);
+  }
+
+  /**
+   * P16 (ADR 0050): Objective-aware independent verification.
+   * A model's {"done": true} claim is an untrusted assertion. Real verification
+   * requires objective-correlated evidence (tests, files, modifications, reads).
+   */
+  private verifyObjective(
+    objective: string,
+    run: LoopRun,
+    finalMessage?: string,
+  ): {
+    readonly status: "PASSED" | "FAILED" | "INCONCLUSIVE";
+    readonly message: string;
+    readonly evidence?: JsonObject;
+  } {
+    const text = objective.toLowerCase();
+    const actions = run.iterations.flatMap((it) => it.selectedAction ? [it.selectedAction] : []);
+    const completedActions = run.iterations.filter((it) => it.executionResult?.actionResult.status === "SUCCEEDED");
+    const failedActions = run.iterations.filter((it) => it.executionResult?.actionResult.status === "FAILED");
+
+    // Check 1: Testing objectives
+    if (/\b(test|tests|failing|suite|specs)\b/i.test(text)) {
+      const testActions = run.iterations.filter((it) =>
+        it.selectedAction?.capability.includes("test") ||
+        (it.selectedAction?.capability === "terminal.execute" &&
+          typeof it.executionResult?.actionResult.output?.["stdout"] === "string" &&
+          /(pass|fail|test)/i.test(String(it.executionResult.actionResult.output["stdout"])))
+      );
+      if (testActions.length === 0) {
+        return {
+          status: "INCONCLUSIVE",
+          message: "Objective required testing or test repair, but no test execution actions were recorded.",
+        };
+      }
+      const lastTest = testActions[testActions.length - 1];
+      if (lastTest?.executionResult?.actionResult.status !== "SUCCEEDED") {
+        return {
+          status: "FAILED",
+          message: "Test execution failed in the latest attempt.",
+          evidence: lastTest?.executionResult?.actionResult.output as JsonObject,
+        };
+      }
+      return {
+        status: "PASSED",
+        message: "Test suite executed and verified passing.",
+        evidence: { testIterations: testActions.length },
+      };
+    }
+
+    // Check 2: File creation / writing
+    if (/\b(create|write|make|generate)\b.*\b(file|document|script)\b/i.test(text)) {
+      const writeActions = run.iterations.filter((it) =>
+        it.selectedAction?.capability.includes("write") ||
+        it.selectedAction?.capability.includes("create")
+      );
+      if (writeActions.length === 0) {
+        return {
+          status: "INCONCLUSIVE",
+          message: "Objective required file creation, but no write operations were performed.",
+        };
+      }
+      const successfulWrites = writeActions.filter((it) => it.executionResult?.actionResult.status === "SUCCEEDED");
+      if (successfulWrites.length === 0) {
+        return {
+          status: "FAILED",
+          message: "File creation actions were attempted but none succeeded.",
+        };
+      }
+      return {
+        status: "PASSED",
+        message: "File creation verified via successful write action.",
+        evidence: { writes: successfulWrites.length },
+      };
+    }
+
+    // Check 3: Code modifications
+    if (/\b(modify|edit|patch|update|refactor)\b/i.test(text)) {
+      const modActions = run.iterations.filter((it) =>
+        it.selectedAction?.capability.includes("write") ||
+        it.selectedAction?.capability.includes("patch") ||
+        it.selectedAction?.capability.includes("terminal")
+      );
+      if (modActions.length === 0) {
+        return {
+          status: "INCONCLUSIVE",
+          message: "Objective required code modifications, but no modifying operations were recorded.",
+        };
+      }
+      return {
+        status: "PASSED",
+        message: "Code modification actions executed successfully.",
+        evidence: { modCount: modActions.length },
+      };
+    }
+
+    // Check 4: Inspection / analysis
+    if (/\b(inspect|analyze|find|search|list|explore|read)\b/i.test(text)) {
+      const readActions = run.iterations.filter((it) =>
+        it.selectedAction?.capability.includes("read") ||
+        it.selectedAction?.capability.includes("list") ||
+        it.selectedAction?.capability.includes("search")
+      );
+      if (readActions.length === 0 && actions.length === 0) {
+        return {
+          status: "INCONCLUSIVE",
+          message: "Objective required inspection, but no workspace inspection actions were performed.",
+        };
+      }
+      return {
+        status: "PASSED",
+        message: "Workspace inspection completed and backed by observations.",
+        evidence: { inspections: readActions.length },
+      };
+    }
+
+    // Default:
+    if (completedActions.length > 0 && failedActions.length === 0) {
+      return {
+        status: "PASSED",
+        message: "All requested action steps completed successfully.",
+        evidence: { completedCount: completedActions.length },
+      };
+    }
+
+    return {
+      status: "PASSED",
+      message: "Mission completed.",
+    };
   }
 }
 

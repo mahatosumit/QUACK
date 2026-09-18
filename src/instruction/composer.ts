@@ -202,7 +202,11 @@ export function renderComposedText(composed: ComposedInstruction): string {
 }
 
 function contractData(composed: ComposedInstruction): JsonObject {
-  return { kind: composed.outputContract.kind, ...(composed.outputContract.schemaRef ? { schemaRef: composed.outputContract.schemaRef } : {}) };
+  return {
+    kind: composed.outputContract.kind,
+    ...(composed.outputContract.schemaRef ? { schemaRef: composed.outputContract.schemaRef } : {}),
+    ...(composed.outputContract.requirements ? { requirements: composed.outputContract.requirements } : {}),
+  };
 }
 
 function failurePolicyData(composed: ComposedInstruction): JsonObject {

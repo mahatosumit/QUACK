@@ -109,33 +109,121 @@ export async function commandRun(context: CommandContext, goal: string): Promise
     if (!context.json) console.error("quack run requires a goal: quack run \"<goal>\"");
     return 2;
   }
-  const system = createQuackSystem({ dataDir: context.config.dataDir, workspaceRoot: context.config.workspaceRoot });
-  try {
-    const result = await system.runtime.submitGoal(goal, "cli", { origin: "cli" });
-    if (!result.ok) {
-      if (context.json) out(context, { ok: false, error: result.error.message });
-      else console.error("Mission failed:", result.error.message);
+  const forceDag = process.env["QUACK_RUN_ENGINE"] === "dag";
+  const probeSystem = createQuackSystem({ dataDir: context.config.dataDir, workspaceRoot: context.config.workspaceRoot });
+  const hasProviders = probeSystem.providers.list().length > 0;
+
+  if (forceDag || !hasProviders) {
+    if (!forceDag && !context.json) {
+      console.log("No active model providers detected; running deterministic goal graph. Configure a provider or set an API key for governed model execution.");
+    }
+    try {
+      const result = await probeSystem.runtime.submitGoal(goal, "cli", { origin: "cli" });
+      if (!result.ok) {
+        if (context.json) out(context, { ok: false, error: result.error.message });
+        else console.error("Mission failed:", result.error.message);
+        return 1;
+      }
+      const task = result.data;
+      const completed = task.status === "completed";
+      if (context.json) {
+        out(context, { ok: completed, taskId: task.id, status: task.status,
+          summary: (task.result as { summary?: string } | undefined)?.summary ?? null,
+          receipt: ((task.result as { receipt?: unknown } | undefined)?.receipt as object | undefined) ?? null });
+      } else if (completed) {
+        console.log(`Mission completed: ${(task.result as { summary?: string } | undefined)?.summary ?? task.id}`);
+        const receipt = (task.result as { receipt?: { digest?: string } } | undefined)?.receipt;
+        if (receipt?.digest) console.log(`  receipt: ${receipt.digest}`);
+      } else {
+        console.error(`Mission ended in status: ${task.status}`);
+      }
+      await probeSystem.events.drain();
+      return completed ? 0 : 1;
+    } catch (error) {
+      if (context.json) out(context, { ok: false, error: String(error) });
+      else console.error("Mission failed:", error instanceof Error ? error.message : String(error));
       return 1;
     }
-    const task = result.data;
-    const loopResult = system.runtime.getLoopResult(task.id);
-    const completed = task.status === "completed";
+  }
+
+  // Governed execution path with model-in-the-loop and human approval controller
+  const declared = process.env["QUACK_GOVMISSION_PERMISSIONS"];
+  const { isPermission } = await import("../security/permissions.js");
+  const parsedPerms = (declared ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry): entry is import("../security/permissions.js").Permission => isPermission(entry));
+  const permissions = parsedPerms.length > 0
+    ? parsedPerms
+    : ["provider.invoke", "workspace.read", "workspace.write"] as import("../security/permissions.js").Permission[];
+
+  const missionId = `gov_${Date.now().toString(36)}`;
+  const { ConsoleApprovalCallback } = await import("../security/approval-controller.js");
+  const approver = context.approver ?? new ConsoleApprovalCallback();
+  const system = createQuackSystem({
+    dataDir: context.config.dataDir,
+    workspaceRoot: context.config.workspaceRoot,
+    permissions,
+    approver,
+    capabilityGrants: permissions.map((permission) => ({
+      missionId,
+      capabilities: [`permission.${permission}`],
+      approval: {
+        approvedBy: "operator:cli",
+        reason: `Operator permission declaration for governed mission ${missionId}.`,
+        approvedAt: new Date().toISOString(),
+      },
+    })),
+  });
+
+  if (!context.json) {
+    console.log(`Starting governed mission [${missionId}]: "${goal}"`);
+    system.events.onAny((event) => {
+      if (event.type === "mission.action.proposed") {
+        const p = event.payload as { capability?: string };
+        console.log(`  [action proposed] ${p?.capability ?? "unknown"}`);
+      } else if (event.type === "mission.action.completed") {
+        const p = event.payload as { capability?: string };
+        console.log(`  [action completed] ${p?.capability ?? "unknown"}`);
+      } else if (event.type === "mission.checkpoint_written") {
+        const p = event.payload as { stepIndex?: number };
+        console.log(`  [checkpoint] step ${p?.stepIndex ?? "?"} verified and settled`);
+      }
+    });
+  }
+
+  try {
+    const result = await system.governedMissionLoop.run({ missionId, objective: goal });
+    if (!result.ok) {
+      if (context.json) out(context, { ok: false, error: result.error.message, code: result.error.code });
+      else console.error(`Governed mission rejected: ${result.error.message}`);
+      await system.events.drain();
+      return 1;
+    }
+    const { run, finalState } = result.data;
+    const completed = finalState === "SUCCEEDED";
+    const checkpoint = await system.governedMissionLoop.getCheckpoint(missionId).catch(() => undefined);
     if (context.json) {
-      out(context, { ok: completed, taskId: task.id, status: task.status,
-        summary: (task.result as { summary?: string } | undefined)?.summary ?? null,
-        receipt: ((task.result as { receipt?: unknown } | undefined)?.receipt as object | undefined) ?? null });
+      out(context, {
+        ok: completed,
+        missionId: run.missionId,
+        state: finalState,
+        iterations: run.iterations.length,
+        stopReason: run.stopReason ?? null,
+        checkpoint: checkpoint ? { version: checkpoint.version, recovery: checkpoint.recovery, recordedAt: checkpoint.recordedAt } : null,
+      });
     } else if (completed) {
-      console.log(`Mission completed: ${(task.result as { summary?: string } | undefined)?.summary ?? task.id}`);
-      const receipt = (task.result as { receipt?: { digest?: string } } | undefined)?.receipt;
-      if (receipt?.digest) console.log(`  receipt: ${receipt.digest}`);
+      console.log(`Governed mission completed successfully in ${run.iterations.length} step(s).`);
+      if (checkpoint) console.log(`  checkpoint: ${checkpoint.recordedAt} (${checkpoint.recovery})`);
     } else {
-      console.error(`Mission ended in status: ${task.status}`);
+      console.error(`Governed mission ended with state: ${finalState} (${run.stopReason ?? "unknown reason"})`);
     }
     await system.events.drain();
     return completed ? 0 : 1;
   } catch (error) {
     if (context.json) out(context, { ok: false, error: String(error) });
-    else console.error("Mission failed:", error instanceof Error ? error.message : String(error));
+    else console.error("Governed mission failed:", error instanceof Error ? error.message : String(error));
     return 1;
   }
 }
