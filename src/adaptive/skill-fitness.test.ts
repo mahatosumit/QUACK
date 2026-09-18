@@ -225,8 +225,8 @@ test("runtime fixture records skill provenance and updates fitness after validat
     else process.env["QUACK_OPENAI_API_KEY"] = previousOpenAiKey;
     if (previousNvidiaKey === undefined) delete process.env["NVIDIA_API_KEY"];
     else process.env["NVIDIA_API_KEY"] = previousNvidiaKey;
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

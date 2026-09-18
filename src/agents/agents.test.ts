@@ -9,7 +9,7 @@ import { type SkillRuntimeManifest } from "../skills/runtime/index.js";
 
 async function isolatedSystem(context: TestContext) {
   const root = await mkdtemp(join(tmpdir(), "quack-agent-test-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   return createQuackSystem({ workspaceRoot: root, dataDir: join(root, "state") });
 }
 
@@ -93,7 +93,7 @@ test("Specialist workforce execution preserves capability enforcement", async ()
       assert.match(result.data.error ?? "", /CapabilityDeniedError/);
     }
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

@@ -21,7 +21,7 @@ test("clean external skill quarantines, inspects, and recommends without install
       requiresPermissions: ["workspace.read", "network.http"], networkRequirements: ["network.http"] },
   };
   const quarantined = await search.quarantine(candidate);
-  t.after(() => rm(join(tmpdir(), "quack-quarantine-" + quarantined.quarantinePath.split(/[\\/]/).at(-3)!.replace("quack-quarantine-", "")), { recursive: true, force: true }).catch(() => undefined));
+  t.after(() => rm(join(tmpdir(), "quack-quarantine-" + quarantined.quarantinePath.split(/[\\/]/).at(-3)!.replace("quack-quarantine-", "")), { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }).catch(() => undefined));
 
   assert.equal(quarantined.riskClass, "MEDIUM");
   assert.equal(quarantined.findings.length, 0);

@@ -10,7 +10,7 @@ const backend = new WorkerProcessIsolationBackend();
 
 async function workspace(): Promise<{ root: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "quack-sbx-"));
-  return { root: dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { root: dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 function request(root: string, workload: IsolationRequest["workload"], overrides: Partial<IsolationRequest> = {}): IsolationRequest {
@@ -196,6 +196,11 @@ exports.run = async () => undefined;
 test("sandbox cleanup removes the worker directory on success and timeout", async t => {
   const ws = await workspace();
   t.after(ws.cleanup);
+  // The invariant: THIS backend instance cleans the worker directories its
+  // own executions created. (A whole-tmpdir sweep is not assertable in
+  // parallel runs — other suites legitimately run isolated workloads
+  // concurrently, and their in-flight directories are not leaks.)
+  const before = new Set((await readdir(tmpdir())).filter(entry => entry.startsWith("quack-isolation-")));
   await writeFile(join(ws.root, "ok.cjs"), `exports.run = async () => ({ ok: true });`);
   const first = await backend.execute(request(ws.root, { kind: "module", entry: "ok.cjs", args: {} }));
   assert.equal(first.status, "SUCCEEDED");
@@ -205,16 +210,17 @@ test("sandbox cleanup removes the worker directory on success and timeout", asyn
       environment: { variables: {}, secrets: [] }, limits: { wallClockMs: 200 } } }));
   assert.equal(second.status, "TIMED_OUT");
   await ws.cleanup();
-  // Cleanup is asynchronous with retries; wait until no isolation temp
-  // directory remains, bounded by 5 seconds.
+  // Cleanup is asynchronous with retries; wait until no NEW isolation temp
+  // directory created by these executions remains, bounded by 5 seconds.
   const deadline = Date.now() + 5_000;
+  let remaining: string[] = [];
   while (Date.now() < deadline) {
-    const leaked = (await readdir(tmpdir())).filter(entry => entry.startsWith("quack-isolation-"));
-    if (leaked.length === 0) break;
+    remaining = (await readdir(tmpdir())).filter(entry => entry.startsWith("quack-isolation-") && !before.has(entry));
+    if (remaining.length === 0) break;
     await new Promise(resolve => setTimeout(resolve, 100));
   }
-  const remaining = (await readdir(tmpdir())).filter(entry => entry.startsWith("quack-isolation-"));
-  assert.equal(remaining.length, 0, "no leaked isolation temp directories");
+  remaining = (await readdir(tmpdir())).filter(entry => entry.startsWith("quack-isolation-") && !before.has(entry));
+  assert.equal(remaining.length, 0, "no leaked isolation temp directories created by these executions");
 });
 
 test("oversized output is bounded by the worker message channel failing or completing", async t => {

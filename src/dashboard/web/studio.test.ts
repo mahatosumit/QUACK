@@ -1,5 +1,6 @@
 import test from "node:test";
 import assert from "node:assert/strict";
+import { existsSync } from "node:fs";
 import { STUDIO_API, studioHtml, studioScript, studioStyles } from "./studio.js";
 
 test("QUACK Control Room renders every required solo-production surface", () => {
@@ -22,4 +23,363 @@ test("QUACK Studio styles are desktop-first and remain mobile usable", () => {
   assert.match(css, /@media\(max-width:820px\)/);
   assert.match(css, /badge\.risk/);
   assert.match(css, /prefers-reduced-motion/);
+});
+
+test("P2 Mission Control: lanes, detail actions, approval queue, live events are wired", () => {
+  const script = studioScript();
+  const html = studioHtml();
+  // Live lanes consume the missions API and render lane links.
+  assert.match(script, /Mission Control/);
+  assert.match(script, /laneItems/);
+  assert.match(script, /"Active \/ queued"/);
+  // Mission detail exposes cancel/resume over the P1 endpoints.
+  assert.match(script, /missionAction/);
+  assert.match(script, /\+action/);
+  assert.match(script, /"cancel"/);
+  assert.match(script, /"resume"/);
+  // Approval Center consumes the P1 approval queue with explicit decisions.
+  assert.match(script, /decideQueuedApproval/);
+  assert.match(script, /\/approvals/);
+  assert.match(script, /data-queue-approve/);
+  // Live updates flow through the SSE projection with debounced refresh.
+  assert.match(script, /connectLive/);
+  assert.match(script, /EventSource\(api\.events\)/);
+  assert.match(script, /mission\.cancelled/);
+  assert.match(script, /approval\.requested/);
+  assert.match(script, /refreshApprovalCount/);
+  // Nav badge for pending approvals exists in the shell.
+  assert.match(html, /approval-count/);
+});
+
+test("P3 Console: conversational composer over the Mission API, never executes", () => {
+  const script = studioScript();
+  const html = studioHtml();
+  // Console route exists in shell + routes map + dispatcher.
+  assert.match(html, /href="#console" data-route="console"/);
+  assert.match(script, /console:\["Console"/);
+  assert.match(script, /renderConsole\(\)/);
+  // Conversation composes missions through the canonical submit path only.
+  assert.match(script, /submitConsoleMission/);
+  assert.match(script, /request\(api\.missions,\{method:"POST"/);
+  // Live mission stream feeds the conversation through SSE, with reconnect
+  // guidance pointing at the durable stores (no fabricated streaming).
+  assert.match(script, /consoleOnLiveEvent/);
+  assert.match(script, /STREAM LIVE/);
+  assert.match(script, /full durable history/);
+  // Nav badge for pending approvals exists in the shell.
+  assert.match(html, /approval-count/);
+});
+
+test("P4 governed streaming: Console consumes broker-gated streams, never fabricates", () => {
+  const script = studioScript();
+  // The console asks through the governed stream endpoint only.
+  assert.match(script, /askConsoleModel/);
+  assert.match(script, /api\.modelsStream/);
+  assert.match(script, /modelsStream:"\/models\/stream"/);
+  // Streamed text renders as governed-model turns with error surfacing.
+  assert.match(script, /console-turn stream/);
+  assert.match(script, /Governed stream rejected/);
+  assert.match(script, /No governed model output/);
+  // Fabrication guard: no client-side synthetic chunk emission.
+  assert.doesNotMatch(script, /setTimeout\([^)]*\)\.text/);
+});
+
+test("P5 evaluation history renders stored evaluator results with dimensions", () => {
+  const script = studioScript();
+  assert.match(script, /Evaluation history/);
+  assert.match(script, /capabilityDiscipline/);
+  assert.match(script, /evidenceQuality/);
+  // The evidence view reads the dashboard state harness evaluations.
+  assert.match(script, /async function renderEvidence\(\)\{const \[data,state\]=await Promise\.all\(\[request\(api\.memory\),request\(api\.dashboardState\)\]\)/);
+});
+
+test("P6 agent workspace renders registry + assignment state + eval summaries", () => {
+  const script = studioScript();
+  assert.match(script, /Agent workspace/);
+  // Registry facts come from /agents; assignment state from /dashboard/state.
+  assert.match(script, /async function renderAgents\(\)\{const \[registry,state\]=await Promise\.all\(\[request\(api\.agents\),request\(api\.dashboardState\)\]\)/);
+  // Trust levels, capabilities, skills, specialization, and current work are shown.
+  assert.match(script, /a\.trustLevel/);
+  assert.match(script, /a\.capabilities\.join/);
+  assert.match(script, /a\.skills\.join/);
+  assert.match(script, /a\.specialization\.join/);
+  assert.match(script, /ASSIGNED.*AVAILABLE|AVAILABLE.*ASSIGNED/);
+  assert.match(script, /assignedMissions/);
+  // Registry state is honestly labeled — no live-execution claim.
+  assert.match(script, /not a claim that an agent is currently executing/);
+  // Agent-quality summaries derive from stored evaluation dimensions.
+  assert.match(script, /capabilityDiscipline/);
+  assert.match(script, /Across /);
+});
+
+test("P7 Trace Center renders repository traces with filtering and detail navigation", () => {
+  const script = studioScript();
+  assert.match(script, /Trace Center/);
+  assert.match(script, /renderTraces/);
+  assert.match(script, /renderTraceDetail/);
+  // Timeline entries come from real trace events only.
+  assert.match(script, /const timeline=events\.map/);
+  assert.match(script, /no fabricated|Real records only/);
+  // Deterministic filters: event type + text, applied client-side.
+  assert.match(script, /trace-type-filter/);
+  assert.match(script, /trace-text-filter/);
+  // Mission detail links into the Trace Center.
+  assert.match(script, /View Trace/);
+  // Distinguishes evidence vs verification vs receipt explicitly.
+  assert.match(script, /Verification/);
+  assert.match(script, /Evidence chain/);
+  assert.match(script, /Receipt/);
+});
+
+test("P7 Artifact view is evidence-backed with no fabricated artifacts", () => {
+  const script = studioScript();
+  assert.match(script, /renderArtifacts/);
+  // Every artifact row derives from a real tool output in a stored trace.
+  assert.match(script, /call\.success&&call\.output/);
+  assert.match(script, /no separate artifact store/);
+});
+
+test("P7 Audit view reads the real audit log and is distinct from traces", () => {
+  const script = studioScript();
+  assert.match(script, /renderAudit/);
+  assert.match(script, /api\.audit/);
+  assert.match(script, /distinct from trace observability/);
+  assert.match(script, /redacted at this boundary/);
+});
+
+test("P8.8 Trace Detail renders governed-instruction records with metadata only", () => {
+  const script = studioScript();
+  assert.match(script, /Governed instructions/);
+  // Records come from the trace payload (trace.instruction) — no second store.
+  assert.match(script, /trace\.instruction/);
+  // Per-record columns: digest prefix, outcome, census, counts.
+  assert.match(script, /r\.digest/);
+  assert.match(script, /r\.outcome/);
+  assert.match(script, /r\.layerCensus/);
+  assert.match(script, /r\.injectionFlagCount/);
+  // Honest labeling: metadata only, never content.
+  assert.match(script, /Metadata-only dispatch records \(P8\.6\)/);
+  assert.match(script, /Instruction content is never stored or rendered here/);
+  // Honest empty state.
+  assert.match(script, /No governed-instruction dispatches recorded for this trace/);
+  // Defense error codes surface when a dispatch was rejected.
+  assert.match(script, /r\.errorCode/);
+});
+
+test("P8.8 Evidence view renders instruction telemetry from the dashboard aggregate", () => {
+  const script = studioScript();
+  assert.match(script, /Instruction telemetry/);
+  // Consumes the P8.7 harness.instruction aggregate — counts only.
+  assert.match(script, /state\.harness&&state\.harness\.instruction/);
+  assert.match(script, /instruction\.dispatchCount/);
+  assert.match(script, /instruction\.dispatchedCount/);
+  assert.match(script, /instruction\.rejectedCount/);
+  assert.match(script, /instruction\.injectionFlagCount/);
+  // Honest labeling + empty state.
+  assert.match(script, /identity and counts only, never content/);
+  assert.match(script, /No governed-instruction dispatches recorded yet/);
+});
+
+test("P8.8 instruction dimensions render in evaluation history rows", () => {
+  const script = studioScript();
+  // The instruction (I) dimension badge appears only when present.
+  assert.match(script, /e\.result\.dimensions\.instruction/);
+  assert.match(script, /instructionIntegrity/);
+});
+
+test("P8.8 instruction events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  assert.match(script, /"instruction\.dispatched","instruction\.rejected"/);
+  // Evidence and trace surfaces re-render on instruction telemetry updates
+  // (P10.14 added the ecosystem route; P14 added the recovery route).
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem","recovery"\]/);
+});
+
+test("P9.22 Evidence view renders the governed semantic memory panel", () => {
+  const script = studioScript();
+  // The panel consumes the /memory semantic surface — records plus stats.
+  assert.match(script, /renderSemanticMemoryPanel/);
+  assert.match(script, /data\.semantic/);
+  // Honest unavailable state when the composition has no semantic memory.
+  assert.match(script, /Semantic memory is not available in this composition/);
+  // Honest empty state.
+  assert.match(script, /No semantic memory stored yet/);
+  // Metadata columns only: identity, scope, owner, provenance, embedding state, lifecycle.
+  assert.match(script, /r\.provenance\?\.sourceKind/);
+  assert.match(script, /r\.embedding\?badge\("EMBEDDED"\):badge\("PLAIN"\)/);
+  assert.match(script, /memory is data, never authority/);
+  // Stats come from the governed store, not fabricated client-side.
+  assert.match(script, /stats\.recordCount/);
+  assert.match(script, /stats\.embeddingsEnabled/);
+});
+
+test("P9.22 memory dimension (M) renders in evaluation history rows", () => {
+  const script = studioScript();
+  // The memory (M) dimension badge appears only when present.
+  assert.match(script, /e\.result\.dimensions\.memory/);
+  assert.match(script, /scopeCorrectness/);
+});
+
+test("P9.22 memory events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  // The full governed memory lifecycle refreshes the Evidence view.
+  for (const type of ["memory.admitted", "memory.persisted", "memory.embedding.completed", "memory.indexed", "memory.retrieved", "memory.deleted", "memory.compacted"]) {
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
+  }
+});
+
+test("P10.14 Ecosystem panel renders the governed extension catalog, metadata only", () => {
+  const script = studioScript();
+  const html = studioHtml();
+  // The route is reachable from the nav and dispatched by the router.
+  assert.match(html, /href="#ecosystem" data-route="ecosystem"/);
+  assert.match(script, /ecosystem:\["Ecosystem"/);
+  assert.match(script, /renderEcosystem\(\)/);
+  assert.match(script, /request\(api\.extensions\)/);
+  assert.match(script, /extensions:"\/extensions"/);
+  assert.equal(STUDIO_API.extensions, "/extensions");
+  // Metadata-only columns: identity, kind, lifecycle, signature, integrity,
+  // declared capabilities, dependency count — never package content.
+  assert.match(script, /x\.signatureState/);
+  assert.match(script, /x\.integrityState/);
+  assert.match(script, /x\.dependencyCount/);
+  assert.match(script, /metadata only, never package content/);
+  // Declared capabilities grant nothing — the honesty contract on the panel.
+  assert.match(script, /Declared capabilities grant nothing/);
+  // Honest empty state (no fabricated catalog).
+  assert.match(script, /No extensions installed yet/);
+});
+
+test("P10.14 Ecosystem panel leaks no package content or secrets into the surface", () => {
+  const script = studioScript();
+  // The panel reads only the redacted /extensions projection: no entry
+  // file bodies, no content paths, no manifest bodies cross this boundary.
+  assert.doesNotMatch(script, /extensionContent|packageContent|entryBody/);
+  // The panel never claims execution: extensions are catalog records.
+  assert.match(script, /package content is never executed/);
+});
+
+test("P10.14 ecosystem events refresh the panel live over SSE", () => {
+  const script = studioScript();
+  // The full extension lifecycle refreshes the Ecosystem route.
+  for (const type of ["extension.discovered", "extension.validated", "extension.installed", "extension.enabled", "extension.disabled", "extension.quarantined", "extension.removed", "extension.rejected"]) {
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
+  }
+  // The ecosystem route is in the SSE re-render list.
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem","recovery"\]/);
+});
+
+test("P11 governed mission events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  // The full governed-loop step/action lifecycle is wired for live refresh.
+  for (const type of ["mission.step.started", "mission.step.completed", "mission.step.failed", "mission.action.proposed", "mission.action.denied", "mission.action.completed", "mission.action.failed"]) {
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
+  }
+  // Mission surfaces re-render on governed-loop activity.
+  assert.match(script, /\["missions","mission","overview","approvals","evidence","trace","ecosystem","recovery"\]/);
+});
+
+test("P12 secure execution events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  // Execution policy/denial/timeout/cancellation events are metadata-only
+  // and refresh mission surfaces.
+  for (const type of ["execution.policy.resolved", "execution.denied", "execution.timeout", "execution.cancelled"]) {
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
+  }
+});
+
+test("P14 recovery, approval, and verification events refresh live surfaces over SSE", () => {
+  const script = studioScript();
+  // The P14 (ADR 0048) metadata-only event vocabulary is wired for live
+  // refresh: recovery lifecycle, checkpoint writes, approval decisions,
+  // and verification settlement.
+  for (const type of [
+    "mission.recovery_started", "mission.recovery_completed", "mission.recovery_ambiguous",
+    "mission.checkpoint_written", "mission.approval_requested", "mission.approval_granted",
+    "mission.approval_denied", "execution.verification_pending", "execution.verification_completed",
+  ]) {
+    assert.ok(script.includes(`"${type}"`), `${type} is in liveTypes`);
+  }
+});
+
+test("P14 recovery view renders the Mission → Recovery → Step → Verification hierarchy, metadata only", () => {
+  const script = studioScript();
+  // The recovery route exists and renders from the governed surfaces only.
+  assert.match(script, /recovery:\["Recovery"/);
+  assert.match(script, /renderRecovery/);
+  assert.match(script, /api\.governedMissions/, "reads only the governed /governed-missions surface");
+  // Mission → Recovery fields: recovery state, next step, last settled
+  // step, ambiguous step, checkpoint.
+  assert.match(script, /row\("Recovery state",badge\(recoveryState\),true\)/);
+  assert.match(script, /row\("Next step",nextStep\)/);
+  assert.match(script, /row\("Last settled step",lastSettled\)/);
+  assert.match(script, /row\("Ambiguous step",ambiguous\)/);
+  assert.match(script, /row\("Checkpoint",badge\(checkpoint\.recovery\)\)/);
+  // Step → Verification mapping is explicit (no derived success).
+  assert.match(script, /recoveryStepTable/);
+  assert.match(script, /recoveryVerificationBadge/);
+  // Metadata only: no prompt/model-output/argument rendering on the route.
+  const recoveryStart = script.indexOf("async function renderRecovery");
+  const recoveryEnd = script.indexOf("async function missionAction");
+  const recoveryView = script.slice(recoveryStart, recoveryEnd);
+  assert.ok(recoveryStart !== -1 && recoveryEnd > recoveryStart, "recovery view code present");
+  assert.ok(!/"prompt"/.test(recoveryView), "no prompt rendering in the recovery view");
+  assert.ok(!/"arguments"\s*:/.test(recoveryView), "no argument rendering in the recovery view");
+});
+
+test("P14 recovery view renders the honest state vocabulary with correct tones", () => {
+  const script = studioScript();
+  // States the view itself emits as literals (badge text it constructs).
+  for (const state of ["VERIFIED", "UNVERIFIED", "AMBIGUOUS", "RUNNING", "DENIED", "WAITING_APPROVAL"]) {
+    assert.ok(script.includes(`"${state}"`), `${state} appears in the recovery vocabulary`);
+  }
+  // Data-driven states (RECOVERING, REQUIRES_VERIFICATION, SAFE_TO_RESUME,
+  // TERMINAL) arrive from the server surface and render through the tone
+  // classifier — each must be explicitly tone-classified so it can never
+  // silently fall through to success styling.
+  const toneMatch = script.match(/const tone=value=>([^\n]+?);/);
+  assert.ok(toneMatch, "tone classifier exists");
+  const toneBody = toneMatch![1]!;
+  assert.match(toneBody, /RECOVERING/, "RECOVERING is explicitly tone-classified (warn)");
+  assert.match(toneBody, /REQUIRES_VERIFICATION/, "REQUIRES_VERIFICATION is explicitly tone-classified (danger)");
+  // WAITING_APPROVAL is distinct from execution state: it renders from the
+  // approval surface (AWAITING_APPROVAL actions), not from step execution.
+  assert.match(script, /AWAITING_APPROVAL"\)\.map\(x=>x\.actionName\)/);
+  assert.match(script, /row\("Approval",badge\("WAITING_APPROVAL"\),true\)/);
+  // AMBIGUOUS/UNVERIFIED/REQUIRES_VERIFICATION classify as DANGER tone and
+  // take precedence over the success pattern — UNVERIFIED can never borrow
+  // VERIFIED styling, and AMBIGUOUS never renders as success.
+  const dangerPattern = toneBody.slice(0, toneBody.indexOf("?"));
+  assert.match(dangerPattern, /UNVERIFIED/, "UNVERIFIED is danger-toned");
+  assert.match(dangerPattern, /AMBIGUOUS/, "AMBIGUOUS is danger-toned");
+  assert.match(dangerPattern, /REQUIRES_VERIFICATION/, "REQUIRES_VERIFICATION is danger-toned");
+  assert.ok(!dangerPattern.includes("VERIFIED|") || dangerPattern.includes("UNVERIFIED"),
+    "plain VERIFIED is not in the danger pattern");
+});
+
+test("P14 recovery view exposes no force/skip/override controls", () => {
+  const script = studioScript();
+  // No force-resume, skip-step, or verification-override control exists on
+  // the recovery surface: recovery resumes only through the governed loop.
+  const recoveryStart = script.indexOf("async function renderRecovery");
+  const recoveryEnd = script.indexOf("async function missionAction");
+  const recoveryView = script.slice(recoveryStart, recoveryEnd);
+  assert.ok(recoveryStart !== -1 && recoveryEnd > recoveryStart, "recovery view code present");
+  assert.ok(!/force-resume|skip-step|verify-anyway|recovery-force|recovery-skip|recovery-override/.test(recoveryView),
+    "no force/skip/override controls in the recovery view");
+  assert.ok(!/missionAction\(/.test(recoveryView), "the recovery view dispatches no mission actions");
+  assert.ok(!/\{method:"(POST|PATCH|PUT|DELETE)"\}/.test(recoveryView), "the recovery view performs no mutations");
+  // AMBIGUOUS visibly parks: the callout names the no-replay guarantee.
+  assert.match(recoveryView, /never re-dispatches an uncertain action/);
+  // UNVERIFIED is never rendered as VERIFIED: the classifier's success
+  // branch requires the exact VERIFIED state, and EXECUTION_COMPLETED maps
+  // to UNVERIFIED — the mapping never upgrades.
+  assert.match(script, /execution==="EXECUTION_VERIFIED"\)state="VERIFIED"/);
+  assert.match(script, /execution==="EXECUTION_COMPLETED"\)state="UNVERIFIED"/);
+});
+
+test("P7 legacy surfaces stay retired", () => {
+  assert.equal(existsSync("dist/desktop"), false, "no desktop HTTP server ships in the build");
+  assert.equal(existsSync("gui"), false, "the duplicate gui/ SPA stays retired");
+  assert.equal(existsSync("src/desktop"), false, "no desktop server sources remain");
 });

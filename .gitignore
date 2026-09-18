@@ -14,7 +14,7 @@ test-output.txt
 *.log
 coverage/
 build/
-release/
+/release/
 .graphify_detect.json
 .graphify_detect_full.json
 

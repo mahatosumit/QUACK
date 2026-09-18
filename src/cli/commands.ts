@@ -15,6 +15,13 @@ import { loadCliConfig, defaultConfigFilePath, type CliConfig } from "./config.j
 export interface CommandContext {
   readonly json: boolean;
   readonly config: CliConfig;
+  /**
+   * P10.13: optional approval callback for broker-governed HIGH-RISK
+   * mutations (plugin.install). Defaults to the interactive console
+   * prompt; hosts/tests may inject their own approver. This never
+   * bypasses the broker — it IS the human-approval half of the policy.
+   */
+  readonly approver?: import("../security/approval-controller.js").ApprovalCallback;
 }
 
 function out(context: CommandContext, value: unknown): void {
@@ -102,33 +109,121 @@ export async function commandRun(context: CommandContext, goal: string): Promise
     if (!context.json) console.error("quack run requires a goal: quack run \"<goal>\"");
     return 2;
   }
-  const system = createQuackSystem({ dataDir: context.config.dataDir, workspaceRoot: context.config.workspaceRoot });
-  try {
-    const result = await system.runtime.submitGoal(goal, "cli", { origin: "cli" });
-    if (!result.ok) {
-      if (context.json) out(context, { ok: false, error: result.error.message });
-      else console.error("Mission failed:", result.error.message);
+  const forceDag = process.env["QUACK_RUN_ENGINE"] === "dag";
+  const probeSystem = createQuackSystem({ dataDir: context.config.dataDir, workspaceRoot: context.config.workspaceRoot });
+  const hasProviders = probeSystem.providers.list().length > 0;
+
+  if (forceDag || !hasProviders) {
+    if (!forceDag && !context.json) {
+      console.log("No active model providers detected; running deterministic goal graph. Configure a provider or set an API key for governed model execution.");
+    }
+    try {
+      const result = await probeSystem.runtime.submitGoal(goal, "cli", { origin: "cli" });
+      if (!result.ok) {
+        if (context.json) out(context, { ok: false, error: result.error.message });
+        else console.error("Mission failed:", result.error.message);
+        return 1;
+      }
+      const task = result.data;
+      const completed = task.status === "completed";
+      if (context.json) {
+        out(context, { ok: completed, taskId: task.id, status: task.status,
+          summary: (task.result as { summary?: string } | undefined)?.summary ?? null,
+          receipt: ((task.result as { receipt?: unknown } | undefined)?.receipt as object | undefined) ?? null });
+      } else if (completed) {
+        console.log(`Mission completed: ${(task.result as { summary?: string } | undefined)?.summary ?? task.id}`);
+        const receipt = (task.result as { receipt?: { digest?: string } } | undefined)?.receipt;
+        if (receipt?.digest) console.log(`  receipt: ${receipt.digest}`);
+      } else {
+        console.error(`Mission ended in status: ${task.status}`);
+      }
+      await probeSystem.events.drain();
+      return completed ? 0 : 1;
+    } catch (error) {
+      if (context.json) out(context, { ok: false, error: String(error) });
+      else console.error("Mission failed:", error instanceof Error ? error.message : String(error));
       return 1;
     }
-    const task = result.data;
-    const loopResult = system.runtime.getLoopResult(task.id);
-    const completed = task.status === "completed";
+  }
+
+  // Governed execution path with model-in-the-loop and human approval controller
+  const declared = process.env["QUACK_GOVMISSION_PERMISSIONS"];
+  const { isPermission } = await import("../security/permissions.js");
+  const parsedPerms = (declared ?? "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean)
+    .filter((entry): entry is import("../security/permissions.js").Permission => isPermission(entry));
+  const permissions = parsedPerms.length > 0
+    ? parsedPerms
+    : ["provider.invoke", "workspace.read", "workspace.write"] as import("../security/permissions.js").Permission[];
+
+  const missionId = `gov_${Date.now().toString(36)}`;
+  const { ConsoleApprovalCallback } = await import("../security/approval-controller.js");
+  const approver = context.approver ?? new ConsoleApprovalCallback();
+  const system = createQuackSystem({
+    dataDir: context.config.dataDir,
+    workspaceRoot: context.config.workspaceRoot,
+    permissions,
+    approver,
+    capabilityGrants: permissions.map((permission) => ({
+      missionId,
+      capabilities: [`permission.${permission}`],
+      approval: {
+        approvedBy: "operator:cli",
+        reason: `Operator permission declaration for governed mission ${missionId}.`,
+        approvedAt: new Date().toISOString(),
+      },
+    })),
+  });
+
+  if (!context.json) {
+    console.log(`Starting governed mission [${missionId}]: "${goal}"`);
+    system.events.onAny((event) => {
+      if (event.type === "mission.action.proposed") {
+        const p = event.payload as { capability?: string };
+        console.log(`  [action proposed] ${p?.capability ?? "unknown"}`);
+      } else if (event.type === "mission.action.completed") {
+        const p = event.payload as { capability?: string };
+        console.log(`  [action completed] ${p?.capability ?? "unknown"}`);
+      } else if (event.type === "mission.checkpoint_written") {
+        const p = event.payload as { stepIndex?: number };
+        console.log(`  [checkpoint] step ${p?.stepIndex ?? "?"} verified and settled`);
+      }
+    });
+  }
+
+  try {
+    const result = await system.governedMissionLoop.run({ missionId, objective: goal });
+    if (!result.ok) {
+      if (context.json) out(context, { ok: false, error: result.error.message, code: result.error.code });
+      else console.error(`Governed mission rejected: ${result.error.message}`);
+      await system.events.drain();
+      return 1;
+    }
+    const { run, finalState } = result.data;
+    const completed = finalState === "SUCCEEDED";
+    const checkpoint = await system.governedMissionLoop.getCheckpoint(missionId).catch(() => undefined);
     if (context.json) {
-      out(context, { ok: completed, taskId: task.id, status: task.status,
-        summary: (task.result as { summary?: string } | undefined)?.summary ?? null,
-        receipt: ((task.result as { receipt?: unknown } | undefined)?.receipt as object | undefined) ?? null });
+      out(context, {
+        ok: completed,
+        missionId: run.missionId,
+        state: finalState,
+        iterations: run.iterations.length,
+        stopReason: run.stopReason ?? null,
+        checkpoint: checkpoint ? { version: checkpoint.version, recovery: checkpoint.recovery, recordedAt: checkpoint.recordedAt } : null,
+      });
     } else if (completed) {
-      console.log(`Mission completed: ${(task.result as { summary?: string } | undefined)?.summary ?? task.id}`);
-      const receipt = (task.result as { receipt?: { digest?: string } } | undefined)?.receipt;
-      if (receipt?.digest) console.log(`  receipt: ${receipt.digest}`);
+      console.log(`Governed mission completed successfully in ${run.iterations.length} step(s).`);
+      if (checkpoint) console.log(`  checkpoint: ${checkpoint.recordedAt} (${checkpoint.recovery})`);
     } else {
-      console.error(`Mission ended in status: ${task.status}`);
+      console.error(`Governed mission ended with state: ${finalState} (${run.stopReason ?? "unknown reason"})`);
     }
     await system.events.drain();
     return completed ? 0 : 1;
   } catch (error) {
     if (context.json) out(context, { ok: false, error: String(error) });
-    else console.error("Mission failed:", error instanceof Error ? error.message : String(error));
+    else console.error("Governed mission failed:", error instanceof Error ? error.message : String(error));
     return 1;
   }
 }
@@ -184,6 +279,557 @@ export async function commandSkillsSearch(context: CommandContext, query: string
     for (const match of matches) console.log(`${match.skillId}  risk=${match.riskClass}  ${match.name}`);
   }
   return 0;
+}
+
+// ---------------------------------------------------------------------------
+// quack instructions [--mission <id>] (P8.8) — inspect governed-instruction records
+// ---------------------------------------------------------------------------
+
+/**
+ * P8.8 instruction inspection: lists metadata-only governed-instruction
+ * dispatch records (P8.6) from the EXISTING trace repository. No new
+ * store, no content — records carry identity, census, budget, and defense
+ * facts only. `--mission <id>` filters through the existing trace-by-
+ * mission lookup; `--json` emits machine-readable output. Records that
+ * fail fail-closed validation are reported as invalid and never silently
+ * rendered as if trustworthy.
+ */
+export async function commandInstructions(context: CommandContext, missionId?: string): Promise<number> {
+  const system = createQuackSystem({ dataDir: context.config.dataDir, workspaceRoot: context.config.workspaceRoot });
+  try {
+    const traces = await system.storage.traces.list(missionId ? { missionId } : undefined);
+    const { parseInstructionRecord } = await import("../instruction/records.js");
+
+    const valid: import("../instruction/records.js").GovernedInstructionRecord[] = [];
+    let invalidCount = 0;
+    for (const trace of traces) {
+      for (const raw of trace.instruction ?? []) {
+        const parsed = parseInstructionRecord(raw as unknown as Record<string, unknown>);
+        if (parsed.ok) valid.push(parsed.data);
+        else invalidCount += 1;
+      }
+    }
+
+    if (context.json) {
+      out(context, {
+        missionId: missionId ?? null,
+        traceCount: traces.length,
+        recordCount: valid.length,
+        invalidRecordCount: invalidCount,
+        records: valid.map((record) => ({
+          recordId: record.recordId,
+          missionId: record.missionId,
+          ...(record.taskId ? { taskId: record.taskId } : {}),
+          digest: record.digest,
+          outcome: record.outcome,
+          ...(record.errorCode ? { errorCode: record.errorCode } : {}),
+          totalItems: record.totalItems,
+          omittedItemCount: record.omittedItemCount,
+          withinBudget: record.withinBudget,
+          injectionFlagCount: record.injectionFlagCount,
+          layerCensus: record.layerCensus,
+          dispatchedAt: record.dispatchedAt,
+        })),
+      });
+    } else {
+      console.log(`Governed instruction dispatches${missionId ? ` for mission ${missionId}` : ""} (from ${traces.length} trace(s)):`);
+      if (valid.length === 0 && invalidCount === 0) {
+        console.log("  No instruction dispatch records stored yet.");
+        console.log("  Records appear when missions dispatch composed instructions through the governed runtime.");
+      }
+      for (const record of valid) {
+        console.log(`  ${record.dispatchedAt}  ${record.missionId}${record.taskId ? ` / ${record.taskId}` : ""}  ${record.outcome.padEnd(14)} digest ${record.digest.slice(0, 12)}…  ${record.totalItems} item(s), ${record.omittedItemCount} omitted, ${record.injectionFlagCount} flag(s)${record.errorCode ? `  [${record.errorCode}]` : ""}`);
+      }
+      if (invalidCount > 0) console.log(`  ${invalidCount} stored record(s) failed validation and were excluded — inspect the data directory for tampering.`);
+    }
+    await system.events.drain();
+    return 0;
+  } catch (error) {
+    if (context.json) out(context, { error: String(error) });
+    else console.error("Instructions inspection failed:", error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// quack memory list|inspect|search|delete (P9.24) — governed semantic memory inspection
+// ---------------------------------------------------------------------------
+
+/**
+ * P9.24 memory inspection: every command operates on the canonical
+ * semantic-memory store through the SAME admission/authorization path as
+ * production (the service authorize hook resolves memory.read/write via
+ * the capability broker). Exit codes: 0 success, 1 operational failure,
+ * 2 usage error, 3 not found / access denied (fail-closed, meaningful).
+ */
+export async function commandMemory(
+  context: CommandContext,
+  action: "list" | "inspect" | "search" | "delete",
+  target?: string,
+): Promise<number> {
+  const system = createQuackSystem({ dataDir: context.config.dataDir, workspaceRoot: context.config.workspaceRoot });
+  const memory = system.semanticMemory;
+  try {
+    await memory.recover();
+    if (action === "list") {
+      const records = await memory.list();
+      if (context.json) {
+        out(context, {
+          recordCount: records.length,
+          records: records.map(recordView),
+        });
+      } else {
+        console.log(`Semantic memory records (${records.length}):`);
+        if (records.length === 0) console.log("  No semantic memory stored yet. Records appear when an authorized actor remembers content explicitly.");
+        for (const record of records) {
+          console.log(`  ${record.memoryId}  ${record.scope.padEnd(9)} ${record.owner.padEnd(12)} ${record.provenance.sourceKind.padEnd(10)} ${record.contentHash.slice(0, 12)}… ${record.embedding ? "embedded" : "plain"}`);
+        }
+      }
+      await system.events.drain();
+      return 0;
+    }
+    if (action === "inspect") {
+      if (!target) { console.error("quack memory inspect requires a memory id."); return 2; }
+      const record = await memory.inspect(target);
+      if (!record.ok) {
+        if (context.json) out(context, { error: record.error.code });
+        else console.error(`Memory ${target} not found.`);
+        return 3;
+      }
+      out(context, { record: recordView(record.data) });
+      await system.events.drain();
+      return 0;
+    }
+    if (action === "delete") {
+      if (!target) { console.error("quack memory delete requires a memory id."); return 2; }
+      const result = await memory.forget(target, { actor: "cli" });
+      if (!result.ok) {
+        if (context.json) out(context, { error: result.error.code });
+        else console.error(`Memory ${target} could not be deleted: ${result.error.message}`);
+        return 3;
+      }
+      if (context.json) out(context, { memoryId: target, deleted: result.data.deleted, sweptChunks: result.data.sweptChunks });
+      else console.log(result.data.deleted ? `Deleted ${target} (${result.data.sweptChunks} index chunk(s) swept).` : `Memory ${target} was already absent.`);
+      await system.events.drain();
+      return 0;
+    }
+    // search
+    if (!target) { console.error("quack memory search requires a query string."); return 2; }
+    const result = await memory.recall({
+      text: target,
+      scope: "global",
+      owner: "cli",
+      limit: 20,
+      context: { actor: "cli" },
+    });
+    if (!result.ok) {
+      if (context.json) out(context, { error: result.error.code });
+      else console.error(`Semantic search unavailable: ${result.error.message}`);
+      return 1;
+    }
+    if (context.json) {
+      out(context, {
+        query: target,
+        hitCount: result.data.hits.length,
+        hits: result.data.hits.map((hit) => ({ memoryId: hit.memory.memoryId, score: hit.score, matchedChunkId: hit.matchedChunkId, scope: hit.memory.scope, owner: hit.memory.owner })),
+      });
+    } else {
+      console.log(`Semantic search for "${target}" (${result.data.hits.length} hit(s)):`);
+      if (result.data.hits.length === 0) console.log("  No semantically relevant memory in the global scope.");
+      for (const hit of result.data.hits) {
+        console.log(`  ${hit.memory.memoryId}  score ${hit.score.toFixed(3)}  ${hit.memory.scope}/${hit.memory.owner}`);
+      }
+    }
+    await system.events.drain();
+    return 0;
+  } catch (error) {
+    if (context.json) out(context, { error: String(error) });
+    else console.error("Memory command failed:", error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+/** Metadata + bounded content preview for CLI output (no secrets by construction; admission rejected them). */
+function recordView(record: import("../memory/semantic/records.js").SemanticMemoryRecord): Record<string, unknown> {
+  return {
+    memoryId: record.memoryId,
+    scope: record.scope,
+    owner: record.owner,
+    contentPreview: record.content.length > 200 ? `${record.content.slice(0, 200)}...` : record.content,
+    contentHash: record.contentHash,
+    provenance: record.provenance,
+    lifecycle: record.lifecycle,
+    createdAt: record.createdAt,
+    updatedAt: record.updatedAt,
+    admission: record.admission,
+    embedding: record.embedding ? { providerId: record.embedding.providerId, model: record.embedding.model, embeddingVersion: record.embedding.embeddingVersion, dimensions: record.embedding.dimensions } : null,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// quack extension list|inspect|validate|install|enable|disable|remove (P10.13)
+// ---------------------------------------------------------------------------
+
+/**
+ * P10.13 extension CLI: every command operates on the governed ecosystem
+ * catalog through the SAME broker path as production. Metadata only —
+ * package content is never printed. Exit codes: 0 success, 1 operational
+ * failure, 2 usage error, 3 not found / access denied.
+ *
+ * Catalog mutations (install/enable/disable/remove) resolve plugin.install
+ * through the broker. plugin.install is HIGH-RISK by policy, so mutations
+ * run with the operator as the human approver: `quack extension install`
+ * asks before anything is written (denied => nothing happens). list/
+ * inspect/validate stay read-only and never prompt.
+ */
+export async function commandExtension(
+  context: CommandContext,
+  action: "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove",
+  target?: string,
+): Promise<number> {
+  const mutates = action === "install" || action === "enable" || action === "disable" || action === "remove";
+  const { ConsoleApprovalCallback } = await import("../security/approval-controller.js");
+  const system = createQuackSystem({
+    dataDir: context.config.dataDir,
+    workspaceRoot: context.config.workspaceRoot,
+    permissions: mutates ? ["plugin.install"] : undefined,
+    ...(mutates ? { approver: context.approver ?? new ConsoleApprovalCallback() } : {}),
+  });
+  const ecosystem = system.ecosystem;
+  try {
+    await ecosystem.ensureLayout();
+    if (action === "list") {
+      const records = await ecosystem.list();
+      if (context.json) {
+        out(context, { extensionCount: records.length, extensions: records.map(extensionView) });
+      } else {
+        console.log(`Ecosystem extensions (${records.length}):`);
+        if (records.length === 0) console.log("  No extensions installed yet. Packages appear when an authorized actor installs one explicitly.");
+        for (const record of records) {
+          console.log(`  ${record.id}@${record.version}  ${record.manifest.kind.padEnd(13)} ${record.lifecycle.padEnd(11)} ${record.signatureState.padEnd(10)} ${record.packageDigest.slice(0, 12)}…`);
+        }
+      }
+      await system.events.drain();
+      return 0;
+    }
+    if (action === "validate") {
+      if (!target) { console.error("quack extension validate requires a package directory."); return 2; }
+      const paths = packagePaths(target);
+      const result = await ecosystem.validatePackage(paths);
+      if (!result.ok) {
+        if (context.json) out(context, { error: result.error.code, message: result.error.message });
+        else console.error(`Package validation failed: ${result.error.message}`);
+        return 1;
+      }
+      if (context.json) out(context, { valid: true, id: result.data.manifest.id, version: result.data.manifest.version, integrityState: result.data.integrityState });
+      else console.log(`Package valid: ${result.data.manifest.id}@${result.data.manifest.version} (integrity ${result.data.integrityState}).`);
+      await system.events.drain();
+      return 0;
+    }
+    if (action === "install") {
+      if (!target) { console.error("quack extension install requires a package directory."); return 2; }
+      const paths = packagePaths(target);
+      const result = await ecosystem.install(paths);
+      if (!result.ok) {
+        if (context.json) out(context, { error: result.error.code, message: result.error.message });
+        else console.error(`Install failed: ${result.error.message}`);
+        return result.error.code === "extension.capability_denied" || result.error.code === "extension.registry_not_found" ? 3 : 1;
+      }
+      if (context.json) out(context, { installed: true, id: result.data.record.id, version: result.data.record.version, lifecycle: result.data.record.lifecycle });
+      else console.log(`Installed ${result.data.record.id}@${result.data.record.version} (${result.data.record.lifecycle}).`);
+      await system.events.drain();
+      return 0;
+    }
+    // inspect / enable / disable / remove all need id@version
+    if (!target || !target.includes("@")) {
+      console.error(`quack extension ${action} requires an id in <id>@<version> form.`);
+      return 2;
+    }
+    const at = target.lastIndexOf("@");
+    const id = target.slice(0, at);
+    const version = target.slice(at + 1);
+    if (action === "inspect") {
+      const result = await ecosystem.inspect(id, version);
+      if (!result.ok) {
+        if (context.json) out(context, { error: result.error.code });
+        else console.error(`Extension ${target} not found.`);
+        return 3;
+      }
+      out(context, { extension: extensionView(result.data.record) });
+      await system.events.drain();
+      return 0;
+    }
+    const transition = action === "enable" ? "ENABLED" : action === "disable" ? "DISABLED" : "REMOVED";
+    const result = await ecosystem.transition(id, version, transition);
+    if (!result.ok) {
+      if (context.json) out(context, { error: result.error.code, message: result.error.message });
+      else console.error(`Extension ${target}: ${result.error.message}`);
+      return result.error.code === "extension.registry_not_found" ? 3 : 1;
+    }
+    if (context.json) out(context, { id, version, lifecycle: transition === "REMOVED" ? "REMOVED" : result.data.record.lifecycle });
+    else console.log(transition === "REMOVED" ? `Removed ${target}.` : `${target} is now ${transition}.`);
+    await system.events.drain();
+    return 0;
+  } catch (error) {
+    if (context.json) out(context, { error: String(error) });
+    else console.error("Extension command failed:", error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+/** Resolve manifest.json + the entry content path for a package directory. */
+function packagePaths(directory: string): { manifestPath: string; contentPath: string } {
+  return { manifestPath: join(directory, "manifest.json"), contentPath: join(directory, "content.txt") };
+}
+
+/** Metadata-only extension view (no package content, no entry file bodies). */
+function extensionView(record: import("../ecosystem/registry.js").RegistryRecord): Record<string, unknown> {
+  return {
+    id: record.id,
+    version: record.version,
+    kind: record.manifest.kind,
+    name: record.manifest.name,
+    description: record.manifest.description,
+    lifecycle: record.lifecycle,
+    signatureState: record.signatureState,
+    publisher: record.manifest.publisher,
+    declaredCapabilities: record.manifest.capabilities,
+    declaredPermissions: record.manifest.permissions,
+    dependencies: record.manifest.dependencies,
+    manifestDigest: record.manifestDigest,
+    packageDigest: record.packageDigest,
+    integrityState: record.packageDigest === record.manifest.integrity.digest ? "MATCHED" : "MISMATCHED",
+    provenance: { kind: record.provenance.kind },
+    installedAt: record.installedAt,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// quack govmission run "<objective>" | status [missionId] (P11)
+// ---------------------------------------------------------------------------
+
+/**
+ * P11 governed mission runtime CLI. `run` executes a mission through the
+ * governed loop (QIE → model → parser → broker → existing surfaces);
+ * `status` lists/inspects durable run records; `recover` (P14, ADR 0048)
+ * inspects durable recovery state — checkpoint + reconciled records — for
+ * one mission. All output is metadata-only — no prompts, no model output,
+ * no arguments. Exit codes: 0 success, 1 mission failure, 2 usage error,
+ * 3 unknown mission.
+ */
+export async function commandGovMission(
+  context: CommandContext,
+  action: "run" | "status" | "recover",
+  target?: string,
+): Promise<number> {
+  if (action === "recover") {
+    // P14: safe inspection only. This NEVER bypasses broker, approval,
+    // isolation, verification, or recovery safety — it reads the durable
+    // records and reports the honest recovery state. Resuming a crashed
+    // mission is `govmission run` on the SAME mission id (the loop
+    // reconciles and refuses unsafe resumption itself); there is no
+    // --force/--skip flag and none will exist.
+    if (!target || !target.trim()) {
+      console.error("quack govmission recover requires a mission id: quack govmission recover <missionId>");
+      return 2;
+    }
+    const system = createQuackSystem({
+      dataDir: context.config.dataDir,
+      workspaceRoot: context.config.workspaceRoot,
+    });
+    try {
+      const run = await system.governedMissionLoop.getRun(target);
+      if (!run) {
+        if (context.json) out(context, { error: "mission.govmission_not_found", message: `No governed run for ${target}.` });
+        else console.error(`No governed run for ${target}.`);
+        return 3;
+      }
+      const decision = await system.governedMissionLoop.inspectRecovery(target);
+      const checkpoint = await system.governedMissionLoop.getCheckpoint(target).catch(() => undefined);
+      if (context.json) {
+        out(context, {
+          missionId: target,
+          runId: decision.runId || run.runId,
+          runState: run.currentState ?? "RUNNING",
+          stopReason: run.stopReason ?? null,
+          recovery: {
+            state: decision.state,
+            nextStepIndex: decision.nextStepIndex,
+            lastSettledStep: decision.lastSettledStep,
+            ambiguousStep: decision.ambiguousStep,
+            reason: decision.reason,
+          },
+          checkpoint: checkpoint ? {
+            version: checkpoint.version,
+            recovery: checkpoint.recovery,
+            nextStepIndex: checkpoint.nextStepIndex,
+            usage: checkpoint.usage,
+            recordedAt: checkpoint.recordedAt,
+          } : null,
+        });
+      } else {
+        console.log(`Mission ${target}: recovery state ${decision.state}`);
+        console.log(`  ${decision.reason}`);
+        console.log(`  safe continuation point: ${decision.nextStepIndex >= 0 ? `step ${decision.nextStepIndex}` : "none (mission parked or terminal)"}`);
+        if (checkpoint) console.log(`  checkpoint: ${checkpoint.recovery} @ step ${checkpoint.nextStepIndex} (recorded ${checkpoint.recordedAt})`);
+        else console.log("  checkpoint: none recorded");
+      }
+      await system.events.drain();
+      return 0;
+    } catch (error) {
+      if (context.json) out(context, { error: String(error) });
+      else console.error("Governed mission recovery inspection failed:", error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+  if (action === "run") {
+    if (!target || !target.trim()) {
+      console.error("quack govmission run requires an objective: quack govmission run \"<objective>\"");
+      return 2;
+    }
+    // A governed mission is model-in-the-loop by design: every iteration
+    // dispatches through the governed model runtime, which resolves
+    // provider.invoke through the broker. That permission is HIGH-RISK by
+    // policy, so it is never granted implicitly — the operator declares the
+    // mission's permission set explicitly (comma-separated, allowlisted
+    // env read only; no process.env spread). The declaration becomes the
+    // recorded approval provenance on the mission's capability grants.
+    const declared = process.env["QUACK_GOVMISSION_PERMISSIONS"];
+    const { isPermission } = await import("../security/permissions.js");
+    const permissions = (declared ?? "")
+      .split(",")
+      .map((entry) => entry.trim())
+      .filter(Boolean)
+      .filter((entry): entry is import("../security/permissions.js").Permission => isPermission(entry));
+    if (!permissions.includes("provider.invoke")) {
+      if (context.json) {
+        out(context, { ok: false, error: "mission.govmission_provider_invoke_required", message: "A governed mission requires the operator to declare provider.invoke authority (e.g. QUACK_GOVMISSION_PERMISSIONS=\"provider.invoke,workspace.read\")." });
+      } else {
+        console.error("Governed missions are model-in-the-loop; provider.invoke is high-risk and must be declared explicitly:");
+        console.error('  QUACK_GOVMISSION_PERMISSIONS="provider.invoke,workspace.read" quack govmission run "<objective>"');
+      }
+      return 2;
+    }
+    const missionId = `gov_${Date.now().toString(36)}`;
+    // provider.invoke is medium/high-risk policy: the permission declaration
+    // alone is not enough — the operator confirms each governed run through
+    // the standard approval callback (same contract as extension installs).
+    const { ConsoleApprovalCallback } = await import("../security/approval-controller.js");
+    const system = createQuackSystem({
+      dataDir: context.config.dataDir,
+      workspaceRoot: context.config.workspaceRoot,
+      permissions,
+      approver: context.approver ?? new ConsoleApprovalCallback(),
+      // Seed the mission's grants from the operator's explicit declaration:
+      // the env consent IS the recorded approval provenance. The broker
+      // still validates every request (policy + grant + revalidate).
+      capabilityGrants: permissions.map((permission) => ({
+        missionId,
+        capabilities: [`permission.${permission}`],
+        approval: {
+          approvedBy: "operator:QUACK_GOVMISSION_PERMISSIONS",
+          reason: `Explicit operator permission declaration for governed mission ${missionId}.`,
+          approvedAt: new Date().toISOString(),
+        },
+      })),
+    });
+    try {
+      const result = await system.governedMissionLoop.run({ missionId, objective: target });
+      if (!result.ok) {
+        if (context.json) out(context, { ok: false, error: result.error.message, code: result.error.code });
+        else console.error(`Governed mission rejected: ${result.error.message}`);
+        await system.events.drain();
+        return 1;
+      }
+      const { run, finalState } = result.data;
+      if (context.json) {
+        out(context, {
+          ok: true,
+          missionId: run.missionId,
+          runId: run.runId,
+          finalState,
+          stopReason: run.stopReason ?? null,
+          iterations: run.iterations.length,
+          steps: run.iterations.map(iterationView),
+        });
+      } else {
+        console.log(`Mission ${run.missionId}: ${finalState} (${run.stopReason ?? "ran to completion"})`);
+        for (const step of run.iterations) {
+          const view = iterationView(step);
+          console.log(`  step ${view.step}: ${view.capability ?? "model"} → ${view.status ?? view.code ?? "?"}`);
+        }
+      }
+      await system.events.drain();
+      return finalState === "SUCCEEDED" ? 0 : 1;
+    } catch (error) {
+      if (context.json) out(context, { error: String(error) });
+      else console.error("Governed mission failed:", error instanceof Error ? error.message : String(error));
+      return 1;
+    }
+  }
+  // status [missionId]
+  const system = createQuackSystem({
+    dataDir: context.config.dataDir,
+    workspaceRoot: context.config.workspaceRoot,
+  });
+  try {
+    if (target) {
+      const run = await system.governedMissionLoop.getRun(target);
+      if (!run) {
+        if (context.json) out(context, { error: "mission.govmission_not_found", message: `No governed run for ${target}.` });
+        else console.error(`No governed run for ${target}.`);
+        return 3;
+      }
+      out(context, { missionId: run.missionId, runId: run.runId, state: run.currentState ?? "RUNNING", stopReason: run.stopReason ?? null, iterations: run.iterations.length, steps: run.iterations.map(iterationView) });
+      await system.events.drain();
+      return 0;
+    }
+    const runs = await system.governedMissionLoop.listRuns();
+    if (context.json) out(context, { runs: runs.map(runView) });
+    else {
+      console.log(`Governed mission runs (${runs.length}):`);
+      if (runs.length === 0) console.log("  No governed runs yet. Start one with: quack govmission run \"<objective>\"");
+      for (const run of runs) console.log(`  ${run.missionId}  ${(run.currentState ?? "RUNNING").padEnd(10)} ${(run.stopReason ?? "…").padEnd(28)} ${run.iterations.length} step(s)`);
+    }
+    await system.events.drain();
+    return 0;
+  } catch (error) {
+    if (context.json) out(context, { error: String(error) });
+    else console.error("Governed mission status failed:", error instanceof Error ? error.message : String(error));
+    return 1;
+  }
+}
+
+/** Metadata-only iteration view (no arguments, no prompts, no model output). */
+function iterationView(step: import("../runtime/mission-lifecycle/executive-loop.js").IterationRecord): Record<string, unknown> {
+  return {
+    step: step.index,
+    iterationId: step.iterationId,
+    capability: step.selectedAction?.capability ?? null,
+    status: step.executionResult?.actionResult.status ?? null,
+    verification: step.verification?.status ?? null,
+    decision: step.permissionDecision?.decision ?? null,
+    // P12 (ADR 0046): honest execution-state + isolation state, metadata-only.
+    executionState: step.observations["executionState"] ?? null,
+    isolation: step.observations["isolation"] ?? null,
+    // P13 (ADR 0047): backend identity that actually ran the workload.
+    backend: step.observations["backend"] ?? null,
+    code: step.observations["code"] ?? null,
+    stopReason: step.stopReason ?? null,
+  };
+}
+
+/** Metadata-only run view. */
+function runView(run: import("../runtime/mission-lifecycle/executive-loop.js").LoopRun): Record<string, unknown> {
+  return {
+    missionId: run.missionId,
+    runId: run.runId,
+    state: run.currentState ?? "RUNNING",
+    stopReason: run.stopReason ?? null,
+    iterations: run.iterations.length,
+    startedAt: run.startedAt,
+    endedAt: run.endedAt ?? null,
+  };
 }
 
 // ---------------------------------------------------------------------------

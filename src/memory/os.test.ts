@@ -114,7 +114,7 @@ test("Production mission retrieves and stores mission memory through Memory OS",
     // Production path uses LoopDriver, so we just verify memory operations work
     assert.ok(stored.length > 0, "Mission execution should create memory records");
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

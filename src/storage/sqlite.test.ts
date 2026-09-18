@@ -156,6 +156,16 @@ function sampleEvaluation() {
       iterationCount: 1,
       toolCallCount: 0,
       capabilityCheckCount: 0,
+      recoveredDenials: 0,
+      evidenceCoverage: 0,
+      instructionDispatchCount: 0,
+      instructionDispatchedCount: 0,
+      instructionRejectedCount: 0,
+      instructionInjectionFlagCount: 0,
+      semanticMemoryRecordCount: 0,
+      semanticMemoryRetrievalCount: 0,
+      semanticMemoryDeletionCount: 0,
     },
+    dimensions: { capabilityDiscipline: 100, recovery: 100, planning: 70, evidenceQuality: 20 },
   };
 }

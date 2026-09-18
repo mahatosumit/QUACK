@@ -98,6 +98,14 @@ export interface MissionTrace {
   readonly iterations: readonly MissionTraceIteration[];
   readonly finalOutcome: MissionTraceOutcome;
   readonly events: readonly MissionTraceEvent[];
+  /** P8.6: metadata-only governed-instruction dispatch records (absent when the mission used no QIE dispatch). */
+  readonly instruction?: readonly import("../instruction/records.js").GovernedInstructionRecord[];
+  /**
+   * P9.21: metadata-only semantic-memory evaluation evidence (absent when
+   * the mission used no semantic memory). Trace-attached like P8.6 records;
+   * never memory content.
+   */
+  readonly semanticMemory?: import("../memory/semantic/evaluation.js").MemoryEvaluationEvidence;
   readonly startedAt: string;
   readonly completedAt: string;
 }
@@ -111,6 +119,36 @@ export interface HarnessMetrics {
   readonly iterationCount: number;
   readonly toolCallCount: number;
   readonly capabilityCheckCount: number;
+  /** P5: denied capability requests that were later recovered from (degraded, not abandoned). */
+  readonly recoveredDenials: number;
+  /** P5: evidence records captured per successful tool call (evidence quality input). */
+  readonly evidenceCoverage: number;
+  /** P8.6: total governed-instruction dispatch attempts (metadata-only records). */
+  readonly instructionDispatchCount: number;
+  /** P8.6: dispatch attempts that passed defense + adaptation and were sent to the governed runtime. */
+  readonly instructionDispatchedCount: number;
+  /** P8.6: dispatch attempts fail-closed at the defense/adaptation boundary. */
+  readonly instructionRejectedCount: number;
+  /** P8.6: metadata-only injection flags across all dispatch attempts (defense-in-depth signal). */
+  readonly instructionInjectionFlagCount: number;
+  /** P9.21: semantic-memory records observed for the mission (0 when none). */
+  readonly semanticMemoryRecordCount: number;
+  /** P9.21: semantic-memory retrieval observations (0 when none). */
+  readonly semanticMemoryRetrievalCount: number;
+  /** P9.21: semantic-memory deletions observed (0 when none). */
+  readonly semanticMemoryDeletionCount: number;
+}
+
+/** P5: per-dimension agent evaluation scores (0–100, higher is better). */
+export interface EvaluationDimensions {
+  readonly capabilityDiscipline: number;
+  readonly recovery: number;
+  readonly planning: number;
+  readonly evidenceQuality: number;
+  /** P8.6: instruction quality dimensions; absent when the mission used no QIE dispatch. */
+  readonly instruction?: import("../instruction/evaluator.js").InstructionQualityDimensions;
+  /** P9.21: semantic-memory quality dimensions; absent when the mission used no semantic memory. */
+  readonly memory?: import("../memory/semantic/evaluation.js").MemoryQualityDimensions;
 }
 
 export interface MissionEvaluationFailure {
@@ -126,6 +164,8 @@ export interface MissionEvaluationResult {
   readonly failures: readonly MissionEvaluationFailure[];
   readonly improvements: readonly string[];
   readonly metrics: HarnessMetrics;
+  /** P5: per-dimension agent evaluation scores (present in every result). */
+  readonly dimensions: EvaluationDimensions;
 }
 
 export interface ReplaySignature {
@@ -159,4 +199,18 @@ export interface BenchmarkScenario {
   readonly expectedCapabilities: readonly string[];
   readonly expectedOutcome: "success" | "failure";
   readonly tags: readonly string[];
+  /** P5: scenario family classification for eval reporting. */
+  readonly family?: "reasoning" | "tool-selection" | "capability" | "adversarial" | "recovery" | "multi-step" | "evidence";
+  /**
+   * P5: adversarial expectations — an adversarial scenario passes when the
+   * runtime FAILS CLOSED (does not act on the hostile payload). Omitted on
+   * ordinary scenarios.
+   */
+  readonly adversarial?: {
+    readonly injection?: string;
+    readonly secretLeak?: string;
+    readonly deniedCapabilityExpected?: boolean;
+    readonly networkDeniedExpected?: boolean;
+    readonly forgedIdentityExpected?: boolean;
+  };
 }

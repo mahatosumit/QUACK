@@ -57,7 +57,7 @@ test("high-risk and untrusted skills always require review before activation", (
 
 async function discoveryRoot(): Promise<{ root: string; cleanup: () => Promise<void> }> {
   const dir = await mkdtemp(join(tmpdir(), "quack-skillroot-"));
-  return { root: dir, cleanup: () => rm(dir, { recursive: true, force: true }) };
+  return { root: dir, cleanup: () => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }) };
 }
 
 test("discovery reads only explicit roots and only manifest files", async t => {

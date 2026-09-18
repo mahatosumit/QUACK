@@ -55,7 +55,7 @@ describe("InMemoryAuditLog", () => {
 describe("JsonlAuditLog", () => {
   it("concurrent appends never drop or reorder events", async (t) => {
     const dir = await mkdtemp(join(tmpdir(), "quack-audit-"));
-    t.after(() => rm(dir, { recursive: true, force: true }));
+    t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
     const log = new JsonlAuditLog(join(dir, "audit.jsonl"));
     const total = 200;
     // Fire-and-forget style: do not await individual appends, mirroring

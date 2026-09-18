@@ -193,5 +193,5 @@ async function withSystem(config: Partial<QuackConfig>, run: (system: QuackSyste
   const root = await mkdtemp(join(tmpdir(), "quack-governed-actions-"));
   const system = createQuackSystem({ ...config, workspaceRoot: root, dataDir: join(root, "data"), improvement: { enabled: false, autoEvaluate: false } });
   try { await run(system); }
-  finally { await system.events.drain(); await rm(root, { recursive: true, force: true }); }
+  finally { await system.events.drain(); await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 }

@@ -10,7 +10,7 @@ async function fixture(t: TestContext, improvement: Partial<ImprovementCoordinat
   const dataDir = await mkdtemp(join(tmpdir(), "quack-improvement-test-"));
   // Drain async event sinks (audit writer) before cleanup: appends race
   // directory removal on Windows otherwise (ENOTEMPTY).
-  t.after(async () => { await system.events.drain(); await rm(dataDir, { recursive: true, force: true }); });
+  t.after(async () => { await system.events.drain(); await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
   const system = createQuackSystem({ dataDir, improvement: {
     enabled: true, autoEvaluate: true, minimumEvidence: 3, cooldownMs: 0, ...improvement,
   } });
@@ -70,7 +70,7 @@ test("a mission without an executor cannot trigger the verified-completion hook"
   // state: without a certification path the mission must fail closed and
   // the improvement loop must never observe a completion.
   const dataDir = await mkdtemp(join(tmpdir(), "quack-improvement-none-"));
-  t.after(async () => { await system.events.drain(); await rm(dataDir, { recursive: true, force: true }); });
+  t.after(async () => { await system.events.drain(); await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); });
   const system = createQuackSystem({ dataDir, workflowVerification: "none", improvement: {
     enabled: true, autoEvaluate: true, minimumEvidence: 0, cooldownMs: 0,
   } });

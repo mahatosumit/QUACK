@@ -1,5 +1,10 @@
 # Changelog
 
+## [Unreleased — 5N release readiness gate] — 2026-09-10
+
+- **Product line P0–P7** (see `docs/release/RELEASE_NOTES.md`): mission operations (approval queue, cancel/resume, trace-by-mission, SSE redaction), Mission Control + Approval Center UI, Console (conversational composer + live state), governed model streaming (`POST /models/stream`, broker-gated, redacted), harness expansion (15-scenario pack incl. adversarial fail-closed families + 4 evaluation dimensions), Agent Workspace, Trace Center + Artifact View + Audit Center, surface consolidation (duplicate DesktopServer, `gui/` SPA, legacy dashboard HTML, and fake benchmark/evaluation endpoints removed — one HTTP surface, one GUI).
+- **5N gate**: release checklist + notes (`docs/release/`); README/QUACK_STUDIO_UI updated to P7 truth; fresh-tarball install→doctor→init→governed mission→trace verified; package audit clean (1,283 files, 0 vulnerabilities, no secrets); full local gate re-verified (1,496 ordinary + 17 serial + SDK + E2E + public-release checks, 0 failures).
+
 ## [Unreleased — v1.0 production gate] — 2026-09-08
 
 ### Phase 6 — Distribution

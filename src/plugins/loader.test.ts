@@ -15,5 +15,5 @@ test("plugin modules require explicit host trust before they can initialize", as
     const trusted = join(root, "trusted.mjs");
     await writeFile(trusted, 'export const manifest = { id: "test.trusted" };');
     assert.equal((await new PluginLoader({ trust: "trusted-host" }).loadFromPath(trusted)).id, "test.trusted");
-  } finally { await rm(root, { recursive: true, force: true }); }
+  } finally { await rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }); }
 });

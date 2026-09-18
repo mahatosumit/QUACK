@@ -413,3 +413,113 @@ export function registerQuackNativeHarness(
     tags: ["native", "tools", "windows", "linux", "darwin"],
   });
 }
+
+/**
+ * Register the Composable Agent Harness
+ */
+export function registerComposableHarness(
+  registry: HarnessRegistry,
+  system: any,
+  options?: import("./composable-harness.js").ComposableHarnessOptions
+): void {
+  const factory: HarnessFactory = async (harnessConfig) => {
+    const { ComposableAgentHarness } = await import("./composable-harness.js");
+    return new ComposableAgentHarness(system, harnessConfig, options);
+  };
+
+  registry.register({
+    id: "COMPOSABLE_AGENT_HARNESS",
+    factory,
+    metadata: {
+      id: "COMPOSABLE_AGENT_HARNESS",
+      name: "QUACK Composable Agent Harness",
+      version: "1.0.0",
+      description: "Composable agent harness with plugin lifecycle, sandboxing, and trajectory flight recording.",
+      vendor: "QUACK OS",
+      homepage: "https://github.com/mahatosumit/QUACK",
+      repository: "https://github.com/mahatosumit/QUACK",
+      license: "MIT",
+      capabilities: {
+        tools: "NATIVE",
+        mcp: "EMULATED",
+        subagents: "UNSUPPORTED",
+        continuableSubagents: "UNSUPPORTED",
+        streaming: "NATIVE",
+        structuredOutput: "NATIVE",
+        checkpoint: "NATIVE",
+        resume: "NATIVE",
+        interrupt: "NATIVE",
+        workspace: "NATIVE",
+        isolatedEnvironment: "NATIVE",
+        backgroundJobs: "UNSUPPORTED",
+        humanApproval: "NATIVE",
+      },
+      minQuackVersion: "1.0.0",
+      platforms: ["win32", "linux", "darwin"],
+      requiredEnvVars: [],
+      optionalEnvVars: ["OPENAI_API_KEY", "NVIDIA_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"],
+    },
+    healthCheck: async () => {
+      const providers = system?.providers?.list ? system.providers.list() : [];
+      return providers.length > 0 ? "HEALTHY" : "DEGRADED";
+    },
+    certification: "H4_DURABLE",
+    priority: 150,
+    tags: ["composable", "plugins", "sandbox", "trajectory", "flight-recorder", "h4_durable", "windows", "linux", "darwin"],
+  });
+}
+
+/**
+ * Register the DeepSeek Agent Harness (alias of ComposableAgentHarness)
+ */
+export function registerDeepSeekHarness(
+  registry: HarnessRegistry,
+  system: any,
+  options?: import("./composable-harness.js").ComposableHarnessOptions
+): void {
+  const factory: HarnessFactory = async (harnessConfig) => {
+    const { ComposableAgentHarness } = await import("./composable-harness.js");
+    return new ComposableAgentHarness(system, harnessConfig, options);
+  };
+
+  registry.register({
+    id: "DEEPSEEK_HARNESS",
+    factory,
+    metadata: {
+      id: "DEEPSEEK_HARNESS",
+      name: "DeepSeek Agent Harness",
+      version: "1.0.0",
+      description: "Composable agent harness inspired by DeepSeek Harness with plugin architecture, sandboxing, and trajectory logging.",
+      vendor: "DeepSeek AI / QUACK",
+      homepage: "https://github.com/deepseek-ai/deepseek-harness",
+      repository: "https://github.com/mahatosumit/QUACK",
+      license: "MIT",
+      capabilities: {
+        tools: "NATIVE",
+        mcp: "EMULATED",
+        subagents: "UNSUPPORTED",
+        continuableSubagents: "UNSUPPORTED",
+        streaming: "NATIVE",
+        structuredOutput: "NATIVE",
+        checkpoint: "NATIVE",
+        resume: "NATIVE",
+        interrupt: "NATIVE",
+        workspace: "NATIVE",
+        isolatedEnvironment: "NATIVE",
+        backgroundJobs: "UNSUPPORTED",
+        humanApproval: "NATIVE",
+      },
+      minQuackVersion: "1.0.0",
+      platforms: ["win32", "linux", "darwin"],
+      requiredEnvVars: [],
+      optionalEnvVars: ["OPENAI_API_KEY", "NVIDIA_API_KEY", "GROQ_API_KEY", "OPENROUTER_API_KEY"],
+    },
+    healthCheck: async () => {
+      const providers = system?.providers?.list ? system.providers.list() : [];
+      return providers.length > 0 ? "HEALTHY" : "DEGRADED";
+    },
+    certification: "H4_DURABLE",
+    priority: 150,
+    tags: ["deepseek", "composable", "plugins", "sandbox", "trajectory", "h4_durable", "windows", "linux", "darwin"],
+  });
+}

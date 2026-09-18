@@ -1,5 +1,8 @@
 import { createServer, type IncomingMessage, type Server, type ServerResponse } from "node:http";
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { existsSync, readdirSync, statSync, readFileSync } from "node:fs";
+import { resolve, relative, join } from "node:path";
+import { executeProcess } from "../platform/process.js";
 import { createId, type JsonObject } from "../core/types.js";
 import { type QuackEvent } from "../events/event-bus.js";
 import { createQuackSystem, type QuackSystem } from "../distributions/swe-system.js";
@@ -8,6 +11,9 @@ import { type QuackConfig } from "../distributions/swe-config.js";
 import { buildDashboardState } from "../dashboard/web/index.js";
 import { studioHtml, studioScript, studioStyles } from "../dashboard/web/studio.js";
 import { type AppRecipeCategory } from "../recipes/types.js";
+import { redactSecrets } from "../security/secret-provider.js";
+import { isPermission } from "../security/permissions.js";
+import { QueuedApprovalCallback } from "../security/approval-queue.js";
 
 export interface ApiServerConfig {
   readonly host?: string;
@@ -37,6 +43,8 @@ export interface ApiMissionRecord {
   readonly goal: string;
   readonly actor: string;
   readonly missionId?: string;
+  /** Durable runtime task id when known — the resume/cancel handle. */
+  readonly taskId?: string;
   readonly loopId?: string;
   readonly traceId?: string;
   readonly iterations: number;
@@ -46,6 +54,7 @@ export interface ApiMissionRecord {
   readonly model?: string;
   readonly safetyMode?: string;
   readonly dryRun?: boolean;
+  readonly stopReason?: string | null;
   readonly createdAt: string;
   readonly updatedAt: string;
 }
@@ -63,13 +72,15 @@ export class QuackHttpServer {
   private readonly rateWindows = new Map<string, { startedAt: number; count: number }>();
   private readonly server: Server;
   private readonly missions = new Map<string, ApiMissionRecord>();
+  private readonly missionControllers = new Map<string, AbortController>();
   private readonly streamClients = new Set<ServerResponse>();
   private readonly events: QuackEvent[] = [];
   private readonly detachEventLog: () => void;
 
   constructor(config: ApiServerConfig = {}) {
     if (!isLoopbackHost(config.host ?? "127.0.0.1")) throw new Error("QUACK API refuses non-loopback binding: remote authentication is not implemented.");
-    this.system = config.system ?? createQuackSystem(config.systemConfig);
+    const approver = config.systemConfig?.approver ?? new QueuedApprovalCallback();
+    this.system = config.system ?? createQuackSystem({ ...config.systemConfig, approver });
     if (!config.system) this.system.companyRuntime.reconcileInterrupted();
     this.host = config.host ?? "127.0.0.1";
     this.port = config.port ?? 0;
@@ -149,8 +160,29 @@ export class QuackHttpServer {
     if (method === "GET" && path === "/dashboard") this.issueDashboardSession(response);
     if (!isPublicRoute(method, path)) this.requireAuthentication(request, method);
 
+    if (method === "GET" && path === "/health") {
+      this.writeJson(response, 200, this.health());
+      return;
+    }
+
     if (method === "POST" && path === "/missions") {
       await this.createMission(request, response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/missions/") && path.endsWith("/cancel")) {
+      await this.cancelMission(path, request, response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/missions/") && path.endsWith("/resume")) {
+      await this.resumeMission(path, request, response);
+      return;
+    }
+    if (method === "GET" && path === "/approvals") {
+      this.listApprovals(response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/approvals/") && (path.endsWith("/approve") || path.endsWith("/deny"))) {
+      await this.decideApproval(path, request, response);
       return;
     }
     if (method === "GET" && path === "/missions") {
@@ -171,6 +203,14 @@ export class QuackHttpServer {
     }
     if (method === "GET" && path.startsWith("/traces/")) {
       await this.getTrace(path, response);
+      return;
+    }
+    if (method === "GET" && path === "/traces") {
+      await this.listTracesByMission(url.searchParams.get("missionId"), response);
+      return;
+    }
+    if (method === "GET" && path === "/audit") {
+      await this.getAuditTrail(url.searchParams.get("limit"), response);
       return;
     }
     if (method === "POST" && path === "/skills/import") {
@@ -225,6 +265,10 @@ export class QuackHttpServer {
       await this.testProvider(request, response);
       return;
     }
+    if (method === "POST" && path === "/models/stream") {
+      await this.streamModel(request, response);
+      return;
+    }
     if (method === "GET" && path === "/actions") {
       await this.listActions(response);
       return;
@@ -241,6 +285,30 @@ export class QuackHttpServer {
       await this.getMemory(response);
       return;
     }
+    if (method === "GET" && path === "/extensions") {
+      await this.getExtensions(response);
+      return;
+    }
+    if (method === "GET" && path === "/governed-missions") {
+      await this.getGovernedMissions(response);
+      return;
+    }
+    if (method === "POST" && path === "/governed-missions") {
+      await this.createGovernedMission(request, response);
+      return;
+    }
+    if (method === "GET" && path.startsWith("/governed-missions/")) {
+      await this.getGovernedMissionById(path, response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/governed-missions/") && path.endsWith("/cancel")) {
+      await this.cancelGovernedMission(path, request, response);
+      return;
+    }
+    if (method === "POST" && path.startsWith("/governed-missions/") && path.endsWith("/resume")) {
+      await this.resumeGovernedMission(path, request, response);
+      return;
+    }
     if (method === "GET" && path === "/settings") {
       this.writeJson(response, 200, this.settings());
       return;
@@ -253,8 +321,16 @@ export class QuackHttpServer {
       this.writeJson(response, 200, { agents: this.system.workforce.registry.list() });
       return;
     }
-    if (method === "GET" && path === "/health") {
-      this.writeJson(response, 200, this.health());
+    if (method === "GET" && path === "/workspace/tree") {
+      await this.getWorkspaceTree(response);
+      return;
+    }
+    if (method === "GET" && path === "/workspace/file") {
+      await this.getWorkspaceFile(url.searchParams.get("path"), response);
+      return;
+    }
+    if (method === "GET" && path === "/workspace/git") {
+      await this.getWorkspaceGit(response);
       return;
     }
     if (method === "GET" && path === "/dashboard") {
@@ -309,6 +385,8 @@ export class QuackHttpServer {
     this.missions.set(id, record);
     if (body.dryRun) {
       this.updateMission(id, { state: "COMPLETED", error: "Dry run completed: request was validated and no mission execution was started." });
+    } else if (body.mode === "governed" || body.engine === "governed") {
+      this.runGovernedMission(id, body.goal, actor, body.constraints, body.permissions);
     } else {
       this.runMission(id, { missionId: body.missionId, goal: body.goal, actor });
     }
@@ -317,23 +395,116 @@ export class QuackHttpServer {
 
   private async runMission(id: string, input: MissionSubmission): Promise<void> {
     this.updateMission(id, { state: "RUNNING" });
+    const controller = new AbortController();
+    this.missionControllers.set(id, controller);
     try {
-      const status = await this.system.api.submitMission(input);
+      const status = await this.system.api.submitMission({ ...input, signal: controller.signal });
       const trace = this.system.api.getTrace(status.loopId);
       this.updateMission(id, {
         state: status.state === "COMPLETED" ? "COMPLETED" : "FAILED",
         missionId: status.missionId,
+        taskId: status.taskId,
         loopId: status.loopId,
         traceId: trace?.id,
         iterations: status.iterations,
         error: status.error,
       });
     } catch (error) {
+      const cancelled = controller.signal.aborted;
       this.updateMission(id, {
-        state: "FAILED",
-        error: error instanceof Error ? error.message : String(error),
+        state: cancelled ? "FAILED" : "FAILED",
+        error: cancelled
+          ? `Mission cancelled: ${error instanceof Error ? error.message : String(error)}`
+          : error instanceof Error ? error.message : String(error),
       });
+    } finally {
+      this.missionControllers.delete(id);
     }
+  }
+
+  /** P1: cancel an in-flight mission by aborting its run; unknown/finished ids fail closed. */
+  private async cancelMission(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(path.slice("/missions/".length, -"/cancel".length));
+    await this.readOptionalJson(request); // drain body; none expected
+    const controller = this.missionControllers.get(id);
+    const record = this.missions.get(id);
+    if (controller) {
+      controller.abort(new Error("Mission cancelled through the Mission API."));
+      this.writeJson(response, 202, { id, state: "CANCELLING", note: "Cancellation was requested; the mission record reflects the terminal state shortly." });
+      return;
+    }
+    if (record) {
+      this.writeError(response, 409, "mission.not_cancellable", `Mission ${id} is not running (state ${record.state}).`);
+      return;
+    }
+    this.writeError(response, 404, "mission.not_found", `Mission ${id} was not found.`);
+  }
+
+  /** P1: resume an interrupted mission through the canonical recovery path. */
+  private async resumeMission(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(path.slice("/missions/".length, -"/resume".length));
+    await this.readOptionalJson(request);
+    const record = this.missions.get(id);
+    const resumeTarget = record?.taskId ?? id;
+    try {
+      const status = await this.system.api.resumeMission(resumeTarget);
+      if (record) this.updateMission(id, { state: this.recordStateFromStatus(status.state), loopId: status.loopId, iterations: status.iterations, error: status.error });
+      this.writeJson(response, 200, { id, status });
+    } catch (error) {
+      const code = (error as { code?: string }).code;
+      if (code === "task.not_found") {
+        this.writeError(response, 404, "mission.not_found", `Mission ${id} was not found.`);
+        return;
+      }
+      if (code === "recovery.busy") {
+        this.writeError(response, 409, "mission.resume_busy", `Mission ${id} already has an executing owner.`);
+        return;
+      }
+      if (code === "recovery.ownership_conflict" || code === "recovery.reconciliation_required" || code === "recovery.invalid_checkpoint") {
+        this.writeError(response, 409, "mission.resume_conflict", error instanceof Error ? error.message : String(error));
+        return;
+      }
+      this.writeError(response, 500, "mission.resume_failed", error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  private recordStateFromStatus(state: string): ApiMissionRecord["state"] {
+    if (state === "COMPLETED") return "COMPLETED";
+    if (state === "FAILED") return "FAILED";
+    if (state === "RUNNING") return "RUNNING";
+    return "QUEUED";
+  }
+
+  /** P1: list pending approval requests. Absent queued approver fails closed honestly. */
+  private listApprovals(response: ServerResponse): void {
+    const approvals = this.system.approvals;
+    if (!approvals) {
+      this.writeError(response, 404, "approval.queue_unavailable", "This system was not started with a queue-backed approver; approval decisions stay in their original surface.");
+      return;
+    }
+    this.writeJson(response, 200, { approvals: approvals.list() });
+  }
+
+  /** P1: submit a human decision on a parked approval. Fails closed on unknown/tampered ids. */
+  private async decideApproval(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const approvals = this.system.approvals;
+    if (!approvals) {
+      this.writeError(response, 404, "approval.queue_unavailable", "This system was not started with a queue-backed approver; approval decisions stay in their original surface.");
+      return;
+    }
+    const suffix = path.endsWith("/approve") ? "/approve" : "/deny";
+    const id = decodeURIComponent(path.slice("/approvals/".length, -suffix.length));
+    const body = await this.readJson(request);
+    if (!isApprovalDecisionRequest(body)) {
+      this.writeError(response, 400, "approval.invalid_decision_request", "A decision requires a non-empty human actor; optional reason string.");
+      return;
+    }
+    const outcome = await approvals.decide(id, { approved: suffix === "/approve", decidedBy: body.actor, reason: body.reason });
+    if (!outcome.ok) {
+      this.writeError(response, outcome.error.code === "approval.not_pending" ? 404 : 409, outcome.error.code, outcome.error.message);
+      return;
+    }
+    this.writeJson(response, 200, outcome.data);
   }
 
   private async getMission(path: string, response: ServerResponse): Promise<void> {
@@ -403,6 +574,36 @@ export class QuackHttpServer {
       return;
     }
     this.writeJson(response, 200, persisted);
+  }
+
+  /** P1: trace-by-mission lookup over the existing TraceRepository. */
+  private async listTracesByMission(missionId: string | null, response: ServerResponse): Promise<void> {
+    if (!missionId || !missionId.trim()) {
+      this.writeError(response, 400, "trace.mission_required", "Provide ?missionId=… to list traces for one mission.");
+      return;
+    }
+    const traces = await this.system.storage.traces.list({ missionId });
+    this.writeJson(response, 200, { missionId, traces });
+  }
+
+  /**
+   * P7 Audit Center: the governance record, kept deliberately distinct from
+   * trace observability. Reads the real audit log through the existing
+   * AuditLog; payloads pass the same structural redaction as SSE so secrets
+   * never cross this boundary. Authentication is enforced by the server
+   * wrapper (same session as every other route — there is no anonymous
+   * audit path).
+   */
+  private async getAuditTrail(limitParam: string | null, response: ServerResponse): Promise<void> {
+    const limit = Math.max(1, Math.min(500, Number.parseInt(limitParam ?? "100", 10) || 100));
+    const events = await this.system.auditLog.readAll();
+    const recent = events.slice(-limit).reverse();
+    this.writeJson(response, 200, {
+      total: events.length,
+      returned: recent.length,
+      records: recent.map((event) => ({ ...event, payload: redactEventPayload(event.payload) })),
+      note: "Audit is the security/governance record; Trace Center covers mission observability.",
+    });
   }
 
   private async importSkill(request: IncomingMessage, response: ServerResponse): Promise<void> {
@@ -565,13 +766,351 @@ export class QuackHttpServer {
     this.writeJson(response, 200, { providerId: body.providerId, dryRun: true, ...health });
   }
 
+  /**
+   * P4: governed model streaming. Every call resolves provider.invoke through
+   * the capability broker (GovernedModelRuntime), chunk text is redacted at
+   * this wire boundary before being written or emitted, and each chunk is
+   * broadcast as `model.stream.chunk` so any `/events` client (Console) sees
+   * the same stream. Denial fails closed before any provider is contacted.
+   */
+  private async streamModel(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = await this.readJson(request);
+    if (!isModelStreamRequest(body)) {
+      this.writeError(response, 400, "model.invalid_stream_request", "A stream requires a non-empty prompt and actor; optional model.");
+      return;
+    }
+    const actor = body.actor;
+    const missionId = body.missionId;
+    const controller = new AbortController();
+    const onClientClose = () => controller.abort(new Error("Client disconnected."));
+    request.once("close", onClientClose);
+    response.writeHead(200, {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      "Connection": "keep-alive",
+      "X-Accel-Buffering": "no",
+    });
+    response.write(": governed-stream\n\n");
+    let chunksEmitted = 0;
+    let lastError: string | undefined;
+    try {
+      const iterator = this.system.governedModelRuntime.stream(
+        { prompt: body.prompt, ...(body.model ? { model: body.model } : {}) },
+        { missionId, actor, signal: controller.signal },
+      );
+      for await (const chunk of iterator) {
+        if (controller.signal.aborted) break;
+        const text = redactSecrets(chunk.text);
+        chunksEmitted += 1;
+        const payload: JsonObject = {
+          providerId: chunk.providerId, model: chunk.model, text, done: chunk.done,
+          ...(chunk.usage ? { usage: { inputTokens: chunk.usage.inputTokens, outputTokens: chunk.usage.outputTokens, ...(chunk.usage.totalTokens !== undefined ? { totalTokens: chunk.usage.totalTokens } : {}) } } : {}),
+          ...(missionId ? { missionId } : {}),
+        };
+        response.write(formatSse({ id: createId("event"), type: "model.stream.chunk", timestamp: new Date().toISOString(), actor, payload } as unknown as QuackEvent));
+        void this.system.events.emit("model.stream.chunk", payload, { actor }).catch(() => undefined);
+        if (chunk.done) break;
+      }
+    } catch (error) {
+      lastError = error instanceof Error ? error.message : String(error);
+    } finally {
+      request.removeListener("close", onClientClose);
+    }
+    response.write(formatSse({ id: createId("event"), type: "model.stream.chunk", timestamp: new Date().toISOString(), actor,
+      payload: { providerId: "runtime", model: body.model ?? "auto", text: "", done: true, ...(missionId ? { missionId } : {}), ...(lastError ? { error: redactSecrets(lastError) } : {}), ...(chunksEmitted === 0 && lastError ? { denied: true } : {}) } } as unknown as QuackEvent));
+    response.end();
+  }
+
+  private async getExtensions(response: ServerResponse): Promise<void> {
+    // P10.14 server surface: metadata-only extension catalog. Package
+    // content, entry file bodies, and secrets never cross this boundary;
+    // records are redacted at the wire like every other surface.
+    try {
+      const records = await this.system.ecosystem.list();
+      this.writeJson(response, 200, {
+        readOnly: true,
+        extensions: records.map((record) => JSON.parse(redactSecrets(JSON.stringify({
+          id: record.id,
+          version: record.version,
+          kind: record.manifest.kind,
+          name: record.manifest.name,
+          lifecycle: record.lifecycle,
+          signatureState: record.signatureState,
+          provenance: { kind: record.provenance.kind },
+          declaredCapabilities: record.manifest.capabilities,
+          declaredPermissions: record.manifest.permissions,
+          dependencyCount: record.manifest.dependencies.length,
+          integrityState: record.packageDigest === record.manifest.integrity.digest ? "MATCHED" : "MISMATCHED",
+          installedAt: record.installedAt,
+        }))) as JsonObject),
+      });
+    } catch {
+      // Malformed registry state fails closed — honest empty surface, never
+      // a fabricated catalog.
+      this.writeJson(response, 200, { readOnly: true, extensions: [] });
+    }
+  }
+
+  private async getGovernedMissions(response: ServerResponse): Promise<void> {
+    // P11 server surface: metadata-only governed mission runs. Prompts,
+    // model output, action arguments, and secrets never cross this
+    // boundary; records are already redacted at persistence and are
+    // re-redacted at the wire like every other surface.
+    // P14 (ADR 0048): each run also carries its durable recovery state —
+    // checkpoint recovery status, safe continuation point, and ambiguous
+    // step (when recovery parked the mission). Inspection only.
+    try {
+      const runs = await this.system.governedMissionLoop.listRuns();
+      const withRecovery = await Promise.all(runs.map(async (run) => {
+        const checkpoint = await this.system.governedMissionLoop.getCheckpoint(run.missionId).catch(() => undefined);
+        const recovery = await this.system.governedMissionLoop.inspectRecovery(run.missionId).catch(() => undefined);
+        return JSON.parse(redactSecrets(JSON.stringify({
+          missionId: run.missionId,
+          runId: run.runId,
+          state: run.currentState ?? "RUNNING",
+          stopReason: run.stopReason ?? null,
+          iterations: run.iterations.length,
+          startedAt: run.startedAt,
+          endedAt: run.endedAt ?? null,
+          // P14 recovery fields (metadata only).
+          recovery: recovery ? {
+            state: recovery.state,
+            nextStepIndex: recovery.nextStepIndex,
+            lastSettledStep: recovery.lastSettledStep,
+            ambiguousStep: recovery.ambiguousStep,
+          } : null,
+          checkpoint: checkpoint ? {
+            version: checkpoint.version,
+            recovery: checkpoint.recovery,
+            nextStepIndex: checkpoint.nextStepIndex,
+            recordedAt: checkpoint.recordedAt,
+            usage: checkpoint.usage,
+          } : null,
+          steps: run.iterations.map((step) => ({
+            step: step.index,
+            capability: step.selectedAction?.capability ?? null,
+            status: step.executionResult?.actionResult.status ?? null,
+            verification: step.verification?.status ?? null,
+            decision: step.permissionDecision?.decision ?? null,
+            // P12 (ADR 0046): honest execution/isolation state, metadata-only.
+            executionState: step.observations["executionState"] ?? null,
+            isolation: step.observations["isolation"] ?? null,
+            // P13 (ADR 0047): backend identity + verification provenance.
+            backend: step.observations["backend"] ?? null,
+            code: step.observations["code"] ?? null,
+            stopReason: step.stopReason ?? null,
+          })),
+        }))) as JsonObject;
+      }));
+      this.writeJson(response, 200, { readOnly: true, runs: withRecovery });
+    } catch {
+      // Malformed store state fails closed — honest empty surface.
+      this.writeJson(response, 200, { readOnly: true, runs: [] });
+    }
+  }
+
+  private async createGovernedMission(request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const body = await this.readJson(request);
+    if (!isRecord(body)) {
+      this.writeError(response, 400, "governed_mission.invalid_request", "Request body must be an object.");
+      return;
+    }
+    const rawGoal = body["objective"] ?? body["goal"];
+    if (typeof rawGoal !== "string" || !rawGoal.trim()) {
+      this.writeError(response, 400, "governed_mission.invalid_request", "Request body must include a non-empty string 'objective' or 'goal'.");
+      return;
+    }
+    const objective = rawGoal.trim();
+    const actor = typeof body["actor"] === "string" && body["actor"].trim() ? body["actor"].trim() : "api-operator";
+    const missionId = typeof body["missionId"] === "string" && body["missionId"].trim()
+      ? body["missionId"].trim()
+      : `gov_${createId("mission")}`;
+    const constraints = Array.isArray(body["constraints"])
+      ? body["constraints"].filter((c): c is string => typeof c === "string" && c.trim().length > 0)
+      : undefined;
+    const permissions = Array.isArray(body["permissions"])
+      ? body["permissions"].filter((p): p is string => typeof p === "string" && isPermission(p))
+      : undefined;
+
+    const id = missionId;
+    const now = new Date().toISOString();
+    const record: ApiMissionRecord = {
+      id,
+      state: "RUNNING",
+      goal: objective,
+      actor,
+      missionId,
+      iterations: 0,
+      mode: "governed",
+      safetyMode: "supervised",
+      dryRun: false,
+      createdAt: now,
+      updatedAt: now,
+    };
+    this.missions.set(id, record);
+
+    this.runGovernedMission(id, objective, actor, constraints, permissions);
+
+    this.writeJson(response, 202, {
+      id,
+      missionId,
+      state: "RUNNING",
+      objective,
+      actor,
+      mode: "governed",
+      createdAt: now,
+    });
+  }
+
+  private runGovernedMission(
+    id: string,
+    objective: string,
+    actor: string,
+    constraints?: readonly string[],
+    explicitPermissions?: readonly string[],
+  ): void {
+    const controller = new AbortController();
+    this.missionControllers.set(id, controller);
+
+    const permissions = explicitPermissions && explicitPermissions.length > 0
+      ? explicitPermissions
+      : ["provider.invoke", "workspace.read", "workspace.write"];
+
+    for (const perm of permissions) {
+      this.system.capabilityGrants.ensureGrant({
+        missionId: id,
+        capabilities: [`permission.${perm}`],
+        approval: {
+          approvedBy: `operator:${actor}`,
+          reason: `Operator capability declaration for governed mission ${id}.`,
+          approvedAt: new Date().toISOString(),
+        },
+      });
+    }
+
+    void (async () => {
+      try {
+        const result = await this.system.governedMissionLoop.run({
+          missionId: id,
+          objective,
+          constraints,
+          signal: controller.signal,
+        });
+        if (result.ok) {
+          const { run, finalState } = result.data;
+          this.updateMission(id, {
+            state: finalState === "SUCCEEDED" ? "COMPLETED" : "FAILED",
+            iterations: run.iterations.length,
+            stopReason: run.stopReason ?? null,
+          });
+        } else {
+          this.updateMission(id, {
+            state: "FAILED",
+            error: result.error.message,
+          });
+        }
+      } catch (err) {
+        const cancelled = controller.signal.aborted;
+        this.updateMission(id, {
+          state: "FAILED",
+          error: cancelled ? `Governed mission cancelled: ${err instanceof Error ? err.message : String(err)}` : (err instanceof Error ? err.message : String(err)),
+        });
+      } finally {
+        this.missionControllers.delete(id);
+      }
+    })();
+  }
+
+  private async getGovernedMissionById(path: string, response: ServerResponse): Promise<void> {
+    const missionId = decodeURIComponent(path.slice("/governed-missions/".length));
+    try {
+      const runs = await this.system.governedMissionLoop.listRuns();
+      const run = runs.find((r) => r.missionId === missionId);
+      if (!run) {
+        this.writeError(response, 404, "governed_mission.not_found", `Governed mission ${missionId} was not found.`);
+        return;
+      }
+      const checkpoint = await this.system.governedMissionLoop.getCheckpoint(missionId).catch(() => undefined);
+      const recovery = await this.system.governedMissionLoop.inspectRecovery(missionId).catch(() => undefined);
+      this.writeJson(response, 200, JSON.parse(redactSecrets(JSON.stringify({
+        missionId: run.missionId,
+        runId: run.runId,
+        state: run.currentState ?? "RUNNING",
+        stopReason: run.stopReason ?? null,
+        iterations: run.iterations.length,
+        startedAt: run.startedAt,
+        endedAt: run.endedAt ?? null,
+        recovery: recovery ? {
+          state: recovery.state,
+          nextStepIndex: recovery.nextStepIndex,
+          lastSettledStep: recovery.lastSettledStep,
+          ambiguousStep: recovery.ambiguousStep,
+        } : null,
+        checkpoint: checkpoint ? {
+          version: checkpoint.version,
+          recovery: checkpoint.recovery,
+          nextStepIndex: checkpoint.nextStepIndex,
+          recordedAt: checkpoint.recordedAt,
+          usage: checkpoint.usage,
+        } : null,
+        steps: run.iterations.map((step) => ({
+          step: step.index,
+          capability: step.selectedAction?.capability ?? null,
+          status: step.executionResult?.actionResult.status ?? null,
+          verification: step.verification?.status ?? null,
+          decision: step.permissionDecision?.decision ?? null,
+          executionState: step.observations["executionState"] ?? null,
+          isolation: step.observations["isolation"] ?? null,
+          backend: step.observations["backend"] ?? null,
+          code: step.observations["code"] ?? null,
+          stopReason: step.stopReason ?? null,
+        })),
+      }))));
+    } catch (err) {
+      this.writeError(response, 500, "governed_mission.query_failed", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private async cancelGovernedMission(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(path.slice("/governed-missions/".length, -"/cancel".length));
+    await this.readOptionalJson(request);
+    const controller = this.missionControllers.get(id);
+    const record = this.missions.get(id);
+    if (controller) {
+      controller.abort(new Error("Mission cancelled through the Governed Mission API."));
+      this.writeJson(response, 202, { id, state: "CANCELLING", note: "Cancellation was requested; the governed mission record reflects the terminal state shortly." });
+      return;
+    }
+    if (record) {
+      this.writeError(response, 409, "governed_mission.not_cancellable", `Governed mission ${id} is not running (state ${record.state}).`);
+      return;
+    }
+    this.writeError(response, 404, "governed_mission.not_found", `Governed mission ${id} was not found.`);
+  }
+
+  private async resumeGovernedMission(path: string, request: IncomingMessage, response: ServerResponse): Promise<void> {
+    const id = decodeURIComponent(path.slice("/governed-missions/".length, -"/resume".length));
+    const body = await this.readOptionalJson(request);
+    const record = this.missions.get(id);
+    const objective = record?.goal ?? (isRecord(body) && typeof body["objective"] === "string" ? body["objective"] : "Resume interrupted mission");
+    const actor = record?.actor ?? "api-operator";
+
+    this.updateMission(id, { state: "RUNNING" });
+    this.runGovernedMission(id, objective, actor);
+    this.writeJson(response, 202, { id, state: "RUNNING", note: "Governed mission resume dispatched through the recovery path." });
+  }
+
   private async getMemory(response: ServerResponse): Promise<void> {
-    const [missionMemory, evidenceMemory, identityMemory, tasks] = await Promise.all([
+    const [missionMemory, evidenceMemory, identityMemory, tasks, semantic] = await Promise.all([
       this.system.memory.search({ limit: 100 }),
       this.system.learningExperiences.list(),
       this.system.identityMemory.search(undefined, 100),
       this.system.storage.tasks.list(),
+      this.system.semanticMemory ? this.system.semanticMemory.list().then((records) => records.slice(0, 100)) : Promise.resolve([]),
     ]);
+    // P9.23: semantic memory inspection is metadata + content by explicit
+    // record (same authority as the canonical store); payloads redacted at
+    // the boundary like every other memory surface.
     this.writeJson(response, 200, {
       readOnly: true,
       mission: missionMemory,
@@ -582,6 +1121,26 @@ export class QuackHttpServer {
       recipes: this.system.recipes.listRecipes(),
       identity: identityMemory,
       tasks,
+      semantic: {
+        records: semantic.map((record) => JSON.parse(redactSecrets(JSON.stringify({
+          memoryId: record.memoryId,
+          scope: record.scope,
+          owner: record.owner,
+          contentPreview: record.content.length > 200 ? `${record.content.slice(0, 200)}...` : record.content,
+          contentHash: record.contentHash,
+          provenance: record.provenance,
+          lifecycle: record.lifecycle,
+          createdAt: record.createdAt,
+          updatedAt: record.updatedAt,
+          embedding: record.embedding ? {
+            providerId: record.embedding.providerId,
+            model: record.embedding.model,
+            embeddingVersion: record.embedding.embeddingVersion,
+            dimensions: record.embedding.dimensions,
+          } : null,
+        }))) as JsonObject),
+        stats: this.system.semanticMemory ? JSON.parse(redactSecrets(JSON.stringify(this.system.semanticMemory.stats()))) as JsonObject : { recordCount: 0, embeddingsEnabled: false },
+      },
     });
   }
 
@@ -790,6 +1349,120 @@ export class QuackHttpServer {
     this.writeJson(response, 200, { servers, supportedTransports: ["stdio", "streamable-http"], legacySse: false });
   }
 
+  private async getWorkspaceTree(response: ServerResponse): Promise<void> {
+    const root = this.system.config.workspaceRoot;
+    const ignoreSet = new Set(["node_modules", ".git", "dist", ".gemini", "coverage", ".next", ".turbo"]);
+    const buildTree = (dir: string, depth: number = 0): unknown[] => {
+      if (depth > 4) return [];
+      try {
+        const entries = readdirSync(dir, { withFileTypes: true });
+        const items = [];
+        for (const entry of entries) {
+          if (ignoreSet.has(entry.name)) continue;
+          const fullPath = join(dir, entry.name);
+          const relPath = relative(root, fullPath).replace(/\\/g, "/");
+          if (entry.isDirectory()) {
+            items.push({
+              name: entry.name,
+              path: relPath,
+              type: "directory",
+              children: buildTree(fullPath, depth + 1),
+            });
+          } else {
+            let size = 0;
+            try { size = statSync(fullPath).size; } catch {}
+            items.push({
+              name: entry.name,
+              path: relPath,
+              type: "file",
+              size,
+            });
+          }
+        }
+        return items;
+      } catch {
+        return [];
+      }
+    };
+    this.writeJson(response, 200, { root, tree: buildTree(root) });
+  }
+
+  private async getWorkspaceFile(rawPath: string | null, response: ServerResponse): Promise<void> {
+    if (!rawPath) {
+      this.writeError(response, 400, "workspace.invalid_path", "Path query parameter required.");
+      return;
+    }
+    const root = resolve(this.system.config.workspaceRoot);
+    const full = resolve(root, rawPath);
+    if (!full.startsWith(root) || !existsSync(full)) {
+      this.writeError(response, 404, "workspace.file_not_found", `File ${rawPath} not found within workspace.`);
+      return;
+    }
+    try {
+      const stats = statSync(full);
+      if (stats.isDirectory()) {
+        this.writeError(response, 400, "workspace.is_directory", `${rawPath} is a directory.`);
+        return;
+      }
+      if (stats.size > 1024 * 1024) {
+        this.writeError(response, 400, "workspace.file_too_large", `File exceeds 1MB preview limit.`);
+        return;
+      }
+      const content = readFileSync(full, "utf-8");
+      this.writeJson(response, 200, {
+        path: relative(root, full).replace(/\\/g, "/"),
+        size: stats.size,
+        content,
+      });
+    } catch (err) {
+      this.writeError(response, 500, "workspace.read_error", err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private async getWorkspaceGit(response: ServerResponse): Promise<void> {
+    const root = this.system.config.workspaceRoot;
+    try {
+      const branchRes = await executeProcess({
+        command: "git",
+        args: ["branch", "--show-current"],
+        workingDirectory: root,
+        environment: { PATH: process.env["PATH"] ?? "" },
+        timeoutMs: 3000,
+      });
+      const branch = branchRes.stdout.trim();
+
+      const statusRes = await executeProcess({
+        command: "git",
+        args: ["status", "--porcelain"],
+        workingDirectory: root,
+        environment: { PATH: process.env["PATH"] ?? "" },
+        timeoutMs: 3000,
+      });
+      const statusOut = statusRes.stdout.trim();
+      const lines = statusOut ? statusOut.split("\n") : [];
+      const modified: string[] = [];
+      const untracked: string[] = [];
+      for (const line of lines) {
+        const file = line.slice(3).trim();
+        if (line.startsWith("??")) untracked.push(file);
+        else modified.push(file);
+      }
+      this.writeJson(response, 200, {
+        branch: branch || "main",
+        clean: lines.length === 0,
+        modified,
+        untracked,
+      });
+    } catch {
+      this.writeJson(response, 200, {
+        branch: "detached",
+        clean: true,
+        modified: [],
+        untracked: [],
+      });
+    }
+  }
+
   private async getSystemStatus(response: ServerResponse): Promise<void> {
     const actions = await this.system.storage.actionExecutions.list(500);
     this.writeJson(response, 200, {
@@ -922,11 +1595,14 @@ function isMissionSubmission(value: unknown): value is StudioMissionSubmission {
     value["goal"].trim().length > 0 &&
     (value["actor"] === undefined || typeof value["actor"] === "string") &&
     (value["missionId"] === undefined || typeof value["missionId"] === "string") &&
+    (value["engine"] === undefined || typeof value["engine"] === "string") &&
     (value["mode"] === undefined || typeof value["mode"] === "string") &&
     (value["providerId"] === undefined || typeof value["providerId"] === "string") &&
     (value["model"] === undefined || typeof value["model"] === "string") &&
     (value["safetyMode"] === undefined || typeof value["safetyMode"] === "string") &&
-    (value["dryRun"] === undefined || typeof value["dryRun"] === "boolean");
+    (value["dryRun"] === undefined || typeof value["dryRun"] === "boolean") &&
+    (value["permissions"] === undefined || (Array.isArray(value["permissions"]) && value["permissions"].every((p) => typeof p === "string"))) &&
+    (value["constraints"] === undefined || (Array.isArray(value["constraints"]) && value["constraints"].every((c) => typeof c === "string")));
 }
 
 function isSkillImportRequest(value: unknown): value is { readonly path: string } {
@@ -940,6 +1616,18 @@ function isOptionalVersionRequest(value: unknown): value is { readonly version?:
 function isProposalDecisionRequest(value: unknown): value is { readonly confirm: true; readonly actor: string; readonly reason?: string } {
   return isRecord(value) && value["confirm"] === true && typeof value["actor"] === "string" && value["actor"].trim().length > 0 &&
     (value["reason"] === undefined || typeof value["reason"] === "string");
+}
+
+function isApprovalDecisionRequest(value: unknown): value is { readonly actor: string; readonly reason?: string } {
+  return isRecord(value) && typeof value["actor"] === "string" && value["actor"].trim().length > 0 &&
+    (value["reason"] === undefined || typeof value["reason"] === "string");
+}
+
+function isModelStreamRequest(value: unknown): value is { readonly prompt: string; readonly actor: string; readonly model?: string; readonly missionId?: string } {
+  return isRecord(value) && typeof value["prompt"] === "string" && value["prompt"].trim().length > 0 &&
+    typeof value["actor"] === "string" && value["actor"].trim().length > 0 &&
+    (value["model"] === undefined || typeof value["model"] === "string") &&
+    (value["missionId"] === undefined || typeof value["missionId"] === "string");
 }
 
 function isRecipeCategory(value: string): value is AppRecipeCategory {
@@ -981,13 +1669,34 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 function formatSse(event: QuackEvent): string {
+  // Redaction happens at the wire boundary: payload strings are scrubbed
+  // before crossing SSE, so credentials never reach a client stream. Key
+  // redaction mirrors src/recovery/backup.ts; string redaction reuses
+  // redactSecrets. JSON stays valid (replacements are plain literals).
+  const data = JSON.stringify({ ...event, payload: redactEventPayload(event.payload) });
   return [
     `id: ${event.id}`,
     `event: ${event.type}`,
-    `data: ${JSON.stringify(event)}`,
+    `data: ${data}`,
     "",
     "",
   ].join("\n");
+}
+
+function redactEventPayload(value: unknown): unknown {
+  if (typeof value === "string") return redactSecrets(value);
+  if (Array.isArray(value)) return value.map(redactEventPayload);
+  if (isRecord(value)) {
+    return Object.fromEntries(Object.entries(value).map(([key, item]) => [
+      key,
+      isSecretEventKey(key) ? "[REDACTED]" : redactEventPayload(item),
+    ]));
+  }
+  return value;
+}
+
+function isSecretEventKey(key: string): boolean {
+  return /(?:^|_)(?:key|token|secret|password|passwd|credential|credentials|apikey|authorization|cookie)$/i.test(key) || /^.*_API_KEY$/i.test(key);
 }
 
 function stateFromMissionStatus(status: string): ApiMissionRecord["state"] {

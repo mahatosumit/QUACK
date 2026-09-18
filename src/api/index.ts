@@ -7,11 +7,27 @@ export interface MissionSubmission {
   readonly missionId?: string;
   readonly goal: string;
   readonly actor?: string;
+  readonly signal?: AbortSignal;
+  readonly engine?: "governed" | "dag";
+  readonly mode?: string;
+  readonly permissions?: readonly string[];
+  readonly constraints?: readonly string[];
+}
+
+export interface GovernedMissionInput {
+  readonly missionId?: string;
+  readonly objective: string;
+  readonly actor?: string;
+  readonly permissions?: readonly string[];
+  readonly constraints?: readonly string[];
+  readonly signal?: AbortSignal;
 }
 
 export interface MissionStatus {
   readonly missionId?: string;
   readonly loopId: string;
+  /** Durable runtime task id — the handle for cancel/resume operations. */
+  readonly taskId?: string;
   readonly state: string;
   readonly iterations: number;
   readonly error?: string;
@@ -37,8 +53,18 @@ export class QuackApi {
   }
 
   async submitMission(input: MissionSubmission): Promise<MissionStatus> {
+    if (input.engine === "governed" || input.mode === "governed") {
+      return this.submitGovernedMission({
+        missionId: input.missionId,
+        objective: input.goal,
+        actor: input.actor,
+        permissions: input.permissions,
+        constraints: input.constraints,
+        signal: input.signal,
+      });
+    }
     const system = this.getSystem();
-    const task = await system.runtime.submitGoal(input.goal, input.actor ?? "api", { missionId: input.missionId, origin: "api" });
+    const task = await system.runtime.submitGoal(input.goal, input.actor ?? "api", { missionId: input.missionId, origin: "api", signal: input.signal });
     if (!task.ok) throw Object.assign(new Error(task.error.message), { code: task.error.code });
     const loopResult = system.runtime.getLoopResult(task.data.id);
     if (!loopResult) throw new Error(String(task.data.error?.message ?? "Mission was not admitted to a runtime session."));
@@ -51,12 +77,67 @@ export class QuackApi {
     this.missions.set(loopResult.runId, loopResult);
     this.traces.set(loopResult.runId, trace);
     this.evaluations.set(loopResult.runId, evaluation);
-    return this.statusFromResult(loopResult);
+    return { ...this.statusFromResult(loopResult), taskId: task.data.id };
+  }
+
+  /** Run an objective through the governed model-in-the-loop runtime with capability gating. */
+  async submitGovernedMission(input: GovernedMissionInput): Promise<MissionStatus> {
+    const system = this.getSystem();
+    const missionId = input.missionId ?? `gov_${Date.now().toString(36)}`;
+    const actor = input.actor ?? "api";
+    const permissions = input.permissions ?? ["provider.invoke", "workspace.read", "workspace.write"];
+    for (const perm of permissions) {
+      system.capabilityGrants.ensureGrant({
+        missionId,
+        capabilities: [`permission.${perm}`],
+        approval: {
+          approvedBy: `operator:${actor}`,
+          reason: `Explicit operator capability declaration for governed mission ${missionId}.`,
+          approvedAt: new Date().toISOString(),
+        },
+      });
+    }
+    const result = await system.governedMissionLoop.run({
+      missionId,
+      objective: input.objective,
+      constraints: input.constraints,
+      signal: input.signal,
+    });
+    if (!result.ok) {
+      throw Object.assign(new Error(result.error.message), { code: result.error.code });
+    }
+    const { run, finalState } = result.data;
+    return {
+      missionId: run.missionId,
+      loopId: run.runId,
+      taskId: run.missionId,
+      state: finalState === "SUCCEEDED" ? "COMPLETED" : "FAILED",
+      iterations: run.iterations.length,
+      error: finalState === "SUCCEEDED" ? undefined : (run.stopReason ?? undefined),
+    };
   }
 
   getStatus(loopId: string): MissionStatus | undefined {
     const result = this.missions.get(loopId);
     return result ? this.statusFromResult(result) : undefined;
+  }
+
+  /** Resume an interrupted mission through the canonical recovery path. */
+  async resumeMission(missionId: string): Promise<MissionStatus> {
+    const system = this.getSystem();
+    const result = await system.runtime.resumeMission(missionId);
+    if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code });
+    const loopResult = system.runtime.getLoopResult(result.data.id);
+    if (!loopResult) return {
+      missionId: result.data.execution?.missionId ?? missionId,
+      loopId: result.data.id,
+      taskId: result.data.id,
+      state: result.data.status === "completed" ? "COMPLETED" : result.data.status === "failed" ? "FAILED" : result.data.status === "created" ? "PENDING" : "RUNNING",
+      iterations: 0,
+      error: typeof result.data.error?.message === "string" ? result.data.error.message : undefined,
+    };
+    this.missions.set(loopResult.runId, loopResult);
+    return this.statusFromResult(loopResult);
   }
 
   getTrace(loopId: string): MissionTrace | undefined {

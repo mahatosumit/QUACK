@@ -106,7 +106,7 @@ test("improvement cycle promotion persists native version state across restart",
     assert.equal(restarted.get("contract-impact-analysis")?.manifest.version, "1.1.0");
     assert.equal(restarted.getVersionSupersededBy("contract-impact-analysis", "1.0.0"), "1.1.0");
   } finally {
-    await rm(stateDir, { recursive: true, force: true });
+    await rm(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -267,7 +267,7 @@ test("persisted checkpoint survives restart without duplicating processed work",
     assert.equal(secondRun.reviewItemsCreated.length, 0);
     assert.equal(secondRun.checkpoint.reviewItems.length, 1);
   } finally {
-    await rm(stateDir, { recursive: true, force: true });
+    await rm(stateDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -300,8 +300,8 @@ test("production integration runs persisted evidence through cycle into future s
       source: "generated",
     });
   } finally {
-    await rm(workspaceRoot, { recursive: true, force: true });
-    await rm(dataDir, { recursive: true, force: true });
+    await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+    await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 

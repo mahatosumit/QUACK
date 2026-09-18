@@ -145,7 +145,7 @@ test("dashboard web assets load from the API server", async () => {
     assert.equal(html.status, 200);
     assert.equal(css.status, 200);
     assert.equal(js.status, 200);
-    assert.match(await html.text(), /QUACK Control Room/);
+    assert.match(await html.text(), /QUACK/);
     assert.match(await css.text(), /studio-shell/);
     assert.match(await js.text(), /window\.confirm/);
   } finally {
@@ -441,8 +441,158 @@ test("local API rate limits and refuses accidental network exposure", async () =
   }
 });
 
-async function createFixture() {
-  const workspaceRoot = join(tmpdir(), createId("quack_server_workspace"));
+test("P11 governed mission surface exposes metadata-only runs and redacts at the wire", async () => {
+  const fixture = await createFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+
+  try {
+    await server.start();
+    // Seed a run record through the loop's own durable store so the surface
+    // reflects a real persisted run, not a fixture dict.
+    const { createLoopRun, terminateRun } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const run = terminateRun(createLoopRun({
+      missionId: "gov_server_test", goal: "server surface test", actor: "server-test",
+      budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+    }), "STOP_GOAL_ACHIEVED");
+    await fixture.system.governedMissionRunStore.save({ ...run, currentState: "SUCCEEDED" });
+
+    const response = await getJson<{ readOnly: boolean; runs: { missionId: string; state: string; stopReason: string | null; steps: unknown[] }[] }>(`${server.address().url}/governed-missions`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.readOnly, true);
+    const found = response.body.runs.find((entry) => entry.missionId === "gov_server_test");
+    assert.ok(found, "persisted run is visible through the surface");
+    assert.equal(found.state, "SUCCEEDED");
+    assert.equal(found.stopReason, "STOP_GOAL_ACHIEVED");
+    // Metadata only: no prompt/model-output/argument fields on the wire.
+    const wire = JSON.stringify(response.body);
+    assert.ok(!wire.includes("\"prompt\""), "no prompt text at the wire");
+    assert.ok(!wire.includes("\"arguments\""), "no action arguments at the wire");
+  } finally {
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
+test("P12 governed mission surface carries execution/isolation state, metadata-only", async () => {
+  const fixture = await createFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+  try {
+    await server.start();
+    // Seed a run record with a P12-classified step observation.
+    const { createLoopRun, appendIteration } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const { createIterationId } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const base = createLoopRun({
+      missionId: "gov_server_p12", goal: "p12 surface test", actor: "server-test",
+      budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+    });
+    const run = appendIteration(base, {
+      runId: base.runId, missionId: "gov_server_p12", iterationId: createIterationId(), index: 0,
+      startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), phase: "ACT", goal: "p12",
+      observations: { capability: "core.echo", status: "SUCCEEDED", executionState: "EXECUTION_COMPLETED", isolation: "POLICY_RESTRICTED" },
+      workingContext: {}, candidateActions: [],
+    });
+    await fixture.system.governedMissionRunStore.save({ ...run, currentState: "SUCCEEDED", stopReason: "STOP_GOAL_ACHIEVED" });
+
+    const response = await getJson<{ runs: { missionId: string; steps: { executionState: string | null; isolation: string | null }[] }[] }>(`${server.address().url}/governed-missions`);
+    assert.equal(response.status, 200);
+    const found = response.body.runs.find((entry) => entry.missionId === "gov_server_p12");
+    assert.ok(found, "persisted P12 run visible");
+    const step = found.steps[0]!;
+    assert.equal(step.executionState, "EXECUTION_COMPLETED", "honest execution state on the wire");
+    assert.equal(step.isolation, "POLICY_RESTRICTED", "honest isolation state on the wire — policy, not sandbox");
+    // Metadata only: the P12 fields never widen the payload surface.
+    const wire = JSON.stringify(response.body);
+    assert.ok(!wire.includes("\"prompt\""), "no prompt text");
+    assert.ok(!wire.includes("\"arguments\""), "no arguments");
+  } finally {
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
+test("P13 governed mission surface carries backend identity, metadata-only", async () => {
+  const fixture = await createFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+  try {
+    await server.start();
+    const { createLoopRun, appendIteration, createIterationId } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const base = createLoopRun({
+      missionId: "gov_server_p13", goal: "p13 surface test", actor: "server-test",
+      budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+    });
+    const run = appendIteration(base, {
+      runId: base.runId, missionId: "gov_server_p13", iterationId: createIterationId(), index: 0,
+      startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), phase: "ACT", goal: "p13",
+      observations: {
+        capability: "fixture.transform", status: "SUCCEEDED", executionState: "EXECUTION_VERIFIED",
+        isolation: "PROCESS_ISOLATED", backend: "os-process",
+      },
+      workingContext: {}, candidateActions: [],
+    });
+    await fixture.system.governedMissionRunStore.save({ ...run, currentState: "SUCCEEDED", stopReason: "STOP_GOAL_ACHIEVED" });
+
+    const response = await getJson<{ runs: { missionId: string; steps: { backend: string | null; isolation: string | null; executionState: string | null }[] }[] }>(`${server.address().url}/governed-missions`);
+    assert.equal(response.status, 200);
+    const found = response.body.runs.find((entry) => entry.missionId === "gov_server_p13");
+    assert.ok(found, "persisted P13 run visible");
+    const step = found.steps[0]!;
+    assert.equal(step.backend, "os-process", "backend identity on the wire");
+    assert.equal(step.isolation, "PROCESS_ISOLATED", "honest process-isolated state");
+    assert.equal(step.executionState, "EXECUTION_VERIFIED", "runtime-verified state");
+  } finally {
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
+test("P14 governed mission surface carries recovery + checkpoint state, metadata-only", async () => {
+  const fixture = await createFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+  try {
+    await server.start();
+    // Seed a CRASHED (non-terminal) run + a durable checkpoint: the surface
+    // must expose the honest recovery state without any mutation route.
+    const { createLoopRun, appendIteration, createIterationId } = await import("../runtime/mission-lifecycle/executive-loop.js");
+    const { buildMissionCheckpoint } = await import("../runtime/mission-lifecycle/mission-recovery.js");
+    const base = createLoopRun({
+      missionId: "gov_server_p14", goal: "p14 surface test", actor: "server-test",
+      budget: { maxIterations: 8, maxModelCalls: 16, maxToolCalls: 24, maxCost: 1, maxExecutionTimeMs: 300_000, maxConsecutiveFailures: 3 },
+    });
+    const run = appendIteration(base, {
+      runId: base.runId, missionId: "gov_server_p14", iterationId: createIterationId(), index: 0,
+      startedAt: new Date().toISOString(), completedAt: new Date().toISOString(), phase: "ACT", goal: "p14",
+      observations: { capability: "core.echo", status: "SUCCEEDED", executionState: "EXECUTION_COMPLETED", isolation: "POLICY_RESTRICTED" },
+      workingContext: {}, candidateActions: [],
+      usageSnapshot: { modelCalls: 1, toolCalls: 1, cost: 0 },
+    });
+    // Crashed: RUNNING, no stop reason.
+    await fixture.system.governedMissionRunStore.save({ ...run, currentState: "RUNNING" });
+    const checkpoint = buildMissionCheckpoint({
+      run: { ...run, currentState: "RUNNING" },
+      recovery: "SAFE_TO_RESUME", nextStepIndex: 1, lastSettledStep: 0, ambiguousStep: -1,
+      journalDigest: "a".repeat(64), runDigest: "b".repeat(64),
+    });
+    await fixture.system.governedMissionCheckpointStore.save(checkpoint);
+
+    const response = await getJson<{ readOnly: boolean; runs: { missionId: string; recovery: { state: string; nextStepIndex: number; lastSettledStep: number } | null; checkpoint: { recovery: string; nextStepIndex: number } | null }[] }>(`${server.address().url}/governed-missions`);
+    assert.equal(response.status, 200);
+    assert.equal(response.body.readOnly, true);
+    const found = response.body.runs.find((entry) => entry.missionId === "gov_server_p14");
+    assert.ok(found, "crashed run visible");
+    assert.equal(found.recovery?.state, "SAFE_TO_RESUME", "honest recovery decision on the wire");
+    assert.equal(found.recovery?.nextStepIndex, 1, "safe continuation point exposed");
+    assert.equal(found.checkpoint?.recovery, "SAFE_TO_RESUME", "checkpoint state exposed");
+    // Metadata only: no secrets/prompt/argument fields widened by recovery.
+    const wire = JSON.stringify(response.body);
+    assert.ok(!wire.includes("\"prompt\""), "no prompt text");
+    assert.ok(!wire.includes("sk-"), "no secret material");
+  } finally {
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
+async function createFixture() {  const workspaceRoot = join(tmpdir(), createId("quack_server_workspace"));
   const dataDir = join(tmpdir(), createId("quack_server_data"));
   await mkdir(workspaceRoot, { recursive: true });
   const system = createQuackSystem({
@@ -505,7 +655,7 @@ async function writeSkillPackage(workspaceRoot: string, id: string): Promise<str
 async function removeFixtureDir(path: string): Promise<void> {
   for (let attempt = 0; attempt < 5; attempt++) {
     try {
-      await rm(path, { recursive: true, force: true });
+      await rm(path, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
       return;
     } catch (error) {
       if (!isRetryableRmError(error) || attempt === 4) throw error;

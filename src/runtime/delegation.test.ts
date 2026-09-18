@@ -14,7 +14,7 @@ function parentGrant(grants: ReturnType<typeof recoveryFixture>["grants"]): stri
 
 test("delegation runs the child through the canonical runtime and returns a verified receipt chain", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-delegation-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
   const grants = fixture.grants;
@@ -43,7 +43,7 @@ test("delegation runs the child through the canonical runtime and returns a veri
 
 test("delegation cannot widen authority: escalation fails closed at grant derivation", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-delegation-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
 
@@ -64,7 +64,7 @@ test("delegation cannot widen authority: escalation fails closed at grant deriva
 
 test("delegation depth ceiling fails closed", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-delegation-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
 
@@ -82,7 +82,7 @@ test("delegation depth ceiling fails closed", async t => {
 
 test("duplicate active delegation for the same parent execution and goal fails closed", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-delegation-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
 
@@ -120,7 +120,7 @@ test("duplicate active delegation for the same parent execution and goal fails c
 
 test("delegation with missing identity or empty capabilities fails closed", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-delegation-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
   const delegator = new DelegationRuntime({ maxDepth: 2, parentGrantId: parentGrant(fixture.grants), grants: fixture.grants,
@@ -184,7 +184,7 @@ test("assertChildReceipt rejects forged, unverified, and incomplete child result
 
 test("fan-out completes only when every child produces a verified receipt", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-fanout-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
 
@@ -214,7 +214,7 @@ test("fan-out completes only when every child produces a verified receipt", asyn
 
 test("fan-out with one failed child reports PARTIAL and never completes the parent", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-fanout-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
 
@@ -242,7 +242,7 @@ test("fan-out with one failed child reports PARTIAL and never completes the pare
 
 test("fan-out cancellation before child start records CANCELLED and reports PARTIAL", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-fanout-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
 
@@ -275,7 +275,7 @@ test("empty fan-out fails deterministically", async () => {
 
 test("fan-out depth exhaustion is reported per child without completing the parent", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-fanout-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const fixture = recoveryFixture(dir);
   t.after(() => fixture.runtime.shutdown());
 

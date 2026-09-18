@@ -87,7 +87,7 @@ test("A/B: eligible improvement output persists an awaiting-approval proposal wi
     assert.equal(fixture.getToolCalls(), 0);
     assert.ok(seen.includes("proposal.awaiting_approval"));
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -100,7 +100,7 @@ test("C: vague or non-code improvement output creates no code proposal", async (
     assert.equal(result.skipped, 1);
     assert.equal((await fixture.controller.listExperiments()).length, 0);
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -120,7 +120,7 @@ test("D/E: explicit approval is required and rejection remains mutation-free", a
     assert.equal(afterRejection.ok, false);
     assert.equal(fixture.getToolCalls(), 0);
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -131,7 +131,7 @@ test("H: improvement-originated output cannot recursively create another proposa
     assert.equal(result.proposals.length, 0);
     assert.equal((await fixture.controller.listExperiments()).length, 0);
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -154,7 +154,7 @@ test("I: improvement-cycle failure is contained and does not escape mission comp
     assert.ok(events.includes("improvement.failed"));
     assert.equal((await fixture.controller.listExperiments()).length, 0);
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -175,6 +175,6 @@ test("A: eligible mission coordinator sends actionable cycle output through the 
     assert.equal(records.length, 1);
     assert.equal(records[0]?.status, "PROPOSED");
   } finally {
-    await rm(fixture.root, { recursive: true, force: true });
+    await rm(fixture.root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });

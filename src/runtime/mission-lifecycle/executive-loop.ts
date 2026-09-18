@@ -334,6 +334,19 @@ export interface IterationRecord {
    * holding the full error payload.
    */
   readonly executionErrorSignature?: string;
+
+  /**
+   * P14 (ADR 0048): the authoritative usage snapshot at the end of this
+   * step — cumulative counters the run had consumed when the step settled.
+   * Persisted so a restart reconstructs consumed budget from the record
+   * instead of resetting it. Older records without it reconstruct usage
+   * from iteration counts (conservative floor, never a grant).
+   */
+  readonly usageSnapshot?: {
+    readonly modelCalls: number;
+    readonly toolCalls: number;
+    readonly cost: number;
+  };
 }
 
 export interface LoopRun {
@@ -377,14 +390,50 @@ export function createLoopRun(params: {
 
 export function appendIteration(run: LoopRun, iteration: IterationRecord): LoopRun {
   const iterations = [...run.iterations, iteration];
+  // P14 (ADR 0048) budget recovery: the iteration record is the durable
+  // usage ledger. Model/tool calls consumed INSIDE the step (including
+  // bounded retries — each recorded attempt carries its own usage snapshot)
+  // are folded into run.usage so a restart reconstructs consumed budget
+  // from the persisted record instead of resetting it. Monotonic: usage can
+  // only grow (restarts never grant budget back).
+  const iterUsage = iterationUsage(iteration);
   const usage: BudgetUsage = {
     ...run.usage,
     iterations: iterations.length,
+    modelCalls: Math.max(run.usage.modelCalls, iterUsage?.modelCalls ?? 0),
+    toolCalls: Math.max(run.usage.toolCalls, iterUsage?.toolCalls ?? 0),
+    cost: Math.max(run.usage.cost, iterUsage?.cost ?? 0),
     consecutiveFailures: iteration.executionResult?.actionResult?.status === "SUCCEEDED"
       ? 0
       : run.usage.consecutiveFailures + (iteration.executionResult !== undefined ? 1 : 0),
   };
   return { ...run, iterations, usage, currentPhase: iteration.phase };
+}
+
+/**
+ * P14: the authoritative usage snapshot taken at the END of one step, just
+ * before it becomes durable. The loop calls this right before append so the
+ * persisted iteration carries exact consumed counters (model calls include
+ * bounded parse/model retries for this step).
+ */
+export function usageSnapshotAtStepEnd(usage: BudgetUsage, stepUsage: BudgetUsage): BudgetUsage {
+  // The step's counters are cumulative from the run's current usage; keep
+  // the maximum of both to stay monotonic across restarts.
+  return {
+    ...stepUsage,
+    modelCalls: Math.max(usage.modelCalls, stepUsage.modelCalls),
+    toolCalls: Math.max(usage.toolCalls, stepUsage.toolCalls),
+    cost: Math.max(usage.cost, stepUsage.cost),
+  };
+}
+
+/** P14: read the persisted usage snapshot off an iteration record (if present). */
+function iterationUsage(iteration: IterationRecord): Pick<BudgetUsage, "modelCalls" | "toolCalls" | "cost"> | undefined {
+  const usage = (iteration as IterationRecord & { readonly usageSnapshot?: Pick<BudgetUsage, "modelCalls" | "toolCalls" | "cost"> }).usageSnapshot;
+  if (!usage || typeof usage !== "object") return undefined;
+  const { modelCalls, toolCalls, cost } = usage;
+  if (typeof modelCalls !== "number" || typeof toolCalls !== "number" || typeof cost !== "number") return undefined;
+  return { modelCalls, toolCalls, cost };
 }
 
 export function applyTransition(run: LoopRun, transition: MissionTransition, state: MissionState): LoopRun {

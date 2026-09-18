@@ -182,8 +182,8 @@ for (const scenario of scenarios) {
             });
             assert.ok(stored.some((item) => item.source === "e2e"));
     } finally {
-      await rm(workspaceRoot, { recursive: true, force: true });
-      await rm(dataDir, { recursive: true, force: true });
+      await rm(workspaceRoot, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
+      await rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
     }
   });
 }

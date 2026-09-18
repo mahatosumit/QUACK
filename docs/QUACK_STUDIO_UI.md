@@ -8,9 +8,12 @@ and keeps runtime authority and credentials on the server.
 
 - **Overview**: runtime truth, mission count, reachable providers, approvals, and
   explicit setup blockers.
-- **Missions**: durable mission ledger, submission, dry run, trace, events,
-  verification, and evidence.
-- **Agents**: registered workers without claiming that idle entries are executing.
+- **Console**: conversational mission composer; live mission state via SSE;
+  governed model streaming (broker-gated, denial fails closed).
+- **Missions**: Mission Control lanes (active/queued, waiting-approval, failed,
+  recent), submission, dry run, cancel/resume, and the mission ledger.
+- **Agents**: Agent Workspace — registered specialists, capabilities, trust,
+  assignment state, and evaluation-dimension summaries; no live-execution claim.
 - **Models**: Provider Control Center with capability discovery, reachability,
   health-only checks, fallback order, and evidence-based L0/L1 labels.
 - **Actions**: provider health, capability risk/approval catalog, durable execution
@@ -18,8 +21,17 @@ and keeps runtime authority and credentials on the server.
 - **Integrations**: MCP transports, boundaries, enabled state, and health.
 - **Browser**: Playwright boundary, action count, and default-deny posture.
 - **Files**: workspace and upload containment, not an unrestricted file picker.
-- **Approvals**: action approvals and conceptual improvement decisions.
-- **Evidence**: mission, experience, decision, and failure records.
+- **Approvals**: Approval Center — queue-backed human decisions (approve/deny
+  with expiry-deny), action approvals, and improvement decisions.
+- **Traces**: Trace Center — trace index and per-mission execution timelines
+  (capabilities, tools, verification, evidence chain, receipt) rendered from the
+  durable repository only; deterministic type/text filters.
+- **Artifacts**: evidence-backed tool outputs from stored traces with source
+  mission and producing tool; no separate artifact store.
+- **Evidence**: evaluation history (scores + capability/recovery/planning/
+  evidence dimensions), mission memory, decisions, and failures.
+- **Audit**: the security/governance record via `GET /audit` — distinct from
+  traces; payloads redacted at the boundary.
 - **System**: provider setup, API security, network default, MCP count, and action
   recovery state.
 - **Settings**: bounded improvement settings. Hard safety gates cannot be disabled.

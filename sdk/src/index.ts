@@ -24,6 +24,55 @@ export type { Task } from "@quack/os";
 export { InMemoryMemoryStore, JsonFileMemoryStore } from "@quack/os";
 export type { MemoryScope, MemoryRecord, MemoryStore } from "@quack/os";
 
+// Semantic Memory (P9, ADR 0043) — governed semantic memory / knowledge.
+// Stable contracts only: record/admission/retrieval/QIE-candidate shapes and
+// the service facade. No vector-database internals, no storage paths, no
+// provider clients, no policy objects. Memory is data, never authority.
+export {
+  SemanticMemoryService,
+  SEMANTIC_MEMORY_SCOPES,
+  SEMANTIC_MEMORY_BOUNDS,
+  semanticContentHash,
+  chunkSemanticMemory,
+  parseSemanticMemoryRecord,
+  admitSemanticMemory,
+  cosineSimilarity,
+  retrieveSemanticMemory,
+  resolveKnowledgeSource,
+  memoryCandidate,
+  memoryCandidatesFromRetrieval,
+  semanticMemoryAuthorities,
+  pipelineMemoryToQie,
+  scoreMemoryQuality,
+} from "@quack/os";
+export type {
+  SemanticMemoryScope,
+  SemanticMemorySourceKind,
+  SemanticMemoryLifecycle,
+  SemanticMemoryProvenance,
+  SemanticEmbeddingMetadata,
+  SemanticMemoryRecord,
+  SemanticMemoryChunk,
+  SemanticMemoryAdmissionRequest,
+  SemanticAdmissionRejection,
+  EmbedGatewayOptions,
+  EmbeddingRuntimeSurface,
+  GovernedEmbedResult,
+  SemanticRetrievalQuery,
+  SemanticRetrievalHit,
+  SemanticRetrievalResult,
+  KnowledgeSourceRequest,
+  KnowledgeSourceResult,
+  MemoryQiePipelineInput,
+  MemoryQiePipelineResult,
+  SemanticMemoryServiceOptions,
+  RememberRequest,
+  RememberResult,
+  RecallRequest,
+  MemoryQualityDimensions,
+  MemoryEvaluationEvidence,
+} from "@quack/os";
+
 // Knowledge Graph
 export { InMemoryKnowledgeGraphStore, InMemoryKnowledgeGraphStore as InMemoryKnowledgeGraph } from "@quack/os";
 export type { KnowledgeNode, KnowledgeEdge, KnowledgeHyperedge, KnowledgeHyperedge as HyperEdge, GraphQueryResult, GraphQueryResult as QueryResult } from "@quack/os";
@@ -55,6 +104,246 @@ export type { CompletionReceiptV1 } from "@quack/os";
 // Plugin hooks (governed observer execution)
 export { GovernedHookExecutor } from "@quack/os";
 export type { GovernedHook, HookDispatchRecord } from "@quack/os";
+
+// Instruction Engine (QIE, ADR 0042) — P8.9 public SDK surface.
+// Deterministic instruction/context compilation for governed model
+// dispatch: plan contract, fail-closed validation, deterministic composer
+// with canonical digest, context selection, firewall admission, governed
+// model adaptation, injection defense, metadata-only dispatch records,
+// quality scoring, and dispatch observation. Pure primitives; no side
+// effects, no provider I/O.
+export {
+  // Contract + validation
+  INSTRUCTION_PLAN_VERSION,
+  INSTRUCTION_LAYER_ORDER,
+  TRUST_CLASS_PRECEDENCE,
+  CATEGORY_TRUST_PAIRING,
+  createInstructionPlan,
+  validateInstructionPlan,
+  collectPlanIssues,
+  resolvePrecedence,
+  trustClassRank,
+  instructionSourceFromPrompt,
+  // Composition
+  composeInstructionPlan,
+  renderComposedText,
+  canonicalJson,
+  // Selection
+  selectContext,
+  // Firewall
+  admitContext,
+  // Model adaptation + dispatch
+  adaptComposedInstruction,
+  invokeGovernedInstruction,
+  // Defense
+  enforceInstructionDefense,
+  flagsToMetadata,
+  assertDispatchable,
+  // Records + scoring (P8.6)
+  buildInstructionRecord,
+  parseInstructionRecord,
+  recordToJsonObject,
+  distinctTrustClasses,
+  scoreInstructionQuality,
+  dominantTrustLane,
+  // Observability (P8.7)
+  InstructionObserver,
+} from "@quack/os";
+export type {
+  InstructionPlan,
+  InstructionPlanInput,
+  InstructionPlanIssue,
+  InstructionLayer,
+  InstructionLayerName,
+  ContextSourceItem,
+  ContextSourceCategory,
+  ContextProvenance,
+  TrustClass,
+  EvidenceItem,
+  EvidenceStatus,
+  InstructionBudget,
+  InstructionOutputContract,
+  InstructionOutputKind,
+  InstructionFailurePolicy,
+  InstructionFailureMode,
+  ComposedInstruction,
+  ComposedLayer,
+  InstructionBudgetReport,
+  OmittedItem,
+  InstructionSource,
+  RegistryPromptVersionView,
+  InstructionPlanIssueCode,
+  ContextCandidate,
+  SelectionInput,
+  SelectionResult,
+  SelectionReport,
+  SelectedEntry,
+  TrimmedEntry,
+  RejectedEntry,
+  SelectionRejectionCode,
+  FirewallAuthorities,
+  AdmissionInput,
+  AdmissionResult,
+  AdmissionRejection,
+  FirewallRejectionCode,
+  GovernedInvocationOptions,
+  GovernedInvocationContext,
+  GovernedDispatchRuntime,
+  InstructionDefenseResult,
+  InstructionDefenseErrorCode,
+  InjectionFlag,
+  GovernedInstructionRecord,
+  InstructionDispatchOutcome,
+  InstructionRecordErrorCode,
+  InstructionLayerCensus,
+  InstructionDispatchObserver,
+  InstructionQualityDimensions,
+  InstructionQualityResult,
+  InstructionEventSink,
+  InstructionObservationSummary,
+  ObservedDispatch,
+} from "@quack/os";
+
+// Ecosystem (P10, ADR 0044) — governed extension catalog contracts.
+// Metadata/manifest/lifecycle/resolution primitives only: no registry
+// file paths, no broker internals, no package content, no execution.
+export {
+  EXTENSION_KINDS,
+  EXTENSION_LIFECYCLE_STATES,
+  validateExtensionManifest,
+  parseExtensionManifest,
+  canonicalManifestForm,
+  packageDigest,
+  manifestDigest,
+  verifyPackageIntegrity,
+  extensionTrustView,
+  validateLifecycleTransition,
+  isTerminalState,
+  isResolvableState,
+  resolveDependencies,
+  dependencyList,
+  scoreEcosystemQuality,
+} from "@quack/os";
+export type {
+  ExtensionKind,
+  ExtensionDependencyDeclaration,
+  ExtensionPublisher,
+  ExtensionSourceProvenance,
+  ExtensionManifestV2,
+  ExtensionIntegrityDeclaration,
+  ManifestErrorCode,
+  ManifestRejection,
+  ExtensionSignatureState,
+  ExtensionTrustView,
+  ExtensionLifecycleState,
+  LifecycleTransition,
+  RegistryRecord,
+  RegistryErrorCode,
+  ResolvedDependencyNode,
+  DependencyResolutionResult,
+  DependencyErrorCode,
+  EcosystemQualityDimensions,
+  EcosystemEvaluationEvidence,
+} from "@quack/os";
+
+// Governed Mission Runtime (P11, ADR 0045) — the model-in-the-loop mission
+// loop and its fail-closed proposal parser. Stable composition contracts
+// only: no broker internals, no provider clients, no harness wiring, no
+// storage paths. The loop is provider-neutral; consumers inject their own
+// governed runtime and execution surfaces.
+export {
+  GovernedMissionLoop,
+  InMemoryMissionRunStore,
+  ACTION_PROPOSAL_SCHEMA_REF,
+  MAX_PROPOSAL_ARGUMENT_CHARS,
+  MAX_FINAL_MESSAGE_CHARS,
+  MAX_INTENT_CHARS,
+  MAX_RAW_PROPOSAL_CHARS,
+  parseActionProposal,
+  stepIdempotencyKey,
+  buildCapabilityIndex,
+  buildIterationPlan,
+} from "@quack/os";
+export type {
+  GovernedMissionLoopOptions,
+  GovernedMissionLoopResult,
+  MissionRunStore,
+  ParsedProposalIntent,
+  ProposalCapabilityIndex,
+  ParseProposalOptions,
+  ProposalErrorCode,
+} from "@quack/os";
+
+// Secure Execution & Isolation (P12, ADR 0046) — the canonical execution
+// policy, honest isolation classification, at-most-once step dispatch, and
+// runtime-evidence execution states. Provider-neutral contracts only: no
+// broker internals, no privileged execution primitives, no isolation
+// backends. POLICY_RESTRICTED is a policy boundary, not a sandbox claim.
+export {
+  EXECUTION_POLICY_VERSION,
+  DEFAULT_RISK_TIMEOUTS,
+  DEFAULT_MAX_OUTPUT_BYTES,
+  DEFAULT_MAX_CONCURRENT_STEPS,
+  resolveExecutionPolicy,
+  resolveIsolationState,
+  serializeExecutionPolicy,
+  parseExecutionPolicy,
+  policyDigest,
+  classifyExecutionState,
+  journalStateForExecution,
+  clampOutputBytes,
+  stepAttemptKey,
+  InMemoryStepAttemptJournal,
+  JsonFileStepAttemptJournal,
+} from "@quack/os";
+export type {
+  ExecutionPolicy,
+  ExecutionPolicyInput,
+  IsolationState,
+  ExecutionState,
+  ExecutionStateEvidence,
+  RiskLevelTimeouts,
+  StepAttemptJournal,
+  StepAttemptRecord,
+  StepAttemptState,
+} from "@quack/os";
+
+// P14 Durable Recovery + Verified Actions (ADR 0048) — the mission
+// checkpoint contract, the fenced recovery-state machine, reconciliation
+// over existing durable records, and the governed approval contract.
+// Inspection/composition surface only: no checkpoint-store internals, no
+// approval callbacks beyond the deny/console defaults, no privileged
+// recovery functions (nothing here can force a resume or forge authority).
+export {
+  MISSION_CHECKPOINT_VERSION,
+  parseMissionCheckpoint,
+  missionCheckpointDigest,
+  buildMissionCheckpoint,
+  serializeMissionCheckpoint,
+  reconcileMission,
+  journalStateDigest,
+  runRecordDigest,
+  assertRecoveryTransition,
+  InMemoryMissionCheckpointStore,
+  APPROVAL_RECORD_VERSION,
+  ApprovalRunner,
+  canonicalProposalDigest,
+  approvalRecordDigest,
+  parseApprovalRecord,
+  ConsoleApprovalRunnerCallback,
+  DenyApprovalRunnerCallback,
+  registerProductionAdapters,
+  WorkloadAdapterRegistry,
+} from "@quack/os";
+export type {
+  MissionCheckpoint,
+  RecoveryDecision,
+  RecoveryState,
+  ApprovalRecord,
+  ApprovalRequestInput,
+  ApprovalRunnerCallback,
+  ApprovalCallbackDecision,
+} from "@quack/os";
 
 // Workspace
 

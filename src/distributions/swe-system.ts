@@ -2,7 +2,8 @@ import { createBuiltinSkillCatalog } from "../skills/builtins/index.js";
 import { defaultSpecialistAgents, createSweToolPack } from "../extensions/packs/swe.js";
 import { compileSkillContributions } from "../skills/graph-composition.js";
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, mkdirSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { ExecutiveBrain } from "../brain/executive-brain.js";
 import { SimpleBrain } from "../brain/simple-brain.js";
 import { SkillOrchestrator } from "../brain/skill-orchestrator.js";
@@ -11,6 +12,8 @@ import { EventBus } from "../events/event-bus.js";
 import { type MemoryStore } from "../memory/memory.js";
 import { MemoryManager } from "../memory/os.js";
 import { InMemoryKnowledgeGraphStore } from "../memory/knowledge-graph.js";
+import { SemanticMemoryService } from "../memory/semantic/service.js";
+import { EcosystemService } from "../ecosystem/service.js";
 import { EchoProvider, ProviderRegistry } from "../providers/provider.js";
 import { OpenAiCompatibleProvider, createOllamaProvider, createVllmProvider } from "../providers/openai.js";
 import { ProviderFallbackRouter } from "../providers/router.js";
@@ -28,6 +31,7 @@ import { WorkspaceWriteFileTool } from "../tools/workspace-write.js";
 import { CodeSearchTool } from "../tools/code-search.js";
 import { TerminalTool } from "../tools/terminal.js";
 import { GitStatusTool } from "../tools/git-status.js";
+import { GitCommitTool, TestRunTool, DocsGenerateTool } from "../tools/swe-tools.js";
 import { AgentReachTool, AgentReachToolAdapter } from "../tools/agent-reach.js";
 import { AppRecipeRegistry, AWESOME_LLM_APPS_RECIPES } from "../recipes/index.js";
 import { SemanticLayer } from "../intelligence/semantic-layer.js";
@@ -41,7 +45,7 @@ import {
   SkillExecutor,
   type SkillRegistryLoadResult,
 } from "../skills/index.js";
-import { createModelRuntime, ModelRegistry, ModelRouter, type ModelRuntime } from "../models/index.js";
+import { createModelRuntime, loadModelRuntimeConfig, ModelRegistry, ModelRouter, type ModelRuntime } from "../models/index.js";
 import { GovernedModelRuntime, governModelRuntime } from "../models/governed-runtime.js";
 import { WorkspaceManager } from "../workspace/index.js";
 import { PluginRegistry } from "../plugins/index.js";
@@ -63,6 +67,7 @@ import { ContextLoader, type ContextBundle } from "../core/context/index.js";
 import { IdentityMemoryStore } from "../memory/identity-memory.js";
 import { DecisionMemoryStore } from "../memory/decision-memory.js";
 import { RiskAwareApprovalPolicy } from "../security/approval-controller.js";
+import { QueuedApprovalCallback } from "../security/approval-queue.js";
 import { JsonFileCapabilityGrantRegistry, PermissionBackedCapabilityBroker, buildToolCapabilityRequest, type CapabilityBroker, type CapabilityGrantRegistry } from "../security/capability-broker.js";
 import { readProviderCredentialForBoot } from "../security/secret-provider.js";
 import { EvaluatorAgent, type QualityReport } from "../evaluation/evaluator-agent.js";
@@ -72,9 +77,29 @@ import { Planner } from "../engine/planner.js";
 import { LifecycleManager as CoreLifecycleManager, AgentRegistry as CoreAgentRegistry, AgentMonitor as CoreAgentMonitor } from "../core/agents/index.js";
 import { CodeImprovementController, JsonFileCodeExperimentStore } from "../selfmod/index.js";
 import { AgentLoop } from "../agent-loop/index.js";
-import { createHarness, type LegacyHarness } from "../harness/index.js";
+import { createHarness, type LegacyHarness, createHarnessRegistry, registerQuackNativeHarness, registerDeepSeekHarness, type HarnessRegistry } from "../harness/index.js";
 import { QuackNativeHarness } from "../harness/registry.js";
 import { ActionRuntime, ActionProviderRegistry } from "../actions/runtime.js";
+import { GovernedMissionLoop, type MissionRunStore } from "../runtime/mission-lifecycle/governed-mission-loop.js";
+import { JsonFileMissionRunStore } from "../runtime/mission-lifecycle/mission-run-store.js";
+import { JsonFileStepAttemptJournal } from "../runtime/mission-lifecycle/step-attempt-journal.js";
+  // P13 (ADR 0047): real isolation backends + verified execution.
+  import { IsolationBackendRegistry } from "../isolation/backend-resolver.js";
+  import { ProcessIsolationBackend } from "../isolation/process-backend.js";
+  import { ContainerIsolationBackend } from "../isolation/container-backend.js";
+  import { IsolationSupervisor } from "../isolation/supervisor.js";
+  import { WorkloadAdapterRegistry } from "../isolation/workload-adapter.js";
+  import { JsonFileExecutionEvidenceStore } from "../isolation/execution-evidence.js";
+  // P14 (ADR 0048): durable mission recovery + approval runner + first
+  // production workload adapters.
+  import { JsonFileMissionCheckpointStore } from "../runtime/mission-lifecycle/mission-recovery.js";
+  import { ApprovalRunner, ConsoleApprovalRunnerCallback } from "../runtime/mission-lifecycle/approval-contract.js";
+  // P15 (ADR 0049): durable approval queue + trusted ambiguity reconciliation.
+  import { JsonFileApprovalStore, DurableApprovalRunner } from "../runtime/mission-lifecycle/approval-store.js";
+  import { ProbeRunner } from "../isolation/probe-runner.js";
+  import { registerProductionAdapters } from "../isolation/production-adapters.js";
+import { memoryCandidatesFromRetrieval } from "../memory/semantic/qie.js";
+import { InstructionObserver } from "../instruction/observer.js";
 import { type PermissionPolicy } from "../security/permissions.js";
 import { InMemoryActionExecutionLedger } from "../actions/ledger.js";
 import { SkillRuntime } from "../skills/runtime/index.js";
@@ -223,18 +248,58 @@ export interface QuackSystem {
   readonly identityMemory: IdentityMemoryStore;
   readonly decisionMemory: DecisionMemoryStore;
   readonly approvalPolicy: RiskAwareApprovalPolicy;
+  /**
+   * P1 Approval Center surface: present only when the caller supplies a
+   * queue-backed approver. Surfaces read/decide through it; they can never
+   * grant capabilities directly (the policy path stays the only authority).
+   */
+  readonly approvals?: QueuedApprovalCallback;
   readonly capabilityBroker: CapabilityBroker;
   readonly capabilityGrants: CapabilityGrantRegistry;
   /** Mission-scoped temporary companies. Role templates persist; live workers do not. */
   readonly companyRuntime: MissionCompanyRuntime;
   readonly evaluator: EvaluatorAgent;
   readonly knowledgePipeline: KnowledgeIngestionPipeline;
+  /**
+   * P9 governed semantic memory (ADR 0043): admission → explicit
+   * persistence → governed embedding → derived index → governed retrieval →
+   * QIE candidates. Memory stays DATA: no authority surface here.
+   */
+  readonly semanticMemory: SemanticMemoryService;
+  /**
+   * P10 ecosystem foundation (ADR 0044): governed extension package
+   * catalog — discovery/manifest/integrity/install/lifecycle over the SAME
+   * capability broker; declared capabilities are data, never grants, and
+   * package content is never executed here.
+   */
+  readonly ecosystem: EcosystemService;
+  /**
+   * P11 governed mission loop (ADR 0045): the first REAL model-in-the-loop
+   * mission path — QIE → governed model → fail-closed proposal parser →
+   * harness authorization → existing execution surfaces, with bounded
+   * budgets, deterministic recovery, and idempotent replay. Distinct from
+   * the static-graph `submitGoal` path; same broker/model/evaluator/bus.
+   */
+  readonly governedMissionLoop: GovernedMissionLoop;
+  /** P11 durable run-record store (audit + idempotent replay, not resume). */
+  readonly governedMissionRunStore: MissionRunStore;
+  /**
+   * P14 (ADR 0048): durable mission checkpoint store — the trusted
+   * recovery record (metadata only) the loop writes after every settled
+   * iteration and reconciles on restart. Inspection-only on surfaces.
+   */
+  readonly governedMissionCheckpointStore: import("../runtime/mission-lifecycle/mission-recovery.js").JsonFileMissionCheckpointStore;
+  /** P14: the governed approval runner (human decision surface). */
+  readonly missionApprovalRunner: import("../runtime/mission-lifecycle/approval-contract.js").ApprovalRunner;
+  /** P14: deployer-registered workload adapter registry (metadata-only views). */
+  readonly workloadAdapters: import("../isolation/workload-adapter.js").WorkloadAdapterRegistry;
   readonly workflowLoader: WorkflowLoader;
   readonly coreAgentRegistry: CoreAgentRegistry;
   readonly coreAgentMonitor: CoreAgentMonitor;
   readonly coreLifecycle: CoreLifecycleManager;
   readonly agentLoop: AgentLoop;
     readonly harness: LegacyHarness;
+    readonly harnessRegistry?: HarnessRegistry;
     /** Controlled self-modification gate: proposal -> isolated worktree -> verification -> human-gated review. Never auto-merges. */
     readonly selfModification: CodeImprovementController;
   }
@@ -258,13 +323,19 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   };
   const storage = createSqliteStorage(join(config.dataDir, "quack.sqlite"));
   const browserHosts = (process.env["QUACK_BROWSER_ALLOW_HOSTS"] ?? "").split(",").map((host) => host.trim()).filter(Boolean);
-  const openAiHosts = [process.env["QUACK_OPENAI_BASE_URL"], process.env["QUACK_VLLM_BASE_URL"]].flatMap((url) => {
+  const openAiHosts = [
+    process.env["QUACK_OPENAI_BASE_URL"],
+    process.env["QUACK_VLLM_BASE_URL"],
+    "https://api.openai.com/v1",
+    "https://openrouter.ai/api/v1",
+    "https://api.groq.com/openai/v1",
+  ].flatMap((url) => {
     try { return url ? [new URL(url).hostname] : []; } catch { return []; }
   });
   const networkPolicy = new NetworkPolicyEngine({
     rules: [
       { id: "ollama-loopback", mode: "LOCAL_SERVICE", purposes: ["provider.ollama", "model.provider"], requesters: ["provider.ollama", "model.runtime"], hosts: ["127.0.0.1", "localhost"], ports: [11434], schemes: ["http:"] },
-      { id: "nvidia-api", mode: "ALLOWLIST", purposes: ["provider.nvidia"], requesters: ["provider.nvidia-nim"], hosts: ["integrate.api.nvidia.com"], ports: [443], schemes: ["https:"] },
+      { id: "nvidia-api", mode: "ALLOWLIST", purposes: ["provider.nvidia", "model.provider"], requesters: ["provider.nvidia-nim", "model.runtime"], hosts: ["integrate.api.nvidia.com"], ports: [443], schemes: ["https:"] },
       // Configured provider endpoints only: the host must come from the same
       // env var the provider was registered with, not from an arbitrary URL.
       ...(openAiHosts.length > 0 ? [{ id: "provider-configured-endpoints", mode: "ALLOWLIST" as const, purposes: ["provider.openai-compatible", "provider.vllm", "model.provider"], requesters: ["provider.openai-compatible", "provider.vllm", "model.runtime"], hosts: [...new Set(openAiHosts)], schemes: ["http:" as const, "https:" as const] }] : []),
@@ -297,6 +368,19 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
     const registered = tools.register(tool);
     if (!registered.ok) throw new Error(registered.error.message);
   }
+  // Register full SWE capabilities
+  const sweTools = [
+    new GitCommitTool({ workspaceRoot: config.workspaceRoot }, "core.git.commit"),
+    new GitCommitTool({ workspaceRoot: config.workspaceRoot }, "swe.git.commit"),
+    new TestRunTool({ workspaceRoot: config.workspaceRoot }, "core.test.run"),
+    new TestRunTool({ workspaceRoot: config.workspaceRoot }, "swe.test.run"),
+    new DocsGenerateTool({ workspaceRoot: config.workspaceRoot }, "core.docs.generate"),
+    new DocsGenerateTool({ workspaceRoot: config.workspaceRoot }, "swe.docs.generate"),
+  ];
+  for (const tool of sweTools) {
+    const registered = tools.register(tool);
+    if (!registered.ok) throw new Error(registered.error.message);
+  }
   tools.register(new AgentReachTool(researchTool));
 
   // --- Register providers ---
@@ -308,7 +392,8 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   // Provider credential resolution flows through the SecretProvider boundary
   // (Phase 7A contract): allowlist + consumer binding enforced at boot; raw
   // process.env credential reads live ONLY in the security layer.
-  const openAiKey = readProviderCredentialForBoot("QUACK_OPENAI_API_KEY", "provider.openai-compatible");
+  const openAiKey = readProviderCredentialForBoot("QUACK_OPENAI_API_KEY", "provider.openai-compatible")
+    ?? readProviderCredentialForBoot("OPENAI_API_KEY", "provider.openai-compatible");
   if (openAiKey) {
     const baseUrl = process.env["QUACK_OPENAI_BASE_URL"] ?? "https://api.openai.com/v1";
     registerProvider(
@@ -323,7 +408,45 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
         runtime: "openai-compatible",
         boundary: "cloud",
         endpoint: baseUrl,
-        credentialEnvironmentVariables: ["QUACK_OPENAI_API_KEY"],
+        credentialEnvironmentVariables: ["QUACK_OPENAI_API_KEY", "OPENAI_API_KEY"],
+      },
+    );
+  }
+  const openRouterKey = readProviderCredentialForBoot("OPENROUTER_API_KEY", "provider.openai-compatible");
+  if (openRouterKey && !openAiKey) {
+    const baseUrl = process.env["QUACK_OPENAI_BASE_URL"] ?? "https://openrouter.ai/api/v1";
+    registerProvider(
+      new OpenAiCompatibleProvider({
+        apiKey: openRouterKey,
+        baseUrl,
+        defaultModel: process.env["QUACK_OPENAI_MODEL"] ?? "anthropic/claude-3.5-sonnet",
+        fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.openai-compatible", requester: "provider.openai-compatible" }, init),
+      }),
+      {
+        displayName: "OpenRouter",
+        runtime: "openai-compatible",
+        boundary: "cloud",
+        endpoint: baseUrl,
+        credentialEnvironmentVariables: ["OPENROUTER_API_KEY"],
+      },
+    );
+  }
+  const groqKey = readProviderCredentialForBoot("GROQ_API_KEY", "provider.openai-compatible");
+  if (groqKey && !openAiKey && !openRouterKey) {
+    const baseUrl = process.env["QUACK_OPENAI_BASE_URL"] ?? "https://api.groq.com/openai/v1";
+    registerProvider(
+      new OpenAiCompatibleProvider({
+        apiKey: groqKey,
+        baseUrl,
+        defaultModel: process.env["QUACK_OPENAI_MODEL"] ?? "llama-3.3-70b-versatile",
+        fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.openai-compatible", requester: "provider.openai-compatible" }, init),
+      }),
+      {
+        displayName: "Groq",
+        runtime: "openai-compatible",
+        boundary: "cloud",
+        endpoint: baseUrl,
+        credentialEnvironmentVariables: ["GROQ_API_KEY"],
       },
     );
   }
@@ -469,8 +592,29 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   const modelRouter = new ModelRouter();
   // Provider egress flows through the SAME network policy as the other
   // provider adapters (model.ollama / model.openai-compatible purposes).
+  const nvidiaKeyForRuntime = readProviderCredentialForBoot("NVIDIA_API_KEY", "provider.nvidia-nim");
+  let runtimeConfig = loadModelRuntimeConfig();
+  if (nvidiaKeyForRuntime && (!process.env["QUACK_OLLAMA_BASE_URL"] && !process.env["QUACK_OLLAMA_MODEL"])) {
+    const baseUrl = process.env["QUACK_NVIDIA_BASE_URL"] ?? "https://integrate.api.nvidia.com/v1";
+    const defaultModel = process.env["QUACK_NVIDIA_MODEL"] ?? "meta/llama-3.2-11b-vision-instruct";
+    runtimeConfig = {
+      provider: "openai-compatible",
+      model: defaultModel,
+      providers: [
+        {
+          provider: "openai-compatible",
+          id: "provider.nvidia-nim",
+          model: defaultModel,
+          baseUrl,
+          apiKey: nvidiaKeyForRuntime,
+          fallback: false,
+        },
+      ],
+      fallbackProviderId: "provider.nvidia-nim",
+    };
+  }
   const modelRuntime = createModelRuntime(
-    undefined,
+    runtimeConfig,
     (input, init) => networkPolicy.fetch({ url: String(input), purpose: "model.provider", requester: "model.runtime" }, init),
   );
   modelRegistry.register({
@@ -561,6 +705,10 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   // `config.approver` is supplied, so a missing approver fails closed instead of silently
   // falling back to an unconditional allow-list.
   const approvalPolicy = new RiskAwareApprovalPolicy(config.permissions, config.approver, { autoApproveLow: true });
+  // P1: expose the queue only when the caller opted into a queued approver,
+  // and bind it to this composition's bus (the queue is built before it).
+  const approvals = config.approver instanceof QueuedApprovalCallback ? config.approver : undefined;
+  approvals?.attach(events);
   const configuredCapabilityGrants = config.capabilityGrants ?? [];
   const capabilityGrants = new JsonFileCapabilityGrantRegistry(join(config.dataDir, "security", "capability-grants.json"));
   for (const grant of configuredCapabilityGrants) {
@@ -597,11 +745,48 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   const governedModelRuntime = new GovernedModelRuntime(modelRuntime, capabilityBroker);
   const gatedModelRuntime = governModelRuntime(modelRuntime, capabilityBroker);
   const governedProviderRouter = new GovernedProviderRouter(capabilityRouter, capabilityBroker);
+  // P9 semantic memory (ADR 0043): embeddings dispatch through the SAME
+  // governed model runtime (provider.invoke resolved before provider
+  // contact); reads/writes/deletes resolve memory.read/memory.write through
+  // the SAME capability broker. Disabled by default until an embedding
+  // provider is registered; the service still supports remember/list/
+  // inspect/forget without embeddings.
+  const semanticMemory = new SemanticMemoryService({
+    dataDir: config.dataDir,
+    workspaceRoot: config.workspaceRoot,
+    events,
+    ...(typeof (governedModelRuntime as { embed?: unknown }).embed === "function" ? {
+      embeddingsEnabled: true,
+      embeddingRuntime: governedModelRuntime as unknown as import("../memory/semantic/embedding.js").EmbeddingRuntimeSurface,
+    } : {}),
+    authorize: async ({ actor, operation, scope, owner }) => {
+      const permission = operation === "write" || operation === "delete" ? "memory.write" as const : "memory.read" as const;
+      const decision = await capabilityBroker.resolve(buildToolCapabilityRequest({
+        actor, toolId: `semantic-memory:${operation}`,
+        permission,
+        input: { operation, scope, owner } as import("../core/types.js").JsonObject,
+        reason: `Semantic memory ${operation} requires ${permission}.`,
+      }));
+      return decision.granted
+        ? { ok: true as const, data: undefined }
+        : { ok: false as const, error: { code: "memory.policy_denied", message: decision.reason, category: "permission" as const, recoverable: true } };
+    },
+  });
   const companyRuntime = new MissionCompanyRuntime({
     repository: storage.missionCompanies,
     lifecycle: orgManager,
     registry: agentRegistry,
     grants: capabilityGrants,
+  });
+  // P10 ecosystem foundation (ADR 0044): declarative package catalog BEFORE
+  // runtime admission — discovery/manifest/integrity/install/lifecycle are
+  // broker-governed (plugin.install / workspace.read); declared capabilities
+  // grant nothing and package content is NEVER executed here.
+  const ecosystem = new EcosystemService({
+    dataDir: config.dataDir,
+    events,
+    broker: capabilityBroker,
+    actor: "operator",
   });
   const actionRuntime = new ActionRuntime(actionProviders, {
     ledger: storage.actionExecutions,
@@ -760,6 +945,111 @@ runtime = new QuackRuntime({
     maxNodesPerGraph: 20,
     modelRuntime: gatedModelRuntime,
   });
+
+  // --- Wire the P11 governed mission loop (ADR 0045) ---
+  // Assembled exclusively over existing authorities: the same broker, the
+  // same governed model runtime, the same ActionRuntime/core.tools surfaces,
+  // the same EventBus, and P9 semantic memory reduced to QIE candidates.
+  // The loop NEVER provisions its own grants — standing consent flows
+  // through the operator's configured permission set exactly like
+  // `submitGoal` missions.
+  // P12 (ADR 0046): the durable step-attempt journal makes step dispatch
+  // at-most-once across process restarts; crash-window attempts reconcile
+  // to AMBIGUOUS and are never re-executed.
+  const governedMissionRunStore = new JsonFileMissionRunStore(config.dataDir);
+  const governedStepJournal = new JsonFileStepAttemptJournal(config.dataDir);
+  const instructionObserver = new InstructionObserver({ events });
+  // P13 (ADR 0047): governed isolation surface. The OS process backend is
+  // registered (availability: structural); the container backend is
+  // registered with an honest availability probe (unavailable ⇒ DENY for
+  // isolation-requiring workloads, never a downgrade). The workload adapter
+  // registry starts EMPTY: capabilities only become isolation-eligible when
+  // a deployer registers an explicit adapter. No capability silently moves
+  // to an isolated path, and no capability silently stays on the host path
+  // when its policy demands isolation — the resolver fails closed.
+  //
+  // P13 security review finding 5: isolated workspaces live under a
+  // DEDICATED workspace root (os tmpdir), NOT under config.dataDir. The
+  // trusted dataDir keeps grants, mission journals, evidence, memory, and
+  // other durable trusted state — a same-user isolated workload must not
+  // receive a blast radius covering those stores. The dedicated root is
+  // lifecycle-managed by the supervisor (per-execution dirs, removed on
+  // every terminal path; best-effort cleanup after bounded retries is
+  // recorded honestly in evidence as CLEANUP_FAILED).
+  const isolationBackendRegistry = new IsolationBackendRegistry();
+  isolationBackendRegistry.register(new ProcessIsolationBackend());
+  isolationBackendRegistry.register(new ContainerIsolationBackend());
+  const isolationEvidenceStore = new JsonFileExecutionEvidenceStore(config.dataDir);
+  const isolationSupervisor = new IsolationSupervisor({
+    registry: isolationBackendRegistry,
+    events,
+    actor: "isolation-supervisor",
+    workspaceRoot: createIsolatedWorkspaceRoot(),
+    evidenceStore: isolationEvidenceStore,
+  });
+  const workloadAdapters = new WorkloadAdapterRegistry();
+  // P14 (ADR 0048): the FIRST production workload adapters — deterministic
+  // READ_ONLY transforms (text, data). Fail-closed bootstrap: if the trusted
+  // sources cannot materialize, the registry stays EMPTY (no adapter is
+  // safer than a half-registered one) and the composition still runs.
+  try { registerProductionAdapters(workloadAdapters); } catch { /* empty registry, honest log-free fail-closed */ }
+  // P15 (ADR 0049): the DURABLE governed approval runner — the same P14
+  // human-decision surface (console callback), now backed by the durable
+  // approval store: WAITING_APPROVAL steps park durably under the dataDir,
+  // survive restarts, enforce server-side TTL, and can never be replayed or
+  // upgraded after a decision. Model output never reaches this seam.
+  const missionApprovalStore = new JsonFileApprovalStore(config.dataDir);
+  const durableApproval = new DurableApprovalRunner(missionApprovalStore, new ConsoleApprovalRunnerCallback(), {
+    events,
+    actor: "governed-approval-runner",
+  });
+  const governedMissionCheckpointStore = new JsonFileMissionCheckpointStore(config.dataDir);
+  const governedMissionLoop = new GovernedMissionLoop({
+    broker: capabilityBroker,
+    actionRuntime,
+    actionProviders,
+    tools,
+    modelRuntime: governedModelRuntime,
+    events,
+    executeTool: (toolId, input, options) => runtime.executeTool(toolId, input, options),
+    observer: instructionObserver,
+    // P9 semantic memory, governed: recall through the broker-gated service,
+    // reduced to MEMORY-trust candidates. Candidates carry their memory ids
+    // in item.data.memoryId, which the loop uses as the P8.3 firewall's
+    // admittedMemory backing (no separate authority snapshot needed).
+    retrieveMemory: async (query, limit) => {
+      const retrieval = await semanticMemory.recall({
+        text: query, scope: "global", owner: config.missionId ?? "operator", limit,
+        context: { actor: "governed-mission-loop" },
+      });
+      return retrieval.ok ? memoryCandidatesFromRetrieval(retrieval.data) : [];
+    },
+    runStore: governedMissionRunStore,
+    stepJournal: governedStepJournal,
+    checkpointStore: governedMissionCheckpointStore,
+    approvalRunner: durableApproval,
+    // P15 (ADR 0049): production multi-process coordination — the same
+    // ADR 0031 SQLite primitive the legacy durable path uses, in the
+    // `governed:` lease namespace. Two CLI/server processes sharing one
+    // dataDir can never both be the authoritative executor of a mission.
+    coordinationDbPath: join(config.dataDir, "coordination.sqlite"),
+    approvalStore: missionApprovalStore,
+    // P15 (ADR 0049): trusted ambiguous-step reconciliation over the
+    // existing probe runner + durable evidence store. Strategies are
+    // looked up by the trusted (mission, step, capability) identity the
+    // ORIGINAL dispatch carried — recorded in the production adapter
+    // registry's verification strategies, never re-read from model output.
+    ambiguityReconciliation: {
+      probeRunner: new ProbeRunner({ workspaceRoot: createIsolatedWorkspaceRoot(), events, actor: "ambiguity-reconciliation" }),
+      evidenceStore: isolationEvidenceStore,
+      strategyFor: (attempt) => workloadAdapters.verificationStrategyFor(attempt.capability),
+    },
+    isolation: {
+      supervisor: isolationSupervisor,
+      adapters: workloadAdapters,
+    },
+  });
+
 const agentLoop = new AgentLoop({
           runtime,
           missionManager: cognitiveSystem.missionManager,
@@ -837,6 +1127,10 @@ const agentLoop = new AgentLoop({
     // Create api early so it can be referenced in the system object
     const api = new QuackApi();
 
+    const harnessRegistry = createHarnessRegistry(events);
+    registerQuackNativeHarness(harnessRegistry, { runtime, providers });
+    registerDeepSeekHarness(harnessRegistry, { runtime, providers });
+
     const system: QuackSystem = {
       runtime,
       events,
@@ -910,17 +1204,26 @@ const agentLoop = new AgentLoop({
             identityMemory,
             decisionMemory,
             approvalPolicy,
+            approvals,
             capabilityBroker,
             capabilityGrants,
             companyRuntime,
-            evaluator,
-            knowledgePipeline,
-            workflowLoader,
+      evaluator,
+      knowledgePipeline,
+      semanticMemory,
+      ecosystem,
+      governedMissionLoop,
+      governedMissionRunStore,
+      governedMissionCheckpointStore,
+      missionApprovalRunner: durableApproval,
+      workloadAdapters,
+      workflowLoader,
             coreAgentRegistry,
                                     coreAgentMonitor,
                                     coreLifecycle,
                                     agentLoop,
                                     harness: legacyHarness,
+                                    harnessRegistry,
                                     selfModification,
           };
           api.setSystem(system);
@@ -941,4 +1244,19 @@ function findBrowserExecutable(): string | undefined {
     "C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe",
   ] : [];
   return candidates.find((path) => existsSync(path));
+}
+
+/**
+ * P13 security review finding 5: dedicated root for adapter-mode isolated
+ * workspaces, deliberately OUTSIDE the trusted dataDir. Per-execution
+ * isolated dirs are created (and cleaned up) under this root by the
+ * supervisor; grants, journals, evidence, memory, and every other trusted
+ * QUACK store stay under dataDir where isolated workloads never address
+ * them as workspace siblings. Uses the OS tmpdir (bounded lifetime by the
+ * OS; the supervisor cleans per-execution dirs on every terminal path).
+ */
+function createIsolatedWorkspaceRoot(): string {
+  const root = join(tmpdir(), "quack-isolated-workspaces");
+  mkdirSync(root, { recursive: true });
+  return root;
 }

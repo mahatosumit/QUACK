@@ -33,7 +33,7 @@ test("loadModelRuntimeConfig reads config/models.json shape", async () => {
     assert.equal(config.model, "qwen3.6:27b");
     assert.equal(config.providers[0].id, "local");
   } finally {
-    await rm(dir, { recursive: true, force: true });
+    await rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 });
   }
 });
 
@@ -208,7 +208,7 @@ test("Planner records model selection metadata when model runtime is configured"
 
 test("createQuackSystem exposes modelRuntime without network access", async (context) => {
   const root = await mkdtemp(join(tmpdir(), "quack-model-system-test-"));
-  context.after(() => rm(root, { recursive: true, force: true }));
+  context.after(() => rm(root, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const system = createQuackSystem({ workspaceRoot: root, dataDir: join(root, "state") });
   const selected = system.modelRuntime.selectModel({ capability: "reasoning" });
 

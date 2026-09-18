@@ -13,6 +13,7 @@ export interface TokenUsage {
 
 export interface ModelRequest {
   readonly prompt: string;
+  readonly system?: string;
   readonly model?: string;
   readonly capability?: ModelCapability;
   readonly metadata?: JsonObject;
@@ -39,12 +40,43 @@ export interface ModelStreamChunk {
   readonly usage?: TokenUsage;
 }
 
+/**
+ * P9 provider-neutral embedding request (ADR 0043). Embeddings are model
+ * operations: they dispatch through the governed model path exactly like
+ * generation. `content` is a single text item — batching is the caller's
+ * concern and each item is one governed dispatch.
+ */
+export interface EmbeddingRequest {
+  /** Text to embed. Never carries authority metadata. */
+  readonly prompt: string;
+  readonly model?: string;
+  readonly metadata?: JsonObject;
+}
+
+/** Provider-neutral embedding result. No credentials, no provider objects. */
+export interface EmbeddingResponse {
+  readonly id: string;
+  readonly providerId: string;
+  readonly model: string;
+  /** Embedding vector — provider-agnostic float components. */
+  readonly embedding: readonly number[];
+  readonly dimensions: number;
+  readonly latencyMs: number;
+}
+
+/** P9: an embedding-capable provider surface. Optional on providers. */
+export interface EmbeddingProvider {
+  embed(request: EmbeddingRequest & { readonly model: string }): Promise<QuackResult<EmbeddingResponse>>;
+}
+
 export interface ModelProvider {
   readonly id: string;
   readonly kind: "ollama" | "openai-compatible";
   listModels(): Promise<QuackResult<readonly ModelInfo[]>>;
   generate(request: ModelRequest & { readonly model: string }): Promise<QuackResult<ModelResponse>>;
   stream(request: ModelRequest & { readonly model: string }): AsyncIterable<ModelStreamChunk>;
+  /** P9 optional embedding operation (ADR 0043). Presence discovered, never assumed. */
+  embed?(request: EmbeddingRequest & { readonly model: string }): Promise<QuackResult<EmbeddingResponse>>;
 }
 
 export interface ModelRuntimeProviderConfig {
@@ -186,6 +218,35 @@ export class OllamaModelProvider implements ModelProvider {
       status: "available",
     };
   }
+
+  /** P9: Ollama POST /api/embeddings (single input, provider-neutral shape). */
+  async embed(request: EmbeddingRequest & { readonly model: string }): Promise<QuackResult<EmbeddingResponse>> {
+    const started = Date.now();
+    try {
+      const response = await this.fetcher(`${this.baseUrl}/api/embeddings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ model: request.model, prompt: request.prompt }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (!response.ok) return fail(providerError("model.embed_failed", `Ollama embedding failed with ${response.status}.`));
+      const parsed = await response.json() as { readonly embedding?: readonly number[] };
+      if (!Array.isArray(parsed.embedding) || parsed.embedding.length === 0
+        || parsed.embedding.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+        return fail(providerError("model.embed_failed", "Ollama embedding response is malformed."));
+      }
+      return ok({
+        id: createId("embedding"),
+        providerId: this.id,
+        model: request.model,
+        embedding: parsed.embedding,
+        dimensions: parsed.embedding.length,
+        latencyMs: Date.now() - started,
+      });
+    } catch (error) {
+      return fail(providerError("model.embed_failed", errorMessage(error)));
+    }
+  }
 }
 
 export class OpenAICompatibleModelProvider implements ModelProvider {
@@ -219,12 +280,16 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   async generate(request: ModelRequest & { readonly model: string }): Promise<QuackResult<ModelResponse>> {
     const started = Date.now();
     try {
+      const systemPrompt = request.system ?? "You are the QUACK autonomous execution agent. You must decide the next action step. You MUST respond with ONLY a single raw JSON object matching the outputContract. Do NOT explain the instructions, do NOT write markdown commentary, do NOT write tutorial text.";
       const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
         method: "POST",
         headers: { ...this.headers(), "Content-Type": "application/json" },
         body: JSON.stringify({
           model: request.model,
-          messages: [{ role: "user", content: request.prompt }],
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: request.prompt },
+          ],
           stream: false,
           temperature: request.temperature ?? 0.1,
           max_tokens: request.maxTokens,
@@ -255,12 +320,16 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
   }
 
   async *stream(request: ModelRequest & { readonly model: string }): AsyncIterable<ModelStreamChunk> {
+    const systemPrompt = request.system ?? "You are the QUACK autonomous execution agent. You must decide the next action step. You MUST respond with ONLY a single raw JSON object matching the outputContract. Do NOT explain the instructions, do NOT write markdown commentary, do NOT write tutorial text.";
     const response = await this.fetcher(`${this.baseUrl}/chat/completions`, {
       method: "POST",
       headers: { ...this.headers(), "Content-Type": "application/json" },
       body: JSON.stringify({
         model: request.model,
-        messages: [{ role: "user", content: request.prompt }],
+        messages: [
+          { role: "system", content: systemPrompt },
+          { role: "user", content: request.prompt },
+        ],
         stream: true,
         stream_options: { include_usage: true },
         temperature: request.temperature ?? 0.1,
@@ -308,6 +377,39 @@ export class OpenAICompatibleModelProvider implements ModelProvider {
 
   private headers(): Record<string, string> {
     return this.config.apiKey ? { Authorization: `Bearer ${this.config.apiKey}` } : {};
+  }
+
+  /** P9: OpenAI-compatible POST /embeddings (provider-neutral shape only). */
+  async embed(request: EmbeddingRequest & { readonly model: string }): Promise<QuackResult<EmbeddingResponse>> {
+    const started = Date.now();
+    try {
+      const response = await this.fetcher(`${this.baseUrl}/embeddings`, {
+        method: "POST",
+        headers: { ...this.headers(), "Content-Type": "application/json" },
+        body: JSON.stringify({ model: request.model, input: request.prompt }),
+        signal: AbortSignal.timeout(this.timeoutMs),
+      });
+      if (!response.ok) return fail(providerError("model.embed_failed", `OpenAI-compatible embedding failed with ${response.status}.`));
+      const parsed = await response.json() as {
+        readonly model?: string;
+        readonly data?: readonly { readonly embedding?: readonly number[] }[];
+      };
+      const vector = parsed.data?.[0]?.embedding;
+      if (!Array.isArray(vector) || vector.length === 0
+        || vector.some((value) => typeof value !== "number" || !Number.isFinite(value))) {
+        return fail(providerError("model.embed_failed", "OpenAI-compatible embedding response is malformed."));
+      }
+      return ok({
+        id: createId("embedding"),
+        providerId: this.id,
+        model: parsed.model ?? request.model,
+        embedding: vector,
+        dimensions: vector.length,
+        latencyMs: Date.now() - started,
+      });
+    } catch (error) {
+      return fail(providerError("model.embed_failed", errorMessage(error)));
+    }
   }
 
   private modelInfo(model: string): ModelInfo {
@@ -396,6 +498,27 @@ export class ModelRuntime {
     const provider = this.providers.get(selected.data.provider);
     if (!provider) throw new Error(`Provider ${selected.data.provider} is not registered.`);
     yield* provider.stream({ ...request, model: selected.data.name });
+  }
+
+  /**
+   * P9 embedding dispatch (ADR 0043): select an embedding-capable model by
+   * exact id or embedding capability, then call the provider's optional
+   * `embed`. No fallback for embeddings — a failed embedding is a structured
+   * error, never a silently different vector space.
+   */
+  async embed(request: EmbeddingRequest): Promise<QuackResult<EmbeddingResponse>> {
+    const selected = this.selectModel({
+      capability: request.model ? undefined : "embedding",
+      providerId: request.metadata?.["providerId"] as string | undefined,
+      model: request.model,
+    });
+    if (!selected.ok) return fail(selected.error);
+    const provider = this.providers.get(selected.data.provider);
+    if (!provider) return fail(providerError("model.provider_not_found", `Provider ${selected.data.provider} is not registered.`));
+    if (typeof provider.embed !== "function") {
+      return fail(providerError("model.embed_unsupported", `Provider ${selected.data.provider} does not support embeddings.`));
+    }
+    return provider.embed({ ...request, model: selected.data.name });
   }
 
   getFailures(): readonly { readonly providerId: string; readonly message: string; readonly at: string }[] {

@@ -210,7 +210,12 @@ export class JsonFileMemoryStore implements MemoryStore {
   }
 }
 
-function compactRecords(records: readonly MemoryRecord[], options: MemoryCompactOptions): { readonly records: MemoryRecord[]; readonly removed: number } {
+/**
+ * Host-owned deterministic compaction over memory records (ADR 0030).
+ * Exported for P9 semantic memory reuse — there is no second compaction
+ * engine.
+ */
+export function compactRecords(records: readonly MemoryRecord[], options: MemoryCompactOptions): { readonly records: MemoryRecord[]; readonly removed: number } {
   const protect = options.protect !== false;
   const olderThan = options.olderThan ? Date.parse(options.olderThan) : undefined;
   const byScope = new Map<MemoryScope, MemoryRecord[]>();

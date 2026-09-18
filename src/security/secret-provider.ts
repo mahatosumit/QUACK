@@ -44,6 +44,9 @@ export interface SecretProvider {
 export const PROVIDER_SECRET_DESCRIPTORS: readonly SecretDescriptor[] = [
   { name: "NVIDIA_API_KEY", description: "NVIDIA NIM API credential", consumer: "provider.nvidia-nim" },
   { name: "QUACK_OPENAI_API_KEY", description: "OpenAI-compatible API credential", consumer: "provider.openai-compatible" },
+  { name: "OPENAI_API_KEY", description: "Standard OpenAI API credential", consumer: "provider.openai-compatible" },
+  { name: "OPENROUTER_API_KEY", description: "OpenRouter API credential", consumer: "provider.openai-compatible" },
+  { name: "GROQ_API_KEY", description: "Groq API credential", consumer: "provider.openai-compatible" },
   { name: "QUACK_VLLM_API_KEY", description: "vLLM API credential", consumer: "provider.vllm" },
   { name: "ANTHROPIC_API_KEY", description: "Anthropic API credential", consumer: "provider.anthropic" },
 ];

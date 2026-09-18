@@ -103,9 +103,134 @@ export async function runHarnessConformanceTests(
 
 /** Certification above detection needs separately implemented scenario gates. */
 export async function runCertificationTests(
-  harness: Harness, config: HarnessConfig, targetLevel: HarnessCertification,
+  harness: Harness, config: HarnessConfig, targetLevel: HarnessCertification, fixture?: HarnessConformanceFixture,
 ): Promise<ConformanceSuiteResult> {
   const detected = harness.metadata().id === config.harnessId;
+
+  if (targetLevel === "H4_DURABLE") {
+    const results: ConformanceTestResult[] = [];
+    const context: HarnessExecutionContext = fixture?.context ?? {
+      missionId: "h4-cert", runId: "h4-run", iterationId: "h4-iter", actor: "h4-certifier",
+      workspaceRoot: process.cwd(), dataDir: process.cwd(), capabilities: ["tools", "checkpoint", "resume", "streaming"], trustClass: "SYSTEM",
+    };
+
+    async function check(testId: string, name: string, fn: () => Promise<void>) {
+      const started = Date.now();
+      try {
+        await fn();
+        results.push({ testId, name, passed: true, durationMs: Date.now() - started });
+      } catch (error) {
+        results.push({ testId, name, passed: false, durationMs: Date.now() - started, error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+
+    await check("H4-CAPABILITIES", "Harness advertises native durability and control capabilities", async () => {
+      assert.ok(detected, "Harness ID must match config");
+      const caps = harness.capabilities();
+      assert.equal(caps.tools, "NATIVE", "Tools capability must be NATIVE for H4");
+      assert.equal(caps.checkpoint, "NATIVE", "Checkpoint capability must be NATIVE for H4");
+      assert.equal(caps.resume, "NATIVE", "Resume capability must be NATIVE for H4");
+      assert.equal(caps.interrupt, "NATIVE", "Interrupt capability must be NATIVE for H4");
+      assert.equal(caps.streaming, "NATIVE", "Streaming capability must be NATIVE for H4");
+    });
+
+    await check("H4-START", "Harness starts and transitions to HEALTHY state", async () => {
+      await harness.start(config);
+      assert.equal(await harness.health(), "HEALTHY");
+      assert.equal((await harness.status()).activeExecutions, 0);
+    });
+
+    const sendFixture = fixture ?? {
+      input: { goal: "H4 cert task", toolInvocations: [{ toolId: "core.workspace.list-files", input: { path: "." } }] },
+      context,
+      assertOutput: () => {},
+    };
+
+    let checkpointData: any;
+
+    await check("H4-SEND", "Executes task with evidence and metrics", async () => {
+      const output = await harness.send(sendFixture.input, context);
+      assert.equal(output.success, true);
+      assert.ok(output.evidence.length > 0);
+      assert.ok(output.metrics.toolCalls > 0);
+    });
+
+    await check("H4-STREAM", "Streams execution results via async iterable", async () => {
+      let count = 0;
+      for await (const chunk of harness.stream(sendFixture.input, { ...context, runId: "h4-stream-run" })) {
+        assert.ok(chunk);
+        count++;
+      }
+      assert.ok(count > 0, "Stream must yield at least one output");
+    });
+
+    await check("H4-CHECKPOINT", "Captures durable checkpoint with state, taskStates, and budgets", async () => {
+      checkpointData = await harness.checkpoint(context.missionId, context.runId);
+      assert.ok(checkpointData.id, "Checkpoint must have a unique ID");
+      assert.equal(checkpointData.missionId, context.missionId);
+      assert.ok(checkpointData.createdAt);
+      assert.ok(typeof checkpointData.state === "object");
+      assert.ok(typeof checkpointData.budgetsConsumed === "object");
+    });
+
+    await check("H4-COLD-RESUME", "Cold resumption restores harness execution state without loss", async () => {
+      assert.ok(checkpointData, "Checkpoint required for resume");
+      await harness.resume(checkpointData);
+      assert.equal(await harness.health(), "HEALTHY");
+    });
+
+    await check("H4-PAUSE", "Pauses mission and prevents concurrent execution", async () => {
+      await harness.pause(context.missionId);
+      await assert.rejects(() => harness.send(sendFixture.input, context), /is paused/);
+      await harness.cancel(context.missionId); // unpause
+    });
+
+    await check("H4-CANCEL", "Cancels mission state cleanly", async () => {
+      await harness.cancel(context.missionId, context.runId);
+    });
+
+    await check("H4-INTERRUPT", "Interrupts in-flight execution run", async () => {
+      await harness.interrupt(context.missionId, context.runId);
+      assert.equal((await harness.status()).activeExecutions, 0);
+    });
+
+    await check("H4-STATUS", "getStatus retrieves previously completed execution output", async () => {
+      const prev = await harness.getStatus(context.missionId, context.runId);
+      assert.ok(prev);
+      assert.equal(prev.success, true);
+    });
+
+    await check("H4-AUTH-CONTINUITY", "Unsupported capability requests fail closed without execution", async () => {
+      const res = await harness.send({ ...sendFixture.input, requiredCapabilities: ["subagents"] }, context);
+      assert.equal(res.success, false);
+    });
+
+    await check("H4-DEADLINE-ENFORCEMENT", "Expired deadlines fail closed before dispatch", async () => {
+      const res = await harness.send(sendFixture.input, { ...context, deadline: new Date(0).toISOString() });
+      assert.equal(res.success, false);
+      assert.equal(res.metrics.toolCalls, 0);
+    });
+
+    await check("H4-CANCEL-SIGNAL", "Pre-cancelled abort signal fails closed before dispatch", async () => {
+      const res = await harness.send(sendFixture.input, { ...context, signal: AbortSignal.abort() });
+      assert.equal(res.success, false);
+      assert.equal(res.metrics.toolCalls, 0);
+    });
+
+    await check("H4-RESOURCE-DRAIN", "All active executions drain to zero without lingering tasks", async () => {
+      const stat = await harness.status();
+      assert.equal(stat.activeExecutions, 0, "Active executions must be 0 after completion");
+    });
+
+    await check("H4-DISPOSE", "Complete disposal clears state without zombie processes or leaks", async () => {
+      await harness.dispose();
+      assert.equal((await harness.status()).activeExecutions, 0);
+      assert.notEqual(await harness.health(), "HEALTHY");
+    });
+
+    return summarize(config.harnessId, results);
+  }
+
   return summarize(config.harnessId, [{
     testId: "CERT-001", name: `Certification evidence for ${targetLevel}`, durationMs: 0,
     passed: detected && targetLevel === "H0_DETECTED",

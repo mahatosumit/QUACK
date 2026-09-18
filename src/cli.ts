@@ -1,14 +1,14 @@
 #!/usr/bin/env node
-import { createQuackSystem } from "./distributions/swe-system.js";
 import { readFileSync, existsSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { DEFAULT_PORT } from "./desktop/types.js";
+import { createQuackSystem } from "./distributions/swe-system.js";
+import { DEFAULT_PORT } from "./server/constants.js";
 import { createQuackBackup, restoreQuackBackup } from "./recovery/index.js";
 import { cpus, release, totalmem } from "node:os";
 import { execFile } from "node:child_process";
 import { redactSecrets } from "./security/secret-provider.js";
-import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas } from "./cli/commands.js";
+import { commandInit, commandStatus, commandRun, commandResume, commandSkillsSearch, commandConfig, commandUpdate, commandUninstall, commandProviderList, commandProviderDoctor, commandProviderTest, commandSkillCreate, commandPersonas, commandInstructions, commandMemory, commandExtension, commandGovMission } from "./cli/commands.js";
 import { loadCliConfig } from "./cli/config.js";
 
 interface CliOptions {
@@ -21,6 +21,17 @@ interface CliOptions {
   providerAction?: "list" | "doctor" | "test";
   /** Provider id for `provider test`. */
   providerTarget?: string;
+  /** P8.8: mission id filter for `quack instructions --mission <id>`. */
+  instructionMissionId?: string;
+  /** P9.24: semantic-memory subcommand action + target id/query. */
+  memoryAction?: "list" | "inspect" | "search" | "delete";
+  memoryTarget?: string;
+  /** P10.13: ecosystem extension subcommand action + target id@version/path. */
+  extensionAction?: "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove";
+  extensionTarget?: string;
+  /** P11: governed mission runtime subcommand. */
+  govMissionAction?: "run" | "status" | "recover";
+  govMissionTarget?: string;
   headless: boolean;
   port?: number;
   backupPath?: string;
@@ -72,6 +83,40 @@ Commands:
   skills disable <id>
                        Disable an installed skill package
   personas           List agent personas (style-only reasoning modes)
+  instructions [--mission <id>]
+                        Inspect governed-instruction dispatch records (metadata
+                        only) from stored traces
+  memory list        List governed semantic-memory records (metadata only)
+  memory inspect <id>
+                        Inspect one semantic-memory record with provenance
+  memory search <query>
+                        Semantic search over admitted memory (requires
+                        an embedding-capable governed provider)
+  memory delete <id> Delete a record and its derived index entries
+  extension list    List installed ecosystem extensions (metadata only)
+  extension inspect <id>@<version>
+                        Inspect one extension with provenance + integrity
+  extension validate <dir>
+                        Validate a package manifest + content integrity
+  extension install <dir>
+                        Install a package (broker-governed, no execution)
+  extension enable|disable <id>@<version>
+                        Toggle extension lifecycle explicitly
+  extension remove <id>@<version>
+                        Remove an extension and its registry entry
+  govmission run <objective>
+                        Run a governed mission through the model-in-the-loop
+                        runtime (QIE -> broker -> harness execution)
+  govmission status [missionId]
+                        List governed mission runs or inspect one run
+  govmission recover <missionId>
+                        Inspect durable recovery state for a mission
+                        (checkpoint + reconciled records; metadata only)
+  govmission run "<objective>"
+                        Run a mission through the governed loop (QIE →
+                        model → fail-closed parser → broker → execution)
+  govmission status [id]
+                        List governed mission runs or inspect one run
   provider list      List registered providers and credential status
   provider doctor   Live health check of every registered provider
   provider test <id>
@@ -191,6 +236,43 @@ export function parseArgs(argv: string[]): { command: string; options: CliOption
         break;
       case "personas":
         command = "personas";
+        break;
+      case "instructions":
+        command = "instructions";
+        break;
+      case "--mission":
+        options.instructionMissionId = args[++i];
+        break;
+      case "memory":
+        command = "memory";
+        if (["list", "inspect", "search", "delete"].includes(args[i + 1] ?? "")) {
+          options.memoryAction = args[++i] as "list" | "inspect" | "search" | "delete";
+          if (options.memoryAction !== "list" && args[i + 1] && !args[i + 1].startsWith("-")) {
+            options.memoryTarget = args[++i];
+          }
+        }
+        break;
+      case "extension":
+        command = "extension";
+        if (["list", "inspect", "validate", "install", "enable", "disable", "remove"].includes(args[i + 1] ?? "")) {
+          options.extensionAction = args[++i] as "list" | "inspect" | "validate" | "install" | "enable" | "disable" | "remove";
+          if (options.extensionAction !== "list" && args[i + 1] && !args[i + 1].startsWith("-")) {
+            options.extensionTarget = args[++i];
+          }
+        }
+        break;
+      case "govmission":
+        command = "govmission";
+        if (args[i + 1] === "run" || args[i + 1] === "status" || args[i + 1] === "recover") {
+          options.govMissionAction = args[++i] as "run" | "status" | "recover";
+          // Target: for `run` it is the objective string (may not start with
+          // '-'); for `status`/`recover` an optional mission id.
+          if (options.govMissionAction === "run") {
+            if (args[i + 1] && !args[i + 1].startsWith("-")) options.govMissionTarget = args[++i];
+          } else if (args[i + 1] && !args[i + 1].startsWith("-")) {
+            options.govMissionTarget = args[++i];
+          }
+        }
         break;
       case "provider":
         command = "provider";
@@ -449,6 +531,29 @@ async function main(): Promise<void> {
   }
   if (command === "personas") {
     process.exit(await commandPersonas(commandContext));
+    return;
+  }
+  if (command === "instructions") {
+    process.exit(await commandInstructions(commandContext, options.instructionMissionId));
+    return;
+  }
+  if (command === "memory") {
+    const action = options.memoryAction ?? "list";
+    process.exit(await commandMemory(commandContext, action, options.memoryTarget));
+    return;
+  }
+  if (command === "extension") {
+    const action = options.extensionAction ?? "list";
+    process.exit(await commandExtension(commandContext, action, options.extensionTarget));
+    return;
+  }
+  if (command === "govmission") {
+    const action = options.govMissionAction;
+    if (action !== "run" && action !== "status") {
+      console.error('quack govmission requires an action: run "<objective>" | status [missionId]');
+      process.exit(2);
+    }
+    process.exit(await commandGovMission(commandContext, action, options.govMissionTarget));
     return;
   }
   if (command === "provider") {

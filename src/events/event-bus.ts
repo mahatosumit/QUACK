@@ -130,8 +130,86 @@ export type QuackEventType =
   | "mission.resumed"
   | "mission.completed"
   | "mission.failed"
+  | "mission.cancelled"
   | "mission.recovery_started"
-  | "mission.recovery_completed";
+  | "mission.recovery_completed"
+  /** P1 human-approval queue events (Approval Center contract). */
+  | "approval.requested"
+  | "approval.decided"
+  /** P4 governed model streaming chunks (broker-gated per call, redacted at the wire). */
+  | "model.stream.chunk"
+  /** P8.7 instruction observability (metadata-only; ADR 0042). */
+  | "instruction.dispatched"
+  | "instruction.rejected"
+  /** P9 semantic-memory observability (metadata-only; ADR 0043). */
+  | "memory.admitted"
+  | "memory.rejected"
+  | "memory.persisted"
+  | "memory.embedding.requested"
+  | "memory.embedding.completed"
+  | "memory.embedding.failed"
+  | "memory.indexed"
+  | "memory.retrieved"
+  | "memory.deleted"
+  | "memory.compacted"
+  /** P10 ecosystem observability (metadata-only; ADR 0044). */
+  | "extension.discovered"
+  | "extension.validated"
+  | "extension.admitted"
+  | "extension.installed"
+  | "extension.enabled"
+  | "extension.disabled"
+  | "extension.quarantined"
+  | "extension.removed"
+  | "extension.rejected"
+  /** P11 governed mission loop observability (metadata-only; ADR 0045). */
+  | "mission.step.started"
+  | "mission.step.completed"
+  | "mission.step.failed"
+  | "mission.action.proposed"
+  | "mission.action.denied"
+  | "mission.action.completed"
+  | "mission.action.failed"
+  /** P12 secure execution observability (metadata-only; ADR 0046). */
+  | "execution.policy.resolved"
+  | "execution.denied"
+  | "execution.timeout"
+  | "execution.cancelled"
+  /** P13 isolation/verification observability (metadata-only; ADR 0047). */
+  | "isolation.backend_selected"
+  | "isolation.unresolved"
+  | "execution.isolation_ready"
+  | "execution.verified"
+  | "execution.unverified"
+  | "execution.cleanup_failed"
+  /** P13 review finding 10: durable-journal settlement failure (metadata-only). */
+  | "mission.journal_settlement_failed"
+  /** P14 durable recovery observability (metadata-only; ADR 0048). */
+  | "mission.recovery_ambiguous"
+  | "mission.checkpoint_written"
+  /** P14 approval-runner observability (metadata-only; ADR 0048). */
+  | "mission.approval_requested"
+  | "mission.approval_granted"
+  | "mission.approval_denied"
+  /** P14 verification observability (metadata-only; ADR 0048). */
+  | "execution.verification_pending"
+  | "execution.verification_completed"
+  /** P15 production-hardening observability (metadata-only; ADR 0049). */
+  | "coordination.acquired"
+  | "coordination.contention"
+  | "coordination.expired"
+  | "coordination.released"
+  | "mission.approval_parked"
+  | "mission.approval_restored"
+  | "mission.approval_consumed"
+  | "mission.ambiguity_detected"
+  | "mission.reconciliation_attempted"
+  | "mission.reconciliation_verified"
+  | "mission.reconciliation_unresolved"
+  | "mission.recovery_parked"
+  | "mission.recovery_denied"
+  | "adapter.admitted"
+  | "adapter.rejected";
 /** A structured event emitted by {@link EventBus} with typed metadata and payload. */
 export interface QuackEvent<TPayload extends JsonObject = JsonObject> {
   readonly id: string;

@@ -85,6 +85,143 @@ with `recovery.ownership_conflict` if another live process owns it.
 
 Shows effective configuration, its sources, priority order, and env allowlist.
 
+### quack instructions [--mission \<id\>]
+
+Lists governed-instruction dispatch records (P8.6, metadata-only: outcome,
+digest, trust census, budget, defense-flag counts) from the stored trace
+repository. `--mission <id>` filters via the existing trace-by-mission
+lookup. `--json` emits machine-readable output. Records that fail
+validation are excluded and counted — tampered records never render as
+trustworthy. Instruction content is never stored or displayed.
+
+### quack memory [list|inspect \<id\>|search \<query\>|delete \<id\>]
+
+Inspects governed semantic memory (P9, ADR 0043) through the same
+admission/authorization path as production. `list` shows records (scope,
+owner, provenance, embedding state); `inspect` prints one record with full
+provenance and a bounded content preview; `search` performs governed
+semantic retrieval (requires an embedding-capable governed provider —
+reported honestly otherwise); `delete` removes a record and its derived
+index entries. `--json` machine output on every action. Exit codes: 0
+success, 1 operational failure, 2 usage error, 3 not found / access
+denied. Records that fail validation are excluded — tampered records never
+render as trustworthy.
+
+### quack extension [list|inspect|validate|install|enable|disable|remove]
+
+Manages the governed extension ecosystem catalog (P10, ADR 0044) — a
+declarative package registry, NOT an execution surface. Package content is
+never executed, printed, or loaded by these commands.
+
+- `list` — installed extensions with lifecycle, signature state, and
+  integrity digest prefixes (metadata only); honest empty state
+- `inspect <id>@<version>` — one extension with provenance, declared
+  capabilities/permissions (declarations grant nothing), and integrity
+  state
+- `validate <dir>` — validates a package (`manifest.json` + content)
+  against the fail-closed manifest contract and sha256 integrity
+- `install <dir>` — installs a package through the broker-governed,
+  transactional path (all-or-nothing; duplicate installs fail closed).
+  `plugin.install` is HIGH-RISK policy, so install prompts the operator
+  for approval before writing anything — a denial writes nothing.
+- `enable|disable <id>@<version>` — explicit lifecycle transitions
+  (invalid transitions fail closed)
+- `remove <id>@<version>` — removes the extension and its registry entry
+  (REMOVED is terminal; no ghost records)
+
+Exit codes: 0 success, 1 operational failure (validation failure,
+duplicate install, invalid transition), 2 usage error, 3 not found / access
+denied. `--json` machine output on every action. Read-only commands
+(`list`, `inspect`, `validate`) never prompt for approval.
+
+### quack govmission [run|status|recover]
+
+Runs missions through the governed mission execution loop (P11, ADR 0045)
+— the first model-in-the-loop path. Each iteration: canonical mission
+state → QIE pipeline (privacy firewall, context selection, deterministic
+composition, injection defense) → governed model dispatch → strict
+fail-closed proposal parsing (`quack:action-proposal:v1`) → capability
+broker authorization → execution through existing surfaces (ActionRuntime
+or the policy-enforced core.tools path) → deterministic next-step policy.
+The model proposes; the broker authorizes; the loop never executes
+unauthorized actions and has no fallback execution path.
+
+- `run "<objective>"` — executes a governed mission. Model dispatch is
+  intrinsic, so the operator must declare the mission's permission set
+  explicitly: `QUACK_GOVMISSION_PERMISSIONS="provider.invoke,workspace.read"`.
+  `provider.invoke` is medium/high-risk policy — never granted implicitly;
+  the declaration seeds the mission's capability grants (operator recorded
+  as approver) and each run still confirms through the standard approval
+  callback. Missions fail closed with `mission.model_error` when no model
+  provider is reachable — output is never fabricated.
+- `status [missionId]` — lists durable governed run records (missionId,
+  state, stop reason, step count) or inspects one run with per-step
+  metadata (capability, status, verification, decision, error code, plus
+  the P12 execution state and isolation state — e.g.
+  `EXECUTION_COMPLETED` under `POLICY_RESTRICTED`, honestly labeled as
+  broker-policy enforcement, not a sandbox). Records persist under
+  `<dataDir>/governed-missions/` and are visible across processes.
+
+P12 (ADR 0046) hardening on the same path: every governed execution runs
+under a server-derived ExecutionPolicy (runtime-owned timeout, output
+containment, at-most-once dispatch, in-process concurrency bound). A step
+that timed out, was cancelled, or crashed mid-dispatch settles AMBIGUOUS in
+the durable step-attempt journal and is never re-executed — re-runs fail
+closed. Missions that require an isolation level the runtime cannot
+provide are DENIED (no silent downgrade).
+
+P13 (ADR 0047): real isolation backends exist. Capabilities with a
+deployer-registered workload adapter execute in a genuinely isolated
+environment — a dedicated OS child process (`os-process`) or, when a
+Docker daemon is reachable, a locked-down container (`docker-container`:
+network-namespace sealed, kernel memory cgroup, read-only rootfs). The
+step view then reports the backend that actually ran the workload in the
+`backend` field. Isolation availability is environment-dependent: when
+the required backend is unavailable the execution DENIES — there is no
+`--no-sandbox`-style flag and no fallback to in-process execution. A
+`trust_executed` success stays `EXECUTION_COMPLETED` (unverified); a
+`probe_external_state` strategy can now reach `EXECUTION_VERIFIED`
+through the runtime's trusted probe runner. QUACK is not "sandboxed" as
+a whole: only adapter-registered capabilities run isolated; host-function
+capabilities remain `POLICY_RESTRICTED` broker-policy enforcement.
+
+P14 (ADR 0048): durable mission recovery. A crashed process no longer
+terminates the mission: a stored run without a terminal stop reason is
+reconciled against the durable journal and checkpoint on the next
+`govmission run` of the same mission id — every recorded step must have
+settled, consumed budget is restored (never reset), and the mission resumes
+at the verified safe boundary through the canonical
+INTERRUPTED → RECOVERING → RUNNING chain. A step left ambiguous by a
+crash window parks the mission: recovery refuses to resume
+(`mission.recovery_ambiguous`) because the runtime never re-dispatches an
+uncertain action. Terminal runs still refuse re-execution.
+
+- `recover <missionId>` — inspects durable recovery state for one mission
+  (recovery decision, safe continuation point, last settled step, ambiguous
+  step, checkpoint record, budget counters). Inspection only: this command
+  cannot bypass governance, cannot force execution, and cannot resolve an
+  ambiguous step — resumption happens through `govmission run` on the
+  same mission id, and the loop itself re-verifies every recovery safety
+  condition. There is no `--force`, `--skip-approval`,
+  `--ignore-isolation`, or `--resume-unsafe` flag, and none will exist.
+  Exit codes: 0 inspection complete, 1 operational failure, 2 missing
+  mission id, 3 unknown mission.
+
+IRREVERSIBLE/DESTRUCTIVE proposals now have a governed approval path
+where an operator surface exists: broker authorization → human approval
+(identity-bound, digest-bound to the exact action, single-use) →
+execution policy → isolation → execution → verification. Without an
+approval surface those risk levels keep failing closed. Approval never
+fabricates verification: an approved destructive action with no trusted
+probe still reports honestly unverified.
+
+Output is metadata-only — no prompts, no model output, no action
+arguments, no secrets. Exit codes: 0 success (SUCCEEDED mission), 1
+mission failure or operational error, 2 usage/consent error (missing
+objective, missing provider.invoke declaration), 3 unknown mission.
+`--json` machine output. Terminal runs refuse re-execution
+(`mission.loop_already_terminal`) — start a new mission instead.
+
 ### quack update
 
 Compares installed version against the npm registry (read-only `npm view`,

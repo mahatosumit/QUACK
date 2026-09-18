@@ -10,7 +10,7 @@ import type { QuackConfig } from "../config/config.js";
 
 test("admitted plugin hooks fire on canonical runtime events through governed authority", async t => {
   const dir = await mkdtemp(join(tmpdir(), "quack-hookwire-"));
-  t.after(() => rm(dir, { recursive: true, force: true }));
+  t.after(() => rm(dir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
 
   const observed: string[] = [];
   const extension: ExtensionDefinition = {

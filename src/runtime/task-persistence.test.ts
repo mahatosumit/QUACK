@@ -9,7 +9,7 @@ import { InMemoryTaskStore } from "../storage/task-store.js";
 
 test("neutral runtime retains failed tasks across restart without re-executing them", async (t) => {
   const dataDir = await mkdtemp(join(tmpdir(), "quack-task-restart-"));
-  t.after(() => rm(dataDir, { recursive: true, force: true }));
+  t.after(() => rm(dataDir, { recursive: true, force: true, maxRetries: 10, retryDelay: 100 }));
   const first = createQuackSystem({ dataDir });
   const result = await first.runtime.submitGoal("An unconfigured planner must fail.");
   assert.ok(result.ok);
