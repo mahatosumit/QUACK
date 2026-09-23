@@ -108,7 +108,7 @@ import { createWorkforce, type Workforce } from "../agents/index.js";
 import { buildPersonaWorkforce, PERSONAS, type PersonaDefinition } from "../agents/personas/personas.js";
 import { QuackApi } from "../api/index.js";
 import { DeveloperDashboard } from "../dashboard/index.js";
-import { createId } from "../core/types.js";
+import { createId, fail, ok } from "../core/types.js";
 import { isPermission } from "../security/permissions.js";
 import { NetworkPolicyEngine } from "../security/network-policy.js";
 import { PlaywrightBrowserActionProvider } from "../browser/index.js";
@@ -1227,6 +1227,55 @@ const agentLoop = new AgentLoop({
                                     selfModification,
           };
           api.setSystem(system);
+          runtime.registerMissionEngine({
+            engine: "governed",
+            execute: async (request) => {
+              for (const permission of request.permissions) {
+                if (!isPermission(permission)) {
+                  return fail({
+                    code: "mission.permission_invalid",
+                    message: `Unknown mission permission '${permission}'.`,
+                    category: "validation",
+                    recoverable: true,
+                  });
+                }
+                capabilityGrants.ensureGrant({
+                  missionId: request.missionId,
+                  capabilities: [`permission.${permission}`],
+                  approval: {
+                    approvedBy: `operator:${request.actor}`,
+                    reason: `Explicit operator capability declaration for governed mission ${request.missionId}.`,
+                    approvedAt: new Date().toISOString(),
+                  },
+                });
+              }
+              const result = await system.governedMissionLoop.run({
+                missionId: request.missionId,
+                objective: request.objective,
+                constraints: request.constraints,
+                signal: request.signal,
+              });
+              if (!result.ok) return result;
+              const { run, finalState } = result.data;
+              return ok({
+                missionId: run.missionId,
+                executionId: run.runId,
+                taskId: run.missionId,
+                engine: "governed",
+                mode: request.mode,
+                state: finalState === "SUCCEEDED" ? "COMPLETED" : "FAILED",
+                iterations: run.iterations.length,
+                ...(finalState === "SUCCEEDED" ? {} : {
+                  error: {
+                    code: "mission.governed_failed",
+                    message: run.stopReason ?? "Governed mission failed.",
+                    category: "runtime" as const,
+                    recoverable: false,
+                  },
+                }),
+              });
+            },
+          });
           Object.assign(system, {
             api,
             dashboard: new DeveloperDashboard(system),

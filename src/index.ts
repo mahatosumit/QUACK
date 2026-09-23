@@ -3,6 +3,7 @@ export { createDefaultConfig, type QuackConfig } from "./config/config.js";
 export * from "./core/types.js";
 export * from "./events/event-bus.js";
 export * from "./runtime/runtime.js";
+export * from "./runtime/mission.js";
 export * from "./runtime/task.js";
 export * from "./runtime/delegation.js";
 export * from "./extensions/index.js";

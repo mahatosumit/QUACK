@@ -2,6 +2,7 @@ import { type LoopResult } from "../agent-loop/contract.js";
 import { now } from "../core/types.js";
 import { type MissionEvaluationResult, type MissionTrace } from "../harness/index.js";
 import { type QuackSystem } from "../distributions/swe-system.js";
+import { isMissionMode } from "../runtime/mission.js";
 
 export interface MissionSubmission {
   readonly missionId?: string;
@@ -53,21 +54,34 @@ export class QuackApi {
   }
 
   async submitMission(input: MissionSubmission): Promise<MissionStatus> {
-    if (input.engine === "governed" || input.mode === "governed") {
-      return this.submitGovernedMission({
-        missionId: input.missionId,
-        objective: input.goal,
-        actor: input.actor,
-        permissions: input.permissions,
-        constraints: input.constraints,
-        signal: input.signal,
-      });
-    }
     const system = this.getSystem();
-    const task = await system.runtime.submitGoal(input.goal, input.actor ?? "api", { missionId: input.missionId, origin: "api", signal: input.signal });
-    if (!task.ok) throw Object.assign(new Error(task.error.message), { code: task.error.code });
-    const loopResult = system.runtime.getLoopResult(task.data.id);
-    if (!loopResult) throw new Error(String(task.data.error?.message ?? "Mission was not admitted to a runtime session."));
+    const engine = input.engine === "governed" || input.mode === "governed" ? "governed" : "dag";
+    const execution = await system.runtime.submitMission({
+      objective: input.goal,
+      actor: input.actor ?? "api",
+      missionId: input.missionId,
+      origin: "api",
+      engine,
+      mode: input.mode === "governed" ? "mission" : isMissionMode(input.mode) ? input.mode : undefined,
+      permissions: input.permissions,
+      constraints: input.constraints,
+      signal: input.signal,
+    });
+    if (!execution.ok) throw Object.assign(new Error(execution.error.message), { code: execution.error.code });
+    if (engine === "governed") {
+      return {
+        missionId: execution.data.missionId,
+        loopId: execution.data.executionId,
+        taskId: execution.data.taskId ?? execution.data.missionId,
+        state: execution.data.state,
+        iterations: execution.data.iterations,
+        error: execution.data.error?.message,
+      };
+    }
+    const task = execution.data.task;
+    if (!task) throw new Error("The DAG mission engine returned no task.");
+    const loopResult = system.runtime.getLoopResult(task.id);
+    if (!loopResult) throw new Error(String(task.error?.message ?? "Mission was not admitted to a runtime session."));
     const trace = await system.harness.traceRecorder.createTrace({
       missionInput: { missionId: input.missionId, goal: input.goal, actor: input.actor ?? "api" }, loopResult,
     });
@@ -77,44 +91,21 @@ export class QuackApi {
     this.missions.set(loopResult.runId, loopResult);
     this.traces.set(loopResult.runId, trace);
     this.evaluations.set(loopResult.runId, evaluation);
-    return { ...this.statusFromResult(loopResult), taskId: task.data.id };
+    return { ...this.statusFromResult(loopResult), taskId: task.id };
   }
 
   /** Run an objective through the governed model-in-the-loop runtime with capability gating. */
   async submitGovernedMission(input: GovernedMissionInput): Promise<MissionStatus> {
-    const system = this.getSystem();
-    const missionId = input.missionId ?? `gov_${Date.now().toString(36)}`;
-    const actor = input.actor ?? "api";
-    const permissions = input.permissions ?? ["provider.invoke", "workspace.read", "workspace.write"];
-    for (const perm of permissions) {
-      system.capabilityGrants.ensureGrant({
-        missionId,
-        capabilities: [`permission.${perm}`],
-        approval: {
-          approvedBy: `operator:${actor}`,
-          reason: `Explicit operator capability declaration for governed mission ${missionId}.`,
-          approvedAt: new Date().toISOString(),
-        },
-      });
-    }
-    const result = await system.governedMissionLoop.run({
-      missionId,
-      objective: input.objective,
+    return this.submitMission({
+      missionId: input.missionId,
+      goal: input.objective,
+      actor: input.actor,
+      engine: "governed",
+      mode: "mission",
+      permissions: input.permissions,
       constraints: input.constraints,
       signal: input.signal,
     });
-    if (!result.ok) {
-      throw Object.assign(new Error(result.error.message), { code: result.error.code });
-    }
-    const { run, finalState } = result.data;
-    return {
-      missionId: run.missionId,
-      loopId: run.runId,
-      taskId: run.missionId,
-      state: finalState === "SUCCEEDED" ? "COMPLETED" : "FAILED",
-      iterations: run.iterations.length,
-      error: finalState === "SUCCEEDED" ? undefined : (run.stopReason ?? undefined),
-    };
   }
 
   getStatus(loopId: string): MissionStatus | undefined {

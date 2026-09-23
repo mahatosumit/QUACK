@@ -156,7 +156,7 @@ export async function commandRun(context: CommandContext, goal: string): Promise
     .filter((entry): entry is import("../security/permissions.js").Permission => isPermission(entry));
   const permissions = parsedPerms.length > 0
     ? parsedPerms
-    : ["provider.invoke", "workspace.read", "workspace.write"] as import("../security/permissions.js").Permission[];
+    : ["provider.invoke", "workspace.read"] as import("../security/permissions.js").Permission[];
 
   const missionId = `gov_${Date.now().toString(36)}`;
   const { ConsoleApprovalCallback } = await import("../security/approval-controller.js");
@@ -194,15 +194,25 @@ export async function commandRun(context: CommandContext, goal: string): Promise
   }
 
   try {
-    const result = await system.governedMissionLoop.run({ missionId, objective: goal });
+    const result = await system.runtime.submitMission({
+      missionId,
+      objective: goal,
+      actor: "cli",
+      origin: "cli",
+      engine: "governed",
+      mode: "mission",
+      permissions,
+    });
     if (!result.ok) {
       if (context.json) out(context, { ok: false, error: result.error.message, code: result.error.code });
       else console.error(`Governed mission rejected: ${result.error.message}`);
       await system.events.drain();
       return 1;
     }
-    const { run, finalState } = result.data;
-    const completed = finalState === "SUCCEEDED";
+    const run = await system.governedMissionLoop.getRun(result.data.missionId);
+    if (!run) throw new Error(`Canonical runtime completed ${result.data.missionId} without a governed run record.`);
+    const finalState = result.data.state === "COMPLETED" ? "SUCCEEDED" : "FAILED";
+    const completed = result.data.state === "COMPLETED";
     const checkpoint = await system.governedMissionLoop.getCheckpoint(missionId).catch(() => undefined);
     if (context.json) {
       out(context, {
@@ -734,14 +744,24 @@ export async function commandGovMission(
       })),
     });
     try {
-      const result = await system.governedMissionLoop.run({ missionId, objective: target });
+      const result = await system.runtime.submitMission({
+        missionId,
+        objective: target,
+        actor: "cli",
+        origin: "cli",
+        engine: "governed",
+        mode: "mission",
+        permissions,
+      });
       if (!result.ok) {
         if (context.json) out(context, { ok: false, error: result.error.message, code: result.error.code });
         else console.error(`Governed mission rejected: ${result.error.message}`);
         await system.events.drain();
         return 1;
       }
-      const { run, finalState } = result.data;
+      const run = await system.governedMissionLoop.getRun(result.data.missionId);
+      if (!run) throw new Error(`Canonical runtime completed ${result.data.missionId} without a governed run record.`);
+      const finalState = result.data.state === "COMPLETED" ? "SUCCEEDED" : "FAILED";
       if (context.json) {
         out(context, {
           ok: true,

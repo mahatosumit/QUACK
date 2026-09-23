@@ -1,4 +1,11 @@
-import { createQuackSystem, type QuackSystem, type Task, type QuackConfig } from "@quack/os";
+import {
+  createQuackSystem,
+  type MissionExecution,
+  type MissionRequest,
+  type QuackConfig,
+  type QuackSystem,
+  type Task,
+} from "@quack/os";
 
 export type QuackClientConfig = Partial<QuackConfig>;
 
@@ -13,6 +20,14 @@ export class QuackClient {
   async submitGoal(goal: string): Promise<Task> {
     if (!this.system) throw new Error("Client not initialized. Call initialize() first.");
     const result = await this.system.runtime.submitGoal(goal, "sdk");
+    if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code });
+    return result.data;
+  }
+
+  /** Submit work through QUACK's canonical mission lifecycle. */
+  async submitMission(request: MissionRequest): Promise<MissionExecution> {
+    if (!this.system) throw new Error("Client not initialized. Call initialize() first.");
+    const result = await this.system.runtime.submitMission({ ...request, actor: request.actor ?? "sdk", origin: request.origin ?? "sdk" });
     if (!result.ok) throw Object.assign(new Error(result.error.message), { code: result.error.code });
     return result.data;
   }

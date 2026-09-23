@@ -88,11 +88,16 @@ test("duplicate active delegation for the same parent execution and goal fails c
 
   let release!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
-  let firstStarted = false;
+  let signalFirstStarted!: () => void;
+  const firstStarted = new Promise<void>(resolve => { signalFirstStarted = resolve; });
+  let submitCalls = 0;
   const delegator = new DelegationRuntime({ maxDepth: 2, parentGrantId: parentGrant(fixture.grants), grants: fixture.grants,
     submit: async (goal, actor, options) => {
-      if (!firstStarted) { firstStarted = true; return fixture.runtime.submitGoal(goal, actor, options); }
-      await gate;
+      submitCalls += 1;
+      if (submitCalls === 1) {
+        signalFirstStarted();
+        await gate;
+      }
       return fixture.runtime.submitGoal(goal, actor, options);
     } });
 
@@ -101,8 +106,10 @@ test("duplicate active delegation for the same parent execution and goal fails c
     actor: "observer", agentId: "child-agent", capabilities: ["permission.workspace.read"],
     reason: "First", approvedBy: "parent",
   });
-  // Wait for the first delegation to become RUNNING before attempting the duplicate.
-  await new Promise(resolve => setTimeout(resolve, 20));
+  // Wait for the first delegation to enter submit while keeping it active.
+  // A fixed sleep was racy under the full suite: if the first call completed
+  // early, the second call waited on a gate released only after it returned.
+  await firstStarted;
 
   const second = await delegator.delegate({
     missionId: "measurement", parentExecutionId: "parent-task-1", goal: fixture.graph.description,

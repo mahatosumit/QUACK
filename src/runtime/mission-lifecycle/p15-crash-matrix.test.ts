@@ -375,10 +375,14 @@ test("P15.E11 no crash boundary creates a second authoritative recovery owner (r
   const [a, b] = await Promise.all([first.firstMessage, second.firstMessage]);
   const outcomes = [String(a["type"]), String(b["type"])];
   const resumed = outcomes.filter(type => type === "resumed").length;
+  const safelyRefused = [a, b].filter(outcome =>
+    outcome["type"] === "ownership-conflict"
+      || (outcome["type"] === "resumed-other" && outcome["code"] === "mission.loop_already_terminal"),
+  ).length;
   assert.ok(resumed <= 1, `at most one authoritative recovery owner: ${JSON.stringify(outcomes)}`);
   assert.ok(
-    resumed + outcomes.filter(type => type === "ownership-conflict").length === 2,
-    `both processes leave governed outcomes: ${JSON.stringify(outcomes)}`,
+    resumed + safelyRefused === 2,
+    `both processes leave governed outcomes: ${JSON.stringify([a, b])}`,
   );
 });
 

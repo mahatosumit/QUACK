@@ -19,9 +19,14 @@ import { QuackClient } from "@quack/sdk";
 
 const client = new QuackClient();
 await client.initialize({ workspaceRoot: "./my-project" });
-await client.submitGoal("summarize the workspace documents");
+await client.submitMission({
+  objective: "summarize the workspace documents",
+  mode: "build",
+});
 await client.shutdown();
 ```
+
+`submitGoal()` remains as a compatibility adapter for existing clients.
 
 ## API
 

@@ -152,11 +152,16 @@ test('SDK preserves configuration and propagates runtime failure', async () => {
   const client = new QuackClient();
   try {
     await assert.rejects(client.submitGoal('test'), /not initialized/);
+    await assert.rejects(client.submitMission({ objective: 'test' }), /not initialized/);
     await client.initialize({ workspaceRoot: root, dataDir: join(root, 'state') });
     const system = client.getSystem();
     assert.equal(system.config.workspaceRoot, root);
     assert.equal(system.config.dataDir, join(root, 'state'));
     assert.equal(typeof system.governedProviderRouter.route, 'function');
+    const mission = await client.submitMission({ objective: 'No planner configured', mode: 'plan' });
+    assert.equal(mission.engine, 'dag');
+    assert.equal(mission.mode, 'plan');
+    assert.equal(mission.state, 'FAILED');
     await assert.rejects(client.initialize(), /already initialized/);
     system.runtime.submitGoal = async () => ({ ok: false, error: {
       code: 'runtime.unsupported', message: 'No executor is configured.',

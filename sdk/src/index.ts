@@ -18,7 +18,16 @@ export type { QuackEvent, QuackEventType, EventHandler } from "@quack/os";
 
 // Runtime
 export { QuackRuntime } from "@quack/os";
-export type { Task } from "@quack/os";
+export { MISSION_MODES, isMissionMode } from "@quack/os";
+export type {
+  MissionEngine,
+  MissionExecution,
+  MissionExecutionState,
+  MissionMode,
+  MissionRequest,
+  MissionRoutingPreference,
+  Task,
+} from "@quack/os";
 
 // Memory
 export { InMemoryMemoryStore, JsonFileMemoryStore } from "@quack/os";

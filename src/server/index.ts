@@ -385,10 +385,17 @@ export class QuackHttpServer {
     this.missions.set(id, record);
     if (body.dryRun) {
       this.updateMission(id, { state: "COMPLETED", error: "Dry run completed: request was validated and no mission execution was started." });
-    } else if (body.mode === "governed" || body.engine === "governed") {
-      this.runGovernedMission(id, body.goal, actor, body.constraints, body.permissions);
     } else {
-      this.runMission(id, { missionId: body.missionId, goal: body.goal, actor });
+      const governed = body.mode === "governed" || body.engine === "governed";
+      this.runMission(id, {
+        missionId: governed ? body.missionId ?? id : body.missionId,
+        goal: body.goal,
+        actor,
+        engine: governed ? "governed" : "dag",
+        mode: body.mode,
+        permissions: body.permissions,
+        constraints: body.constraints,
+      });
     }
     this.writeJson(response, 202, this.missions.get(id));
   }
@@ -969,56 +976,15 @@ export class QuackHttpServer {
     constraints?: readonly string[],
     explicitPermissions?: readonly string[],
   ): void {
-    const controller = new AbortController();
-    this.missionControllers.set(id, controller);
-
-    const permissions = explicitPermissions && explicitPermissions.length > 0
-      ? explicitPermissions
-      : ["provider.invoke", "workspace.read", "workspace.write"];
-
-    for (const perm of permissions) {
-      this.system.capabilityGrants.ensureGrant({
-        missionId: id,
-        capabilities: [`permission.${perm}`],
-        approval: {
-          approvedBy: `operator:${actor}`,
-          reason: `Operator capability declaration for governed mission ${id}.`,
-          approvedAt: new Date().toISOString(),
-        },
-      });
-    }
-
-    void (async () => {
-      try {
-        const result = await this.system.governedMissionLoop.run({
-          missionId: id,
-          objective,
-          constraints,
-          signal: controller.signal,
-        });
-        if (result.ok) {
-          const { run, finalState } = result.data;
-          this.updateMission(id, {
-            state: finalState === "SUCCEEDED" ? "COMPLETED" : "FAILED",
-            iterations: run.iterations.length,
-            stopReason: run.stopReason ?? null,
-          });
-        } else {
-          this.updateMission(id, {
-            state: "FAILED",
-            error: result.error.message,
-          });
-        }
-      } catch (err) {
-        const cancelled = controller.signal.aborted;
-        this.updateMission(id, {
-          state: "FAILED",
-          error: cancelled ? `Governed mission cancelled: ${err instanceof Error ? err.message : String(err)}` : (err instanceof Error ? err.message : String(err)),
-        });
-      } finally {
-        this.missionControllers.delete(id);
-      }
-    })();
+    void this.runMission(id, {
+      missionId: id,
+      goal: objective,
+      actor,
+      engine: "governed",
+      mode: "mission",
+      permissions: explicitPermissions,
+      constraints,
+    });
   }
 
   private async getGovernedMissionById(path: string, response: ServerResponse): Promise<void> {

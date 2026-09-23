@@ -37,6 +37,13 @@ import { type SkillExecutor } from "../skills/executor.js";
 import { type SkillRegistry } from "../skills/registry.js";
 import { type Task, type TaskStep, type MissionOrigin } from "./task.js";
 import { type ImprovementCoordinator, type ImprovementTriggerContext } from "../adaptive/improvement-coordinator.js";
+import {
+  type MissionEngineAdapter,
+  type MissionExecution,
+  type MissionExecutionState,
+  type MissionRequest,
+  type ResolvedMissionRequest,
+} from "./mission.js";
 
 export interface PreparedTaskGraph {
   readonly graph: TaskGraph;
@@ -134,6 +141,7 @@ export class QuackRuntime {
   private readonly sessionId: string;
   private readonly workspaceId: string;
   private readonly capabilityBroker: CapabilityBroker;
+  private readonly missionEngines = new Map<MissionEngineAdapter["engine"], MissionEngineAdapter>();
 
   constructor(private readonly deps: QuackRuntimeDependencies) {
     this.taskStore = deps.taskStore ?? (deps.dataDir
@@ -209,7 +217,128 @@ export class QuackRuntime {
     };
   }
 
+  /**
+   * Register a trusted execution strategy with the canonical runtime. The DAG
+   * engine is built in and cannot be replaced. Duplicate registrations fail
+   * closed so composition order cannot silently change mission authority.
+   */
+  registerMissionEngine(adapter: MissionEngineAdapter): void {
+    if (this.missionEngines.has(adapter.engine)) {
+      throw new Error(`Mission engine '${adapter.engine}' is already registered.`);
+    }
+    this.missionEngines.set(adapter.engine, adapter);
+  }
+
+  /** Canonical mission entry point for every product surface. */
+  async submitMission(request: MissionRequest): Promise<QuackResult<MissionExecution>> {
+    const objective = request.objective.trim();
+    if (!objective) {
+      return fail({
+        code: "mission.objective_empty",
+        message: "A mission objective is required.",
+        category: "validation",
+        recoverable: true,
+      });
+    }
+
+    const engine = request.engine ?? "dag";
+    const mode = request.mode ?? (engine === "governed" ? "mission" : "build");
+    const actor = request.actor?.trim() || "user";
+    const origin = request.origin ?? "user";
+    const permissions = Object.freeze([...(request.permissions ?? [])]);
+    const constraints = Object.freeze([...(request.constraints ?? [])]);
+    const verificationCriteria = Object.freeze([...(request.verificationCriteria ?? [])]);
+
+    if (engine === "dag") {
+      const task = await this.submitDagMission(objective, actor, {
+        signal: request.signal,
+        deadline: request.deadline,
+        budget: request.budget,
+        precompiledGraph: request.precompiledGraph,
+        missionId: request.missionId,
+        agentId: request.agentId ?? request.profileId,
+        skillId: request.skillId,
+        origin,
+      });
+      if (!task.ok) return task;
+      const loop = this.getLoopResult(task.data.id);
+      const missionId = task.data.execution?.missionId ?? request.missionId ?? task.data.id;
+      return ok({
+        missionId,
+        executionId: loop?.runId ?? task.data.id,
+        engine,
+        mode,
+        state: taskState(task.data),
+        iterations: loop?.iterations.length ?? 0,
+        taskId: task.data.id,
+        task: task.data,
+        ...(task.data.error ? { error: taskError(task.data) } : {}),
+      });
+    }
+
+    const adapter = this.missionEngines.get(engine);
+    if (!adapter) {
+      return fail({
+        code: "mission.engine_unavailable",
+        message: `Mission engine '${engine}' is not registered in this runtime.`,
+        category: "runtime",
+        recoverable: false,
+      });
+    }
+    const resolved: ResolvedMissionRequest = {
+      ...request,
+      objective,
+      actor,
+      missionId: request.missionId?.trim() || createId("mission"),
+      origin,
+      engine,
+      mode,
+      permissions,
+      constraints,
+      verificationCriteria,
+    };
+    const result = await adapter.execute(resolved);
+    if (!result.ok) return result;
+    if (result.data.engine !== engine || result.data.missionId !== resolved.missionId || result.data.mode !== mode) {
+      return fail({
+        code: "mission.engine_contract_violation",
+        message: `Mission engine '${engine}' returned an execution with mismatched identity.`,
+        category: "runtime",
+        recoverable: false,
+      });
+    }
+    return result;
+  }
+
+  /** Compatibility adapter. New callers should use submitMission. */
   async submitGoal(goal: string, actor = "user", options: RuntimeGoalOptions = {}): Promise<QuackResult<Task>> {
+    const result = await this.submitMission({
+      objective: goal,
+      actor,
+      engine: "dag",
+      mode: "build",
+      origin: options.origin,
+      missionId: options.missionId,
+      agentId: options.agentId,
+      skillId: options.skillId,
+      budget: options.budget,
+      precompiledGraph: options.precompiledGraph,
+      signal: options.signal,
+      deadline: options.deadline,
+    });
+    if (!result.ok) {
+      if (result.error.code === "mission.objective_empty") {
+        return fail({ ...result.error, code: "task.goal_empty", message: "A goal is required." });
+      }
+      return result;
+    }
+    if (!result.data.task) {
+      return fail({ code: "runtime.task_missing", message: "The DAG mission engine returned no task.", category: "runtime", recoverable: false });
+    }
+    return ok(result.data.task);
+  }
+
+  private async submitDagMission(goal: string, actor: string, options: RuntimeGoalOptions): Promise<QuackResult<Task>> {
     if (!goal.trim()) {
       return fail({
         code: "task.goal_empty",
@@ -1050,4 +1179,25 @@ export class QuackRuntime {
   async shutdown(): Promise<void> {
     await Promise.all([...this.activeSessions].map((id) => this.sessions.cancelAndWait(id)));
   }
+}
+
+function taskState(task: Task): MissionExecutionState {
+  if (task.status === "completed") return "COMPLETED";
+  if (task.status === "failed") return "FAILED";
+  if (task.status === "created" || task.status === "planned") return "PENDING";
+  return "RUNNING";
+}
+
+function taskError(task: Task): QuackError {
+  const value = task.error;
+  return {
+    code: typeof value?.code === "string" ? value.code : "mission.failed",
+    message: typeof value?.message === "string" ? value.message : "Mission execution failed.",
+    category: value?.category === "validation" || value?.category === "permission" || value?.category === "provider"
+      || value?.category === "tool" || value?.category === "plugin" ? value.category : "runtime",
+    recoverable: value?.recoverable === true,
+    ...(value?.context && typeof value.context === "object" && !Array.isArray(value.context)
+      ? { context: value.context as JsonObject }
+      : {}),
+  };
 }
