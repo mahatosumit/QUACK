@@ -19,10 +19,33 @@ test("QUACK Control Room renders every required solo-production surface", () => 
 
 test("QUACK Studio styles are desktop-first and remain mobile usable", () => {
   const css = studioStyles();
+  const script = studioScript();
   assert.match(css, /grid-template-columns:224px/);
   assert.match(css, /@media\(max-width:820px\)/);
+  assert.match(css, /\.sidebar-foot\{display:none\}/);
+  assert.match(script, /syncNavigationDisclosure/);
+  assert.match(script, /details\.open = !compact \|\| !primary/);
   assert.match(css, /badge\.risk/);
   assert.match(css, /prefers-reduced-motion/);
+});
+
+test("New Mission submits through the canonical Mission API and preserves dry-run semantics", () => {
+  const script = studioScript();
+  assert.match(script, /\$\("mission-form"\)\.addEventListener\("submit", submitNewMission\)/);
+  assert.match(script, /async function submitNewMission/);
+  assert.match(script, /request\(api\.missions/);
+  assert.match(script, /actor: "quack-studio-operator"/);
+  assert.match(script, /dryRun/);
+  assert.match(script, /No mission execution was started/);
+});
+
+test("Models, actions, MCP, and browser routes render canonical server read models", () => {
+  const script = studioScript();
+  assert.match(script, /const data = await request\(api\.providers\)/);
+  assert.match(script, /bindProviderTests/);
+  assert.match(script, /const data = await request\(api\.actions\)/);
+  assert.match(script, /const data = await request\(api\.mcp\)/);
+  assert.match(script, /provider\.metadata\.providerId === "browser\.playwright"/);
 });
 
 test("P2 Mission Control: lanes, detail actions, approval queue, live events are wired", () => {

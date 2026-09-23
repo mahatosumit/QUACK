@@ -50,6 +50,8 @@ export type QuackEventType =
   | "tool.completed"
   | "provider.requested"
   | "provider.completed"
+  | "model.routed"
+  | "model.routing_failed"
   | "memory.written"
   | "skill.compile.started"
   | "skill.compile.parsed"
@@ -275,4 +277,3 @@ export class EventBus {
     }
   }
 }
-

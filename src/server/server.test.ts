@@ -37,6 +37,31 @@ test("HTTP API creates missions asynchronously and fetches status", async () => 
   }
 });
 
+test("HTTP API dry-run validates a governed mission without dispatching execution", async () => {
+  const fixture = await createFixture();
+  const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });
+
+  try {
+    await server.start();
+    const created = await postJson<ApiMissionRecord>(`${server.address().url}/missions`, {
+      goal: "validate mission without executing",
+      actor: "studio-test",
+      mode: "governed",
+      dryRun: true,
+    });
+
+    assert.equal(created.status, 202);
+    assert.equal(created.body.state, "COMPLETED");
+    assert.equal(created.body.dryRun, true);
+    assert.equal(created.body.iterations, 0);
+    assert.match(created.body.error ?? "", /validated|dry run/i);
+    assert.equal(fixture.system.cognitiveSystem.missionManager.getAll().length, 0, "dry-run must not enter the canonical execution loop");
+  } finally {
+    await server.stop();
+    await fixture.cleanup();
+  }
+});
+
 test("HTTP API exposes mission detail and trace", async () => {
   const fixture = await createFixture();
   const server = new QuackHttpServer({ system: fixture.system, port: 0, authentication: false });

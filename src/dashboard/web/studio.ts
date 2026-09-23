@@ -952,8 +952,11 @@ button,input,select,textarea{font:inherit}
 @media(max-width:1050px){.grid.cards{grid-template-columns:repeat(2,minmax(0,1fr))}.quick-actions-grid{grid-template-columns:repeat(2,1fr)}}
 @media(max-width:820px){
   .studio-shell{grid-template-columns:1fr}
-  .sidebar{position:static;height:auto;border-right:0;border-bottom:1px solid var(--line)}
+  .sidebar{position:static;height:auto;padding:12px 14px;border-right:0;border-bottom:1px solid var(--line)}
+  .brand{padding-bottom:12px}
   .primary-nav-group{flex-direction:row;overflow-x:auto}
+  .nav-details{margin-top:8px;padding-top:8px}
+  .sidebar-foot{display:none}
   .studio-main{padding:0 16px 28px}
   .quick-actions-grid{grid-template-columns:1fr}
   .workspace-split{grid-template-columns:1fr}
@@ -1050,6 +1053,7 @@ function route() {
   const id = parts[1];
   const subTab = parts[2];
   currentRoute = routes[name] ? name : "home";
+  syncNavigationDisclosure();
 
   document.querySelectorAll(".nav a").forEach(a => {
     const r = a.dataset.route;
@@ -1065,6 +1069,8 @@ function route() {
 
 window.addEventListener("hashchange", route);
 window.addEventListener("DOMContentLoaded", () => {
+  const compactNavigation = window.matchMedia("(max-width: 820px)");
+  compactNavigation.addEventListener?.("change", syncNavigationDisclosure);
   connectLive();
   refreshApprovalCount();
   $("theme-toggle")?.addEventListener("click", () => {
@@ -1074,6 +1080,14 @@ window.addEventListener("DOMContentLoaded", () => {
   });
   route();
 });
+
+function syncNavigationDisclosure() {
+  const details = $("nav-deep-links");
+  if (!details) return;
+  const compact = window.matchMedia("(max-width: 820px)").matches;
+  const primary = ["home", "missions", "workspace", "extensions", "settings"].includes(currentRoute);
+  details.open = !compact || !primary;
+}
 
 async function render(id, subTab) {
   if (currentRoute === "home") return renderHome();
@@ -1917,8 +1931,39 @@ async function renderOverview() {
 }
 
 async function renderNewMission() {
-  const data = await request(api.providers);
-  page.innerHTML = '<section class="panel"><h2>Plan before execution</h2><p class="muted">A dry run validates this request without starting an agent loop.</p><form id="mission-form" class="form-grid section-gap"><div class="field full"><label for="mission-goal">Outcome</label><textarea id="mission-goal" required placeholder="Inspect the repository and produce an evidence-backed architecture summary."></textarea></div><div class="field"><label for="mission-mode">Mode</label><select id="mission-mode"><option value="governed" selected>Governed (Model-in-the-Loop)</option></select></div><label class="checkbox field full"><input id="mission-dry-run" type="checkbox"> Validate only; do not execute (dryRun)</label><div class="actions field full"><button class="button" type="submit">Submit mission</button></div></form><div id="mission-result" class="muted section-gap"></div></section>';
+  page.innerHTML = '<section class="panel"><h2>Plan before execution</h2><p class="muted">A dry run validates this request without starting an agent loop.</p><form id="mission-form" class="form-grid section-gap"><div class="field full"><label for="mission-goal">Outcome</label><textarea id="mission-goal" required placeholder="Inspect the repository and produce an evidence-backed architecture summary."></textarea></div><div class="field"><label for="mission-mode">Mode</label><select id="mission-mode"><option value="governed" selected>Governed (Model-in-the-Loop)</option></select></div><label class="checkbox field full"><input id="mission-dry-run" type="checkbox"> Validate only; do not execute (dryRun)</label><div class="actions field full"><button class="button" id="mission-submit" type="submit">Submit mission</button></div></form><div id="mission-result" class="muted section-gap" role="status" aria-live="polite"></div></section>';
+  $("mission-form").addEventListener("submit", submitNewMission);
+}
+
+async function submitNewMission(event) {
+  event.preventDefault();
+  const goal = $("mission-goal").value.trim();
+  if (!goal) return;
+  const dryRun = $("mission-dry-run").checked;
+  const button = $("mission-submit");
+  const result = $("mission-result");
+  button.disabled = true;
+  result.textContent = dryRun ? "Validating mission request…" : "Submitting governed mission…";
+  try {
+    const mission = await request(api.missions, {
+      method: "POST",
+      body: JSON.stringify({
+        goal,
+        actor: "quack-studio-operator",
+        mode: $("mission-mode").value,
+        dryRun
+      })
+    });
+    if (dryRun) {
+      result.innerHTML = 'Request validated. No mission execution was started. <a href="#mission/' + encodeURIComponent(mission.id) + '">Inspect validation record</a>.';
+      return;
+    }
+    location.hash = "#mission/" + encodeURIComponent(mission.id);
+  } catch (error) {
+    result.textContent = "Mission submission failed: " + error.message;
+  } finally {
+    button.disabled = false;
+  }
 }
 
 function table(headers,rows){return rows.length?'<div class="table-wrap"><table class="table"><thead><tr>'+headers.map(h=>'<th scope="col">'+esc(h)+'</th>').join("")+'</tr></thead><tbody>'+rows.join("")+'</tbody></table></div>':'<p class="empty">No records reported.</p>';}
@@ -1929,16 +1974,34 @@ function recoveryVerificationBadge(step){const execution=String(step.executionSt
 async function missionAction(id,action,question){if(!window.confirm(question))return;try{const result=await request(api.missions+"/"+encodeURIComponent(id)+"/"+action,{method:"POST",body:JSON.stringify({})});notice(action==="cancel"?"Cancellation requested. The mission record reflects the terminal state shortly.":"Resume dispatched through the durable recovery path.");renderMission(id);}catch(error){notice(error.message,true);}}
 async function renderAgents(){const [registry,state]=await Promise.all([request(api.agents),request(api.dashboardState)]);const agents=registry.agents||[];const dashAgents=(state.agents&&state.agents.agents)||[];const evaluations=(state.harness&&state.harness.evaluations)||[];const dims=evaluations.filter(e=>e.result?.dimensions).map(e=>e.result.dimensions);const avg=(key)=>dims.length?Math.round(dims.reduce((t,d)=>t+(Number(d[key])||0),0)/dims.length):null;const rows=agents.map(a=>{const dash=dashAgents.find(d=>d.id===a.identity.id);const assigned=dash?.assignedMissions?.length||0;return '<tr><td><strong>'+esc(a.identity.name)+'</strong><div class="muted mono">'+esc(a.identity.id)+'</div><div class="muted">'+esc(a.identity.description)+'</div></td><td>'+badge(a.trustLevel)+'</td><td>'+esc(a.capabilities.join(", ")||"—")+'</td><td>'+esc(a.skills.join(", ")||"—")+'</td><td>'+esc(a.specialization.join(", ")||"—")+'</td><td>'+badge(assigned>0?"ASSIGNED":"AVAILABLE")+(assigned?' <span class="muted">'+esc(assigned)+' mission(s)</span>':'')+'</td></tr>';});const summary=dims.length?'<div class="grid cards section-gap">'+card("Capability discipline",avg("capabilityDiscipline"),"Across "+evaluations.length+" stored evaluation(s)")+card("Recovery",avg("recovery"),"Durable eval history")+card("Planning",avg("planning"),"")+card("Evidence quality",avg("evidenceQuality"),"")+'</div>':'';page.innerHTML='<section class="panel"><div class="panel-header"><div><h2>Agent workspace</h2><p class="muted">Registered specialists, their capabilities, and current assignment state. This is registry state, not a claim that an agent is currently executing.</p></div></div>'+table(["Agent","Trust","Capabilities","Skills","Specialization","Work"],rows)+'</section>'+(summary||'<p class="empty section-gap">No stored evaluation dimensions yet — run and evaluate missions to see agent-quality summaries.</p>');}
 async function renderModels() {
-  page.innerHTML = '<section class="panel"><div class="panel-header"><div><h2>Provider Control Center</h2><p class="muted">Provider capability, health, and certification evidence.</p></div></div></section>';
+  const data = await request(api.providers);
+  page.innerHTML = '<section class="panel"><div class="panel-header"><div><h2>Provider Control Center</h2><p class="muted">L0 means registered. L1 requires a successful health check. Live inference certification is never inferred from configuration.</p></div></div>' + table(["Provider", "Models", "Reachability", "Certification", "Action"], data.providers.map(provider => '<tr><td><strong>' + esc(provider.id) + '</strong></td><td>' + esc((provider.capabilities?.models || []).join(", ") || "Not reported") + '</td><td>' + badge(provider.available ? "AVAILABLE" : "UNAVAILABLE") + '</td><td>' + badge(provider.available ? "L1 HEALTH" : "L0 ONLY") + '</td><td><button class="button secondary" data-provider-test="' + esc(provider.id) + '">Safe health test</button></td></tr>')) + '<p class="muted section-gap">Fallback order: ' + esc(data.fallbackOrder.join(" → ") || "none") + '</p></section>';
+  bindProviderTests();
+}
+function bindProviderTests() {
+  document.querySelectorAll("[data-provider-test]").forEach(button => button.addEventListener("click", async () => {
+    try {
+      const result = await request(api.providers + "/test", { method: "POST", body: JSON.stringify({ providerId: button.dataset.providerTest }) });
+      notice(result.message || result.status || "Health check completed.");
+      await renderModels();
+    } catch (error) {
+      notice(error.message, true);
+    }
+  }));
 }
 async function renderActions() {
-  page.innerHTML = '<section class="panel"><div class="panel-header"><div><h2>Capability catalog</h2><p class="muted">Discoverable capabilities and durable execution history.</p></div></div></section>';
+  const data = await request(api.actions);
+  const descriptors = data.providers.flatMap(provider => provider.actions.map(action => ({ provider: provider.metadata.providerId, ...action })));
+  page.innerHTML = '<div class="grid two"><section class="panel"><h2>Action providers</h2>' + table(["Provider", "Boundary", "Health", "Actions"], data.providers.map(provider => '<tr><td>' + esc(provider.metadata.displayName) + '</td><td>' + esc(provider.metadata.boundary) + '</td><td>' + badge(provider.health.status) + '</td><td>' + esc(provider.actions.length) + '</td></tr>')) + '</section><section class="panel"><h2>Ambiguous external state</h2><p class="muted">These records require reconciliation. QUACK will not blindly repeat them.</p>' + recordList(data.ambiguous || []) + '</section></div><section class="panel section-gap"><h2>Capability catalog</h2>' + table(["Action", "Provider", "Risk", "Approval"], descriptors.map(action => '<tr><td><strong>' + esc(action.name) + '</strong><div class="muted">' + esc(action.description) + '</div></td><td>' + esc(action.provider) + '</td><td>' + badge(action.riskClass) + '</td><td>' + badge(action.approval) + '</td></tr>')) + '</section><section class="panel section-gap"><h2>Execution ledger</h2>' + table(["Execution", "Action", "State", "Updated"], (data.executions || []).map(execution => '<tr><td class="mono">' + esc(execution.executionId) + '</td><td>' + esc(execution.actionName) + '</td><td>' + badge(execution.state) + '</td><td>' + esc(fmt(execution.updatedAt)) + '</td></tr>')) + '</section>';
 }
 async function renderIntegrations() {
-  page.innerHTML = '<section class="panel"><h2>MCP Integrations</h2></section>';
+  const data = await request(api.mcp);
+  page.innerHTML = '<section class="panel"><h2>MCP integrations</h2><p class="muted">Supported transports: ' + esc(data.supportedTransports.join(", ")) + '. Legacy SSE: ' + esc(data.legacySse) + '.</p>' + table(["Server", "Transport", "Boundary", "Enabled", "Health"], data.servers.map(server => '<tr><td>' + esc(server.metadata.displayName) + '</td><td>' + esc(server.metadata.transport) + '</td><td>' + esc(server.metadata.boundary) + '</td><td>' + badge(server.enabled ? "ENABLED" : "DISABLED") + '</td><td>' + badge(server.health.status) + '</td></tr>')) + '<p class="callout section-gap">Stdio receives a minimal environment. Secret-like variables require explicit grants. Isolated mode requires a declared OS sandbox launcher.</p></section>';
 }
 async function renderBrowser() {
-  page.innerHTML = '<section class="panel"><h2>Browser Automation</h2></section>';
+  const data = await request(api.actions);
+  const browser = data.providers.find(provider => provider.metadata.providerId === "browser.playwright");
+  page.innerHTML = '<section class="panel"><h2>Browser runtime</h2>' + row("Status", badge(browser?.health?.status || "UNAVAILABLE"), true) + row("Boundary", browser?.metadata?.boundary || "local") + row("Discovered actions", browser?.actions?.length || 0) + row("Default network", badge("DENY"), true) + '<p class="callout section-gap">Page content is untrusted data. It cannot grant permissions, change policy, or approve an action.</p></section>';
 }
 async function renderFiles() {
   return renderWorkspace();

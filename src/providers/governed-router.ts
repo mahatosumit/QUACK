@@ -4,6 +4,7 @@ import type { ExecutionContextV1 } from "../contracts/v1/contracts.js";
 import {
   CapabilityProviderRouter, ProviderRoutingError, type ProviderRouteRequestV1, type ProviderRouteResultV1,
 } from "./kernel.js";
+import type { ProviderModelEventV1 } from "../contracts/index.js";
 
 /**
  * Governed provider dispatch boundary.
@@ -23,6 +24,16 @@ export class GovernedProviderRouter {
   ) {}
 
   async route(input: ProviderRouteRequestV1): Promise<ProviderRouteResultV1> {
+    await this.authorize(input);
+    return this.router.route(input);
+  }
+
+  async *stream(input: ProviderRouteRequestV1): AsyncIterable<ProviderModelEventV1> {
+    await this.authorize(input);
+    yield* this.router.stream(input);
+  }
+
+  private async authorize(input: ProviderRouteRequestV1): Promise<void> {
     const context: ExecutionContextV1 = input.context;
     const request = buildToolCapabilityRequest({
       taskId: context.taskId,
@@ -49,6 +60,5 @@ export class GovernedProviderRouter {
         model: input.request.model, message: current.reason, retriable: false,
       });
     }
-    return this.router.route(input);
   }
 }

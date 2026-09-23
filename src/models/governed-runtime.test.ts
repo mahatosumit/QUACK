@@ -5,6 +5,9 @@ import type { ModelInfo } from "./types.js";
 import type { ModelRequest, ModelResponse, ModelRuntime, ModelStreamChunk } from "./runtime.js";
 import type { CapabilityBroker, CapabilityDecision, CapabilityRequest } from "../security/capability-broker.js";
 import type { QuackResult } from "../core/types.js";
+import { QUACK_CONTRACT_VERSION, type ExecutionContextV1, type ProviderCapabilitySupport, type QuackProviderV1 } from "../contracts/index.js";
+import { CanonicalProviderRegistry, CapabilityProviderRouter } from "../providers/kernel.js";
+import { GovernedProviderRouter } from "../providers/governed-router.js";
 
 class FixedBroker implements CapabilityBroker {
   readonly requests: CapabilityRequest[] = [];
@@ -143,3 +146,106 @@ test("selectModel stays ungated because it is a metadata-only registry lookup", 
   assert.ok(selected.ok);
   assert.equal(broker.requests.length, 0);
 });
+
+test("canonical generation bypasses the legacy router and records canonical routing evidence", async () => {
+  const broker = new FixedBroker(true);
+  const { inner, state } = fakeRuntime();
+  const provider = new CanonicalFakeProvider();
+  const registry = new CanonicalProviderRegistry();
+  registry.register(provider);
+  const runtime = new GovernedModelRuntime(inner, broker, {
+    providerRouter: new GovernedProviderRouter(new CapabilityProviderRouter(registry), broker),
+  });
+
+  const result = await runtime.generate({ prompt: "hello", model: "qwen", metadata: { privacy: "local-only" } }, {
+    missionId: "mission-1", taskId: "task-1", agentId: "agent-1", actor: "observer",
+  });
+
+  assert.ok(result.ok);
+  if (!result.ok) return;
+  assert.equal(state.generateCalls, 0, "legacy ModelRuntime.generate must not select or contact providers");
+  assert.equal(provider.generateCalls, 1);
+  assert.equal(result.data.routing?.selectedProviderId, "canonical-local");
+  assert.equal(result.data.routing?.selectedModel, "qwen");
+  assert.equal(result.data.routing?.candidates.length, 1);
+  assert.equal(broker.requests.length, 1);
+  assert.equal(broker.requests[0].agentId, "agent-1");
+});
+
+test("canonical streaming bypasses the legacy router and uses the same governed provider boundary", async () => {
+  const broker = new FixedBroker(true);
+  const { inner, state } = fakeRuntime();
+  const provider = new CanonicalFakeProvider();
+  const registry = new CanonicalProviderRegistry();
+  registry.register(provider);
+  const runtime = new GovernedModelRuntime(inner, broker, {
+    providerRouter: new GovernedProviderRouter(new CapabilityProviderRouter(registry), broker),
+  });
+  const chunks: ModelStreamChunk[] = [];
+
+  for await (const chunk of runtime.stream({ prompt: "hello", model: "qwen", metadata: { privacy: "local-only" } }, {
+    missionId: "mission-1", taskId: "task-1", actor: "observer",
+  })) chunks.push(chunk);
+
+  assert.equal(state.streamCalls, 0, "legacy ModelRuntime.stream must not select or contact providers");
+  assert.equal(provider.streamCalls, 1);
+  assert.deepEqual(chunks.map((chunk) => [chunk.text, chunk.done]), [["ok", false], ["", true]]);
+  assert.equal(broker.requests.length, 1);
+});
+
+class CanonicalFakeProvider implements QuackProviderV1 {
+  generateCalls = 0;
+  streamCalls = 0;
+
+  metadata() {
+    return {
+      contractVersion: QUACK_CONTRACT_VERSION,
+      providerId: "canonical-local",
+      displayName: "Canonical Local",
+      runtime: "fixture",
+      boundary: "local",
+      credentialEnvironmentVariables: [],
+    } as const;
+  }
+
+  async health() {
+    return { status: "HEALTHY", checkedAt: new Date().toISOString() } as const;
+  }
+
+  async discoverModels() {
+    return [{
+      id: "qwen",
+      providerId: "canonical-local",
+      runtime: "fixture",
+      capabilities: [
+        { capability: "text", level: "NATIVE" } satisfies ProviderCapabilitySupport,
+        { capability: "streaming", level: "NATIVE" } satisfies ProviderCapabilitySupport,
+      ],
+    }];
+  }
+
+  async capabilities() {
+    return [
+      { capability: "text", level: "NATIVE" } satisfies ProviderCapabilitySupport,
+      { capability: "streaming", level: "NATIVE" } satisfies ProviderCapabilitySupport,
+    ];
+  }
+
+  async generate(request: { readonly model: string; readonly prompt: string }, context: ExecutionContextV1) {
+    this.generateCalls += 1;
+    return {
+      executionId: context.executionId,
+      providerId: "canonical-local",
+      model: request.model,
+      text: "ok",
+      usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, source: "provider" },
+      latencyMs: 1,
+    } as const;
+  }
+
+  async *stream(request: { readonly model: string; readonly prompt: string }, context: ExecutionContextV1) {
+    this.streamCalls += 1;
+    yield { executionId: context.executionId, providerId: "canonical-local", model: request.model, type: "TEXT_DELTA", text: "ok" } as const;
+    yield { executionId: context.executionId, providerId: "canonical-local", model: request.model, type: "COMPLETED" } as const;
+  }
+}

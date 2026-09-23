@@ -30,6 +30,21 @@ export interface ModelResponse {
   readonly latencyMs: number;
   readonly fallbackUsed: boolean;
   readonly finishReason?: string;
+  readonly routing?: ModelRoutingEvidence;
+}
+
+export interface ModelRoutingEvidence {
+  readonly selectedProviderId: string;
+  readonly selectedModel: string;
+  readonly candidates: readonly {
+    readonly providerId: string;
+    readonly model: string;
+    readonly boundary: "local" | "cloud" | "remote-private";
+    readonly eligible: boolean;
+    readonly reasons: readonly string[];
+    readonly score: number | null;
+  }[];
+  readonly fallbackCount: number;
 }
 
 export interface ModelStreamChunk {
@@ -88,6 +103,9 @@ export interface ModelRuntimeProviderConfig {
   readonly fallback?: boolean;
   readonly capabilities?: readonly ModelCapability[];
   readonly timeoutMs?: number;
+  readonly displayName?: string;
+  readonly boundary?: import("../contracts/index.js").ExecutionBoundary;
+  readonly credentialEnvironmentVariables?: readonly string[];
   /** Injectable fetcher (e.g. NetworkPolicyEngine.fetch) for governed egress. */
   readonly fetch?: typeof fetch;
 }
@@ -472,6 +490,11 @@ export class ModelRuntime {
 
   selectModel(options: Parameters<ModelRuntimeRouter["selectModel"]>[0] = {}): QuackResult<ModelInfo> {
     return this.router.selectModel(options);
+  }
+
+  /** Protocol adapters exposed for admission into the canonical provider kernel. */
+  listProviders(): readonly ModelProvider[] {
+    return [...this.providers.values()];
   }
 
   async generate(request: ModelRequest): Promise<QuackResult<ModelResponse>> {

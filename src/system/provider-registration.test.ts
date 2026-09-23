@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { createQuackSystem } from "../distributions/swe-system.js";
+import { ModelProviderV1Bridge } from "../models/provider-v1-adapter.js";
 
 function withEnv(vars: Record<string, string | undefined>, fn: () => void): void {
   const previous = new Map<string, string | undefined>();
@@ -58,6 +59,8 @@ test("providers - NVIDIA registers only from NVIDIA_API_KEY", () => {
         provider.metadata().providerId === "provider.nvidia-nim" &&
         provider.metadata().credentialEnvironmentVariables.includes("NVIDIA_API_KEY"),
       ));
+      assert.ok(system.providerKernel.get("provider.nvidia-nim") instanceof ModelProviderV1Bridge,
+        "configured model endpoints replace the legacy bridge in the canonical registry");
     },
   );
 });
@@ -72,9 +75,12 @@ test("providers - OpenAI-compatible and NVIDIA providers can coexist", () => {
       QUACK_NVIDIA_MODEL: "z-ai/glm-5.2",
     },
     () => {
-      const ids = makeSystem().providers.list();
+      const system = makeSystem();
+      const ids = system.providers.list();
       assert.ok(ids.includes("provider.openai-compatible"));
       assert.ok(ids.includes("provider.nvidia-nim"));
+      assert.ok(system.providerKernel.get("provider.openai-compatible") instanceof ModelProviderV1Bridge);
+      assert.ok(system.providerKernel.get("provider.nvidia-nim") instanceof ModelProviderV1Bridge);
     },
   );
 });

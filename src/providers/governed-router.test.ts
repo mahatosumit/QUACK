@@ -93,10 +93,52 @@ test("governed router rejects when revalidation fails after resolution", async (
   assert.equal(provider.generateCalls, 0);
 });
 
+test("governed router authorizes streaming before provider discovery or contact", async () => {
+  const registry = new CanonicalProviderRegistry();
+  const provider = new FakeProvider("local-echo");
+  registry.register(provider);
+  const broker = new FixedDecisionBroker(true);
+  const governed = new GovernedProviderRouter(new CapabilityProviderRouter(registry), broker);
+  const events = [];
+
+  for await (const event of governed.stream({
+    request: { model: "model", prompt: "hello" },
+    requirements: [{ capability: "text", minimumLevel: "NATIVE" }],
+    context,
+    policy: { privacy: "local-only", allowCloudFallback: false },
+    retry: { maxRetries: 0 },
+  })) events.push(event);
+
+  assert.equal(broker.requests.length, 1);
+  assert.equal(broker.requests[0].capabilityId, "permission.provider.invoke");
+  assert.equal(provider.streamCalls, 1);
+  assert.deepEqual(events.map((event) => event.type), ["TEXT_DELTA", "COMPLETED"]);
+});
+
+test("governed router denies streaming before provider discovery or contact", async () => {
+  const registry = new CanonicalProviderRegistry();
+  const provider = new FakeProvider("local-echo");
+  registry.register(provider);
+  const governed = new GovernedProviderRouter(new CapabilityProviderRouter(registry), new FixedDecisionBroker(false));
+
+  await assert.rejects(async () => {
+    for await (const _event of governed.stream({
+      request: { model: "model", prompt: "hello" },
+      requirements: [{ capability: "text", minimumLevel: "NATIVE" }],
+      context,
+      policy: { privacy: "local-only", allowCloudFallback: false },
+      retry: { maxRetries: 0 },
+    })) { /* consume */ }
+  }, (error: unknown) => error instanceof ProviderRoutingError && error.normalized.category === "POLICY_DENIED");
+  assert.equal(provider.healthCalls, 0);
+  assert.equal(provider.streamCalls, 0);
+});
+
 class FakeProvider implements QuackProviderV1 {
   healthCalls = 0;
   discoveryCalls = 0;
   generateCalls = 0;
+  streamCalls = 0;
 
   constructor(private readonly id: string) {}
 
@@ -126,5 +168,11 @@ class FakeProvider implements QuackProviderV1 {
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, source: "provider" },
       latencyMs: 1,
     } as const;
+  }
+
+  async *stream(request: { readonly model: string; readonly prompt: string }, execution: ExecutionContextV1) {
+    this.streamCalls += 1;
+    yield { executionId: execution.executionId, providerId: this.id, model: request.model, type: "TEXT_DELTA", text: "ok" } as const;
+    yield { executionId: execution.executionId, providerId: this.id, model: request.model, type: "COMPLETED" } as const;
   }
 }

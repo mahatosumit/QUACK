@@ -30,6 +30,17 @@ test("local-only policy rejects cloud before contacting it", async () => {
   assert.equal(cloud.generateCalls, 0);
 });
 
+test("registry replacement keeps one canonical provider identity", () => {
+  const registry = new CanonicalProviderRegistry();
+  const legacy = new FakeProvider("shared", "local", [{ capability: "text", level: "NATIVE" }]);
+  const modern = new FakeProvider("shared", "local", [{ capability: "text", level: "NATIVE" }]);
+  registry.register(legacy);
+  registry.replace(modern);
+
+  assert.equal(registry.list().length, 1);
+  assert.equal(registry.get("shared"), modern);
+});
+
 test("native capability requirement rejects degraded advertisement", async () => {
   const registry = new CanonicalProviderRegistry();
   registry.register(new FakeProvider("degraded", "local", [{ capability: "tool-calling", level: "DEGRADED" }]));
@@ -61,16 +72,61 @@ test("fallback is deterministic and records normalized reason", async () => {
   assert.equal(result.fallbackEvents.at(-1)?.selectedFallbackProviderId, "fallback");
 });
 
+test("stream fallback is deterministic before output becomes observable", async () => {
+  const registry = new CanonicalProviderRegistry();
+  const primary = new FakeProvider("primary", "local", [{ capability: "text", level: "NATIVE" }], undefined, "fail-before");
+  const fallback = new FakeProvider("fallback", "local", [{ capability: "text", level: "NATIVE" }], undefined, "success");
+  registry.register(primary);
+  registry.register(fallback);
+  const chunks = [];
+  for await (const event of new CapabilityProviderRouter(registry).stream({
+    request: { model: "model", prompt: "hello" },
+    requirements: [{ capability: "text", minimumLevel: "NATIVE" }],
+    context,
+    policy: { privacy: "local-only", allowCloudFallback: false, preferredProviderIds: ["primary", "fallback"] },
+    retry: { maxRetries: 0 },
+  })) chunks.push(event);
+
+  assert.equal(primary.streamCalls, 1);
+  assert.equal(fallback.streamCalls, 1);
+  assert.deepEqual(chunks.map((event) => event.type), ["TEXT_DELTA", "COMPLETED"]);
+  assert.ok(chunks.every((event) => event.providerId === "fallback"));
+});
+
+test("streaming fails closed without fallback after partial output", async () => {
+  const registry = new CanonicalProviderRegistry();
+  const primary = new FakeProvider("primary", "local", [{ capability: "text", level: "NATIVE" }], undefined, "fail-after");
+  const fallback = new FakeProvider("fallback", "local", [{ capability: "text", level: "NATIVE" }], undefined, "success");
+  registry.register(primary);
+  registry.register(fallback);
+  const chunks = [];
+
+  await assert.rejects(async () => {
+    for await (const event of new CapabilityProviderRouter(registry).stream({
+      request: { model: "model", prompt: "hello" },
+      requirements: [{ capability: "text", minimumLevel: "NATIVE" }],
+      context,
+      policy: { privacy: "local-only", allowCloudFallback: false, preferredProviderIds: ["primary", "fallback"] },
+      retry: { maxRetries: 0 },
+    })) chunks.push(event);
+  }, (error: unknown) => error instanceof ProviderRoutingError && /after output began/i.test(error.message));
+
+  assert.equal(chunks.length, 1);
+  assert.equal(fallback.streamCalls, 0, "partial output must never be spliced with a fallback provider");
+});
+
 class FakeProvider implements QuackProviderV1 {
   healthCalls = 0;
   discoveryCalls = 0;
   generateCalls = 0;
+  streamCalls = 0;
 
   constructor(
     private readonly id: string,
     private readonly boundary: "local" | "cloud",
     private readonly advertised: readonly ProviderCapabilitySupport[],
     private readonly failure?: Error,
+    private readonly streamBehavior: "success" | "fail-before" | "fail-after" = "success",
   ) {}
 
   metadata() {
@@ -100,5 +156,13 @@ class FakeProvider implements QuackProviderV1 {
       usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2, source: "provider" },
       latencyMs: 1,
     } as const;
+  }
+
+  async *stream(request: { readonly model: string; readonly prompt: string }, execution: ExecutionContextV1) {
+    this.streamCalls += 1;
+    if (this.streamBehavior === "fail-before") throw new Error("503 stream unavailable");
+    yield { executionId: execution.executionId, providerId: this.id, model: request.model, type: "TEXT_DELTA", text: "ok" } as const;
+    if (this.streamBehavior === "fail-after") throw new Error("503 stream interrupted");
+    yield { executionId: execution.executionId, providerId: this.id, model: request.model, type: "COMPLETED" } as const;
   }
 }

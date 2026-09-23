@@ -45,7 +45,7 @@ import {
   SkillExecutor,
   type SkillRegistryLoadResult,
 } from "../skills/index.js";
-import { createModelRuntime, loadModelRuntimeConfig, ModelRegistry, ModelRouter, type ModelRuntime } from "../models/index.js";
+import { createModelRuntime, loadModelRuntimeConfig, ModelProviderV1Bridge, ModelRegistry, ModelRouter, type ModelRuntime, type ModelRuntimeProviderConfig } from "../models/index.js";
 import { GovernedModelRuntime, governModelRuntime } from "../models/governed-runtime.js";
 import { WorkspaceManager } from "../workspace/index.js";
 import { PluginRegistry } from "../plugins/index.js";
@@ -319,7 +319,10 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   const registerProvider = (provider: ProviderAdapter, bridge: LegacyProviderBridgeConfig): void => {
     const registration = providers.register(provider);
     if (!registration.ok) throw new Error(registration.error.message);
-    providerKernel.register(new LegacyProviderV1Bridge(provider, bridge));
+    // The ModelRuntime bridge is installed later and is the canonical adapter
+    // for configured model endpoints. Keep this legacy bridge only when a
+    // richer canonical implementation has not already claimed the identity.
+    if (!providerKernel.get(provider.id)) providerKernel.register(new LegacyProviderV1Bridge(provider, bridge));
   };
   const storage = createSqliteStorage(join(config.dataDir, "quack.sqlite"));
   const browserHosts = (process.env["QUACK_BROWSER_ALLOW_HOSTS"] ?? "").split(",").map((host) => host.trim()).filter(Boolean);
@@ -592,31 +595,91 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   const modelRouter = new ModelRouter();
   // Provider egress flows through the SAME network policy as the other
   // provider adapters (model.ollama / model.openai-compatible purposes).
-  const nvidiaKeyForRuntime = readProviderCredentialForBoot("NVIDIA_API_KEY", "provider.nvidia-nim");
-  let runtimeConfig = loadModelRuntimeConfig();
-  if (nvidiaKeyForRuntime && (!process.env["QUACK_OLLAMA_BASE_URL"] && !process.env["QUACK_OLLAMA_MODEL"])) {
-    const baseUrl = process.env["QUACK_NVIDIA_BASE_URL"] ?? "https://integrate.api.nvidia.com/v1";
-    const defaultModel = process.env["QUACK_NVIDIA_MODEL"] ?? "meta/llama-3.2-11b-vision-instruct";
-    runtimeConfig = {
+  const vllmKeyForRuntime = process.env["QUACK_VLLM_BASE_URL"] && process.env["QUACK_VLLM_MODEL"]
+    ? readProviderCredentialForBoot("QUACK_VLLM_API_KEY", "provider.vllm")
+    : undefined;
+  const configuredRuntimeProviders: ModelRuntimeProviderConfig[] = [];
+  const addOpenAiCompatibleRuntime = (
+    apiKey: string | undefined,
+    model: string,
+    baseUrl: string,
+    displayName: string,
+    credentialEnvironmentVariables: readonly string[],
+  ): void => {
+    if (!apiKey) return;
+    configuredRuntimeProviders.push({
       provider: "openai-compatible",
-      model: defaultModel,
-      providers: [
-        {
-          provider: "openai-compatible",
-          id: "provider.nvidia-nim",
-          model: defaultModel,
-          baseUrl,
-          apiKey: nvidiaKeyForRuntime,
-          fallback: false,
-        },
-      ],
-      fallbackProviderId: "provider.nvidia-nim",
-    };
+      id: "provider.openai-compatible",
+      model,
+      baseUrl,
+      apiKey,
+      displayName,
+      boundary: "cloud",
+      credentialEnvironmentVariables,
+    });
+  };
+  if (openAiKey) {
+    addOpenAiCompatibleRuntime(openAiKey, process.env["QUACK_OPENAI_MODEL"] ?? "gpt-4o", process.env["QUACK_OPENAI_BASE_URL"] ?? "https://api.openai.com/v1", "OpenAI-compatible", ["QUACK_OPENAI_API_KEY", "OPENAI_API_KEY"]);
+  } else if (openRouterKey) {
+    addOpenAiCompatibleRuntime(openRouterKey, process.env["QUACK_OPENAI_MODEL"] ?? "anthropic/claude-3.5-sonnet", process.env["QUACK_OPENAI_BASE_URL"] ?? "https://openrouter.ai/api/v1", "OpenRouter", ["OPENROUTER_API_KEY"]);
+  } else if (groqKey) {
+    addOpenAiCompatibleRuntime(groqKey, process.env["QUACK_OPENAI_MODEL"] ?? "llama-3.3-70b-versatile", process.env["QUACK_OPENAI_BASE_URL"] ?? "https://api.groq.com/openai/v1", "Groq", ["GROQ_API_KEY"]);
   }
+  if (nvidiaKey) {
+    configuredRuntimeProviders.push({
+      provider: "openai-compatible",
+      id: "provider.nvidia-nim",
+      model: process.env["QUACK_NVIDIA_MODEL"] ?? "meta/llama-3.2-11b-vision-instruct",
+      baseUrl: process.env["QUACK_NVIDIA_BASE_URL"] ?? "https://integrate.api.nvidia.com/v1",
+      apiKey: nvidiaKey,
+      displayName: "NVIDIA NIM",
+      boundary: "cloud",
+      credentialEnvironmentVariables: ["NVIDIA_API_KEY"],
+    });
+  }
+  if (process.env["QUACK_OLLAMA_BASE_URL"] || process.env["QUACK_OLLAMA_MODEL"]) {
+    configuredRuntimeProviders.push({
+      provider: "ollama",
+      id: "provider.ollama",
+      model: process.env["QUACK_OLLAMA_MODEL"] ?? "qwen2.5-coder:7b",
+      baseUrl: process.env["QUACK_OLLAMA_BASE_URL"] ?? "http://127.0.0.1:11434",
+      displayName: "Ollama",
+      boundary: "local",
+    });
+  }
+  if (process.env["QUACK_VLLM_BASE_URL"] && process.env["QUACK_VLLM_MODEL"]) {
+    configuredRuntimeProviders.push({
+      provider: "openai-compatible",
+      id: "provider.vllm",
+      model: process.env["QUACK_VLLM_MODEL"],
+      baseUrl: process.env["QUACK_VLLM_BASE_URL"],
+      apiKey: vllmKeyForRuntime,
+      displayName: "vLLM",
+      boundary: "remote-private",
+      credentialEnvironmentVariables: vllmKeyForRuntime ? ["QUACK_VLLM_API_KEY"] : [],
+    });
+  }
+  const loadedRuntimeConfig = loadModelRuntimeConfig();
+  const providersById = new Map(loadedRuntimeConfig.providers.map((provider) => [provider.id ?? provider.provider, provider]));
+  for (const provider of configuredRuntimeProviders) providersById.set(provider.id ?? provider.provider, provider);
+  const preferredRuntimeProvider = configuredRuntimeProviders[0];
+  const runtimeConfig = preferredRuntimeProvider
+    ? {
+      provider: preferredRuntimeProvider.provider,
+      model: preferredRuntimeProvider.model,
+      providers: [...providersById.values()],
+      fallbackProviderId: preferredRuntimeProvider.id,
+    }
+    : { ...loadedRuntimeConfig, providers: [...providersById.values()] };
   const modelRuntime = createModelRuntime(
     runtimeConfig,
     (input, init) => networkPolicy.fetch({ url: String(input), purpose: "model.provider", requester: "model.runtime" }, init),
   );
+  for (const provider of modelRuntime.listProviders()) {
+    const providerConfig = runtimeConfig.providers.find(candidate => (candidate.id ?? candidate.provider) === provider.id);
+    if (!providerConfig) throw new Error(`Model provider ${provider.id} has no canonical provider configuration.`);
+    providerKernel.replace(new ModelProviderV1Bridge(provider, providerConfig));
+  }
   modelRegistry.register({
     id: "echo",
     name: "Local Echo",
@@ -722,15 +785,14 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
     );
   }
   if (process.env["QUACK_VLLM_BASE_URL"] && process.env["QUACK_VLLM_MODEL"]) {
-    const vllmKey = readProviderCredentialForBoot("QUACK_VLLM_API_KEY", "provider.vllm");
     registerProvider(
-      createVllmProvider({ baseUrl: process.env["QUACK_VLLM_BASE_URL"], model: process.env["QUACK_VLLM_MODEL"], apiKey: vllmKey, fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.vllm", requester: "provider.vllm" }, init) }),
+      createVllmProvider({ baseUrl: process.env["QUACK_VLLM_BASE_URL"], model: process.env["QUACK_VLLM_MODEL"], apiKey: vllmKeyForRuntime, fetch: (input, init) => networkPolicy.fetch({ url: String(input), purpose: "provider.vllm", requester: "provider.vllm" }, init) }),
       {
         displayName: "vLLM",
         runtime: "vllm",
         boundary: "remote-private",
         endpoint: process.env["QUACK_VLLM_BASE_URL"],
-        credentialEnvironmentVariables: vllmKey ? ["QUACK_VLLM_API_KEY"] : [],
+        credentialEnvironmentVariables: vllmKeyForRuntime ? ["QUACK_VLLM_API_KEY"] : [],
       },
     );
   }
@@ -742,9 +804,9 @@ export function createQuackSystem(configOverrides: Partial<QuackConfig> = {}): Q
   const capabilityBroker = new PermissionBackedCapabilityBroker(approvalPolicy, capabilityGrants);
   // Governed execution surfaces (ADR 0036): the exposed `modelRuntime` shadows
   // generate/stream with broker-gated versions; metadata lookups stay ungated.
-  const governedModelRuntime = new GovernedModelRuntime(modelRuntime, capabilityBroker);
-  const gatedModelRuntime = governModelRuntime(modelRuntime, capabilityBroker);
   const governedProviderRouter = new GovernedProviderRouter(capabilityRouter, capabilityBroker);
+  const governedModelRuntime = new GovernedModelRuntime(modelRuntime, capabilityBroker, { providerRouter: governedProviderRouter, events });
+  const gatedModelRuntime = governModelRuntime(modelRuntime, capabilityBroker, { providerRouter: governedProviderRouter, events });
   // P9 semantic memory (ADR 0043): embeddings dispatch through the SAME
   // governed model runtime (provider.invoke resolved before provider
   // contact); reads/writes/deletes resolve memory.read/memory.write through

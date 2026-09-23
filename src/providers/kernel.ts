@@ -10,6 +10,8 @@ import {
   type ModelDescriptorV1,
   type NormalizedProviderErrorV1,
   type ProviderFailureCategory,
+  type ProviderModelEventV1,
+  type ProviderMetadataV1,
   type ProviderModelRequestV1,
   type ProviderModelResponseV1,
   type QuackProviderV1,
@@ -82,11 +84,18 @@ export class CanonicalProviderRegistry {
   private readonly providers = new Map<string, QuackProviderV1>();
 
   register(provider: QuackProviderV1): void {
-    const metadata = provider.metadata();
-    if (metadata.contractVersion !== QUACK_CONTRACT_VERSION) {
-      throw new Error(`Provider ${metadata.providerId} uses unsupported contract ${metadata.contractVersion}.`);
-    }
+    const metadata = this.validate(provider);
     if (this.providers.has(metadata.providerId)) throw new Error(`Provider ${metadata.providerId} is already registered.`);
+    this.providers.set(metadata.providerId, provider);
+  }
+
+  /**
+   * Replace an admitted compatibility adapter with a more complete adapter for
+   * the same provider identity. This preserves one provider authority while
+   * allowing the model runtime bridge to add streaming support.
+   */
+  replace(provider: QuackProviderV1): void {
+    const metadata = this.validate(provider);
     this.providers.set(metadata.providerId, provider);
   }
 
@@ -96,6 +105,14 @@ export class CanonicalProviderRegistry {
 
   list(): readonly QuackProviderV1[] {
     return [...this.providers.values()];
+  }
+
+  private validate(provider: QuackProviderV1): ProviderMetadataV1 {
+    const metadata = provider.metadata();
+    if (metadata.contractVersion !== QUACK_CONTRACT_VERSION) {
+      throw new Error(`Provider ${metadata.providerId} uses unsupported contract ${metadata.contractVersion}.`);
+    }
+    return metadata;
   }
 }
 
@@ -126,16 +143,7 @@ export class CapabilityProviderRouter {
     const candidates = await this.resolveCandidates(input);
     const eligible = candidates.filter((candidate) => candidate.eligible).sort(compareCandidates);
     if (eligible.length === 0) {
-      const deniedOnlyByPolicy = candidates.length > 0 && candidates.every((candidate) =>
-        candidate.reasons.every((reason) => reason.startsWith("privacy-") || reason.startsWith("provider-") || reason === "cloud-fallback-disabled"),
-      );
-      throw new ProviderRoutingError(normalizedError({
-        category: deniedOnlyByPolicy ? "POLICY_DENIED" : "CAPABILITY_MISMATCH",
-        providerId: "router",
-        model: input.request.model,
-        message: "No provider/model satisfies the required capabilities and policy.",
-        retriable: false,
-      }), candidates);
+      throw noEligibleProvider(input, candidates);
     }
 
     const retry = { ...DEFAULT_RETRY_POLICY, ...input.retry };
@@ -195,6 +203,74 @@ export class CapabilityProviderRouter {
       providerId: original.providerId,
       model: original.model,
       message: "All eligible providers failed.",
+      retriable: false,
+    }), candidates, fallbackEvents);
+  }
+
+  /**
+   * Routes streaming generation through the same policy/capability/circuit
+   * decision as non-streaming generation. Fallback is allowed only before the
+   * first event is emitted; once output is observable, replaying against a
+   * different provider would duplicate or splice content and therefore fails
+   * closed.
+   */
+  async *stream(input: ProviderRouteRequestV1): AsyncIterable<ProviderModelEventV1> {
+    const candidates = await this.resolveCandidates(input);
+    const eligible = candidates.filter((candidate) => candidate.eligible).sort(compareCandidates);
+    if (eligible.length === 0) throw noEligibleProvider(input, candidates);
+
+    const retry = { ...DEFAULT_RETRY_POLICY, ...input.retry };
+    const fallbackEvents: ProviderFallbackEventV1[] = [];
+    const original = eligible[0];
+    let lastError: NormalizedProviderErrorV1 | undefined;
+
+    for (let candidateIndex = 0; candidateIndex < eligible.length; candidateIndex += 1) {
+      const candidate = eligible[candidateIndex];
+      const provider = this.registry.get(candidate.providerId)!;
+      for (let attempt = 0; attempt <= retry.maxRetries; attempt += 1) {
+        const started = Date.now();
+        let emitted = false;
+        try {
+          if (!provider.stream) throw new Error(`Provider ${candidate.providerId} does not implement streaming.`);
+          for await (const event of provider.stream({ ...input.request, model: candidate.model }, input.context)) {
+            emitted = true;
+            yield event;
+          }
+          this.recordSuccess(candidate.providerId);
+          return;
+        } catch (error) {
+          lastError = normalizeProviderFailure(error, candidate.providerId, candidate.model);
+          this.recordFailure(candidate.providerId);
+          if (emitted) {
+            throw new ProviderRoutingError({
+              ...lastError,
+              retriable: false,
+              message: `Streaming provider failed after output began: ${lastError.message}`,
+            }, candidates, fallbackEvents);
+          }
+          const canRetry = lastError.retriable && attempt < retry.maxRetries;
+          fallbackEvents.push({
+            originalProviderId: original.providerId,
+            originalModel: original.model,
+            failureCategory: lastError.category,
+            retryCount: attempt,
+            candidateProviderIds: eligible.map((item) => item.providerId),
+            selectedFallbackProviderId: canRetry ? candidate.providerId : eligible[candidateIndex + 1]?.providerId,
+            policy: input.policy,
+            latencyMs: Date.now() - started,
+            result: canRetry ? "RETRY" : eligible[candidateIndex + 1] ? "FALLBACK" : "FAILED",
+          });
+          if (!canRetry) break;
+          await delay(backoffDelay(retry, attempt), input.context.signal);
+        }
+      }
+    }
+
+    throw new ProviderRoutingError(lastError ?? normalizedError({
+      category: "PROVIDER_INTERNAL",
+      providerId: original.providerId,
+      model: original.model,
+      message: "All eligible streaming providers failed.",
       retriable: false,
     }), candidates, fallbackEvents);
   }
@@ -285,6 +361,19 @@ export class CapabilityProviderRouter {
   private recordSuccess(providerId: string): void {
     this.circuits.delete(providerId);
   }
+}
+
+function noEligibleProvider(input: ProviderRouteRequestV1, candidates: readonly ProviderCandidateDecisionV1[]): ProviderRoutingError {
+  const deniedOnlyByPolicy = candidates.length > 0 && candidates.every((candidate) =>
+    candidate.reasons.every((reason) => reason.startsWith("privacy-") || reason.startsWith("provider-") || reason === "cloud-fallback-disabled"),
+  );
+  return new ProviderRoutingError(normalizedError({
+    category: deniedOnlyByPolicy ? "POLICY_DENIED" : "CAPABILITY_MISMATCH",
+    providerId: "router",
+    model: input.request.model,
+    message: "No provider/model satisfies the required capabilities and policy.",
+    retriable: false,
+  }), candidates);
 }
 
 function policyRejectionReasons(providerId: string, boundary: ExecutionBoundary, policy: ProviderRoutingPolicyV1): string[] {
