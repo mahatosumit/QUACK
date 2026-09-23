@@ -620,3 +620,11 @@ The first convergence slice is recorded in ADR 0050. It introduces
 runtime-selected DAG or governed strategy. Durable state-schema convergence is
 intentionally left to the next slice so ADR 0048/0049 recovery guarantees are
 not rewritten implicitly.
+
+The follow-up mode-policy slice now enforces BUILD, PLAN, REVIEW, and MISSION
+as ceilings over that same entry and broker. REVIEW is unconditionally
+read-only; PLAN requires an explicit permission declaration before a mutating
+request can proceed to the existing approval/broker layers. DAG recovery
+persists the original mode and permission declaration, and governed execution
+propagates them through the existing harness. This closes the mode-policy gap
+without introducing another runtime or authorization authority.

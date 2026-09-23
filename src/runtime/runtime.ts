@@ -19,7 +19,7 @@ import {
   type CapabilityDecision,
   type CapabilityRequest,
 } from "../security/capability-broker.js";
-import { type Permission, type PermissionPolicy } from "../security/permissions.js";
+import { isPermission, type Permission, type PermissionPolicy } from "../security/permissions.js";
 import { InMemoryTaskStore, JsonFileTaskStore, type TaskStore } from "../storage/task-store.js";
 import { SqliteConnection } from "../storage/sqlite.js";
 import { MissionOwnershipGuard, type OwnershipEventPayload } from "./ownership.js";
@@ -41,8 +41,10 @@ import {
   type MissionEngineAdapter,
   type MissionExecution,
   type MissionExecutionState,
+  type MissionMode,
   type MissionRequest,
   type ResolvedMissionRequest,
+  missionModeAllowsPermission,
 } from "./mission.js";
 
 export interface PreparedTaskGraph {
@@ -115,6 +117,8 @@ export interface RuntimeAccessOptions {
   readonly missionId?: string;
   readonly agentId?: string;
   readonly skillId?: string;
+  readonly mode?: MissionMode;
+  readonly approvedPermissions?: readonly Permission[];
   readonly companyPrincipal?: CompanyExecutionPrincipal;
   readonly signal?: AbortSignal;
   readonly deadline?: string;
@@ -128,6 +132,8 @@ export interface RuntimeGoalOptions {
   readonly missionId?: string;
   readonly agentId?: string;
   readonly skillId?: string;
+  readonly mode?: MissionMode;
+  readonly approvedPermissions?: readonly Permission[];
   /** Origin of the mission (for recursion guard). */
   readonly origin?: MissionOrigin;
 }
@@ -245,7 +251,25 @@ export class QuackRuntime {
     const mode = request.mode ?? (engine === "governed" ? "mission" : "build");
     const actor = request.actor?.trim() || "user";
     const origin = request.origin ?? "user";
-    const permissions = Object.freeze([...(request.permissions ?? [])]);
+    const invalidPermission = request.permissions?.find(permission => !isPermission(permission));
+    if (invalidPermission) {
+      return fail({
+        code: "mission.permission_invalid",
+        message: `Unknown mission permission '${invalidPermission}'.`,
+        category: "validation",
+        recoverable: true,
+      });
+    }
+    const permissions = Object.freeze([...(request.permissions ?? [])]) as readonly Permission[];
+    const modeDeniedPermission = permissions.find(permission => !missionModeAllowsPermission(mode, permission, permissions));
+    if (modeDeniedPermission) {
+      return fail({
+        code: "mission.mode_permission_denied",
+        message: `Mission mode '${mode}' does not permit ${modeDeniedPermission}.`,
+        category: "permission",
+        recoverable: true,
+      });
+    }
     const constraints = Object.freeze([...(request.constraints ?? [])]);
     const verificationCriteria = Object.freeze([...(request.verificationCriteria ?? [])]);
 
@@ -258,6 +282,8 @@ export class QuackRuntime {
         missionId: request.missionId,
         agentId: request.agentId ?? request.profileId,
         skillId: request.skillId,
+        mode,
+        approvedPermissions: permissions,
         origin,
       });
       if (!task.ok) return task;
@@ -356,6 +382,8 @@ export class QuackRuntime {
     const execution: ExecutionIdentity | undefined = this.durableRecoveryEnabled() ? {
       missionId, executionId: taskId, taskId, sessionId, workflowId: createId("wf"), actor,
       ...(agentId ? { agentId } : {}), ...(skillId ? { skillId } : {}),
+      mode: options.mode ?? "build",
+      approvedPermissions: [...(options.approvedPermissions ?? [])],
       ...(this.deps.memory.binding ? { memoryProviderId: this.deps.memory.binding.providerId,
         memoryProviderVersion: this.deps.memory.binding.providerVersion,
         memoryNamespace: this.deps.memory.binding.namespace } : {}),
@@ -434,7 +462,12 @@ export class QuackRuntime {
       let checkpoint = await this.sessions.loadExecution(identity.sessionId, identity.workflowId);
       if (!checkpoint) {
         if (task.status !== "created") throw new Error("Execution checkpoint is missing; automatic replay is refused.");
-        return await this.runTask(task, identity.actor, { ...identity, signal: options.signal }, undefined, ownership);
+        return await this.runTask(task, identity.actor, {
+          ...identity,
+          mode: identity.mode,
+          approvedPermissions: identity.approvedPermissions?.filter(isPermission),
+          signal: options.signal,
+        }, undefined, ownership);
       }
       assertRecoveryCheckpoint(checkpoint, identity);
       if (checkpoint.recovery.memoryWrites?.some(record => record.status === "STARTED")) {
@@ -458,7 +491,13 @@ export class QuackRuntime {
         }
         checkpoint = await this.fencedTransition(ownership, identity, "RUNNING", "resume");
       }
-      const result = await this.runTask(task, identity.actor, { ...identity, signal: options.signal, deadline: checkpoint.recovery!.deadline }, checkpoint, ownership);
+      const result = await this.runTask(task, identity.actor, {
+        ...identity,
+        mode: identity.mode,
+        approvedPermissions: identity.approvedPermissions?.filter(isPermission),
+        signal: options.signal,
+        deadline: checkpoint.recovery!.deadline,
+      }, checkpoint, ownership);
       if (ownership && result.ok && result.data.status === "completed") {
         await this.deps.eventBus.emit("mission.recovery_completed", { missionId: identity.missionId, taskId } as unknown as JsonObject, { taskId, actor: "runtime" });
       }
@@ -878,7 +917,11 @@ export class QuackRuntime {
     return decision.granted;
   }
 
-  private async requestCapability(request: CapabilityRequest): Promise<CapabilityDecision> {
+  private async requestCapability(
+    request: CapabilityRequest,
+    mode?: MissionMode,
+    approvedPermissions: readonly Permission[] = [],
+  ): Promise<CapabilityDecision> {
     await this.deps.eventBus.emit(
       "capability.requested",
       this.capabilityRequestPayload(request),
@@ -892,7 +935,15 @@ export class QuackRuntime {
       );
     }
 
-    const decision = await this.capabilityBroker.resolve(request);
+    const decision = mode && request.permission && !missionModeAllowsPermission(mode, request.permission, approvedPermissions)
+      ? {
+        requestId: request.id,
+        capabilityId: request.capabilityId,
+        granted: false,
+        reason: `Mission mode '${mode}' does not permit ${request.permission}.`,
+        policyRef: "mission-mode",
+      }
+      : await this.capabilityBroker.resolve(request);
     const decisionPayload = this.capabilityDecisionPayload(request, decision);
 
     await this.deps.eventBus.emit(
@@ -970,7 +1021,7 @@ export class QuackRuntime {
         permission,
         input: structuredClone(executionInput),
       });
-      const decision = await this.requestCapability(request);
+      const decision = await this.requestCapability(request, options.mode, options.approvedPermissions);
 
       if (!decision.granted) {
         return fail(this.capabilityDeniedError({
@@ -989,6 +1040,20 @@ export class QuackRuntime {
       if (beforeDispatch) return beforeDispatch;
       for (const permission of requiredPermissions) {
         const request = buildToolCapabilityRequest({ taskId: options.taskId, missionId, agentId, skillId, actor, toolId, permission, input: executionInput });
+        if (options.mode && !missionModeAllowsPermission(options.mode, permission, options.approvedPermissions)) {
+          return fail(this.capabilityDeniedError({
+            request,
+            decision: {
+              requestId: request.id,
+              capabilityId: request.capabilityId,
+              granted: false,
+              reason: `Mission mode '${options.mode}' does not permit ${permission}.`,
+              policyRef: "mission-mode",
+            },
+            toolName: metadata.name,
+            permission,
+          }));
+        }
         const decision = this.capabilityBroker.revalidateAuthority?.(request);
         if (decision && !decision.granted) return fail(this.capabilityDeniedError({ request, decision, toolName: metadata.name, permission }));
       }
@@ -1022,6 +1087,8 @@ export class QuackRuntime {
       missionId: context.missionId,
       agentId: context.agentId,
       skillId: context.skillId,
+      mode: context.mode,
+      approvedPermissions: context.approvedPermissions,
       signal: context.signal,
       deadline: context.deadline,
       idempotencyKey: context.idempotencyKey,

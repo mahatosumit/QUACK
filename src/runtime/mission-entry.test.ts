@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { ok } from "../core/types.js";
 import { createQuackSystem } from "../system/create-system.js";
 import { createIsolatedQuackSystem } from "../test-support/isolated-system.js";
+import { missionModeAllowsPermission } from "./mission.js";
 
 test("canonical mission entry rejects empty objectives and unavailable engines", async () => {
   const system = createQuackSystem();
@@ -17,6 +18,46 @@ test("canonical mission entry rejects empty objectives and unavailable engines",
   });
   assert.equal(unavailable.ok, false);
   if (!unavailable.ok) assert.equal(unavailable.error.code, "mission.engine_unavailable");
+
+  const invalidPermission = await system.runtime.submitMission({
+    objective: "Inspect the workspace",
+    permissions: ["not a permission"],
+  });
+  assert.equal(invalidPermission.ok, false);
+  if (!invalidPermission.ok) assert.equal(invalidPermission.error.code, "mission.permission_invalid");
+
+  const reviewWrite = await system.runtime.submitMission({
+    objective: "Review without mutation",
+    mode: "review",
+    permissions: ["workspace.write"],
+  });
+  assert.equal(reviewWrite.ok, false);
+  if (!reviewWrite.ok) assert.equal(reviewWrite.error.code, "mission.mode_permission_denied");
+});
+
+test("mode policy treats PLAN declarations as approval inputs but keeps REVIEW read-only", () => {
+  assert.equal(missionModeAllowsPermission("plan", "workspace.write"), false);
+  assert.equal(missionModeAllowsPermission("plan", "workspace.write", ["workspace.write"]), true);
+  assert.equal(missionModeAllowsPermission("review", "workspace.write", ["workspace.write"]), false);
+  assert.equal(missionModeAllowsPermission("review", "workspace.read"), true);
+});
+
+test("canonical mission entry persists mode policy for durable recovery", async () => {
+  const fixture = await createIsolatedQuackSystem();
+  try {
+    const result = await fixture.system.runtime.submitMission({
+      objective: "Inspect in review mode",
+      engine: "dag",
+      mode: "review",
+      permissions: ["workspace.read"],
+    });
+    assert.equal(result.ok, true);
+    if (!result.ok) return;
+    assert.equal(result.data.task?.execution?.mode, "review");
+    assert.deepEqual(result.data.task?.execution?.approvedPermissions, ["workspace.read"]);
+  } finally {
+    await fixture.cleanup();
+  }
 });
 
 test("canonical runtime normalizes and dispatches a registered governed engine", async () => {

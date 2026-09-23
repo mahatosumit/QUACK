@@ -57,6 +57,64 @@ test("runtime rejects tools with no declared authority", async () => {
   } finally { await fixture.cleanup(); }
 });
 
+test("mission modes constrain tool permissions before the capability broker", async () => {
+  const fixture = await createIsolatedQuackSystem({ permissions: ["workspace.read", "workspace.write"] });
+  try {
+    let writes = 0;
+    fixture.system.tools.register({
+      id: "fixture.write",
+      describe: () => ({
+        id: "fixture.write",
+        name: "Write",
+        description: "Fixture mutation",
+        permissions: ["workspace.write"],
+      }),
+      execute: async () => { writes++; return { output: { written: true } }; },
+    });
+    fixture.system.capabilityGrants.ensureGrant({
+      missionId: "mode-mission",
+      capabilities: ["permission.workspace.write"],
+      approval: { approvedBy: "fixture", reason: "mode test", approvedAt: new Date().toISOString() },
+    });
+
+    const review = await fixture.system.runtime.executeTool("fixture.write", { path: "file.txt" }, {
+      taskId: "review-task",
+      actor: "reviewer",
+      missionId: "mode-mission",
+      mode: "review",
+      approvedPermissions: ["workspace.write"],
+    });
+    assert.equal(review.ok, false);
+    if (!review.ok) {
+      assert.equal(review.error.category, "permission");
+      assert.equal(review.error.context?.["policyRef"], "mission-mode");
+      assert.match(String(review.error.context?.["reason"]), /mode 'review'/);
+    }
+
+    const unapprovedPlan = await fixture.system.runtime.executeTool("fixture.write", { path: "file.txt" }, {
+      taskId: "plan-task",
+      actor: "planner",
+      missionId: "mode-mission",
+      mode: "plan",
+    });
+    assert.equal(unapprovedPlan.ok, false);
+
+    const approvedPlan = await fixture.system.runtime.executeTool("fixture.write", { path: "file.txt" }, {
+      taskId: "plan-task",
+      actor: "planner",
+      missionId: "mode-mission",
+      mode: "plan",
+      approvedPermissions: ["workspace.write"],
+    });
+    assert.equal(approvedPlan.ok, false);
+    if (!approvedPlan.ok) {
+      assert.equal(approvedPlan.error.context?.["policyRef"], "permission-backed");
+      assert.match(String(approvedPlan.error.context?.["reason"]), /requires approval/);
+    }
+    assert.equal(writes, 0);
+  } finally { await fixture.cleanup(); }
+});
+
 test("runtime rechecks revoked authority after tool-requested listeners", async () => {
   const fixture = await createIsolatedQuackSystem({ permissions: ["workspace.read"] });
   try {

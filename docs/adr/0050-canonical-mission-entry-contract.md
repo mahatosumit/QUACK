@@ -38,8 +38,19 @@ governed CLI execution, and the TypeScript SDK now enter through
 existing durable run and checkpoint stores; inspection is not execution.
 
 Modes (`build`, `plan`, `review`, `mission`) are policy inputs to the same
-runtime. This ADR creates their contract but does not yet claim that all four
-mode policies are fully enforced.
+runtime. The runtime enforces a mode ceiling before broker resolution:
+
+- `build` and `mission` may request any valid permission, but still require a
+  matching grant and broker policy decision;
+- `plan` is read-only by default and can request a mutating permission only
+  when the caller explicitly declares it, after which normal approval and
+  broker checks still apply;
+- `review` remains read-only even when the mission already has a broader grant
+  or the request declares a mutating permission.
+
+The mode and explicitly approved permission set are stored in durable DAG
+execution identity and restored during recovery. The governed loop carries the
+same values into its execution harness, so neither engine can widen mode policy.
 
 ## Security invariants
 
@@ -51,6 +62,8 @@ mode policies are fully enforced.
    surfaces; it does not introduce a new broker, event bus, memory authority,
    or tool executor.
 5. Prepared DAGs still execute through normal authorization and verification.
+6. A mode declaration can only reduce authority. It cannot create a grant or
+   bypass an approval, and recovery preserves the original ceiling.
 
 ## Compatibility and migration
 

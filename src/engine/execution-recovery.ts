@@ -15,6 +15,9 @@ export interface ExecutionIdentity {
   readonly actor: string;
   readonly agentId?: string;
   readonly skillId?: string;
+  /** Persisted mission policy so recovery cannot widen the original mode. */
+  readonly mode?: "build" | "plan" | "review" | "mission";
+  readonly approvedPermissions?: readonly string[];
   readonly memoryProviderId?: string;
   readonly memoryProviderVersion?: string;
   readonly memoryNamespace?: string;
@@ -210,6 +213,9 @@ function isIdentity(value: ExecutionIdentity): boolean {
     .every(field => typeof field === "string" && field.trim().length > 0)
     && (value.agentId === undefined || Boolean(value.agentId.trim()))
     && (value.skillId === undefined || Boolean(value.skillId.trim()))
+    && (value.mode === undefined || ["build", "plan", "review", "mission"].includes(value.mode))
+    && (value.approvedPermissions === undefined || (Array.isArray(value.approvedPermissions)
+      && value.approvedPermissions.every(permission => typeof permission === "string" && permission.trim().length > 0)))
     && (value.memoryProviderId === undefined || Boolean(value.memoryProviderId.trim()))
     && (value.memoryProviderVersion === undefined || Boolean(value.memoryProviderVersion.trim()))
     && (value.memoryNamespace === undefined || Boolean(value.memoryNamespace.trim()));

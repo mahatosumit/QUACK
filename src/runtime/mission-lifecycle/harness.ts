@@ -13,6 +13,7 @@ import {
 import { type ActionRuntime, type ActionProviderRegistry, type ActionRuntimeDependencies } from "../../actions/runtime.js";
 import { type CapabilityBroker, type CapabilityRequest, type CapabilityDecision, capabilityIdForPermission, resourceKindForPermission, buildToolCapabilityRequest } from "../../security/capability-broker.js";
 import { type Permission } from "../../security/permissions.js";
+import { missionModeAllowsPermission, type MissionMode } from "../mission.js";
 import { type ToolRegistry } from "../../tools/tool.js";
 import { type EventBus } from "../../events/event-bus.js";
 import {
@@ -41,6 +42,8 @@ export interface HarnessExecutionContext {
   readonly runId: string;
   readonly iterationId: string;
   readonly actor: string;
+  readonly mode?: MissionMode;
+  readonly approvedPermissions?: readonly Permission[];
   readonly signal?: AbortSignal;
   readonly deadline?: IsoTimestamp;
   /**
@@ -117,6 +120,11 @@ export interface HarnessConfig {
    */
   readonly approvalRunner?: ApprovalRunner;
 }
+
+type MissionExecutionContext = ExecutionContextV1 & {
+  readonly mode?: MissionMode;
+  readonly approvedPermissions?: readonly Permission[];
+};
 
 /** Timeout configuration per risk level. */
 export interface RiskLevelTimeouts {
@@ -532,12 +540,14 @@ export class DefaultExecutionHarness implements ExecutionHarness {
       const effectiveTimeoutMs = policy.timeoutMs;
 
       // Step 7: Execute through ActionRuntime with timeout enforcement
-      const executionContext: ExecutionContextV1 = {
+      const executionContext: MissionExecutionContext = {
         contractVersion: "1.0.0",
         missionId: context.missionId,
         taskId: context.runId,
         executionId,
         actor: context.actor,
+        mode: context.mode,
+        approvedPermissions: context.approvedPermissions,
         signal: combinedSignal,
         deadline: context.deadline,
       };
@@ -788,6 +798,23 @@ export class DefaultExecutionHarness implements ExecutionHarness {
     if (requiredPermissions.length === 0) return { requestId: createId("cap"), capabilityId: proposal.capability, granted: false, reason: "Operation declares no capability authority and cannot execute." };
     let decision: CapabilityDecision = { requestId: createId("cap"), capabilityId: proposal.capability, granted: true, reason: "No permissions are required by this registered operation." };
     for (const permission of requiredPermissions) {
+      if (context.mode && !missionModeAllowsPermission(context.mode, permission as Permission, context.approvedPermissions)) {
+        decision = {
+          requestId: createId("cap"),
+          capabilityId: proposal.capability,
+          granted: false,
+          reason: `Mission mode '${context.mode}' does not permit ${permission}.`,
+          policyRef: "mission-mode",
+        };
+        await this.eventBus.emit("harness.authorization", {
+          missionId: context.missionId,
+          proposalId: proposal.id,
+          capabilityId: proposal.capability,
+          granted: false,
+          reason: decision.reason,
+        }, { actor: "harness" });
+        return decision;
+      }
       const request = buildToolCapabilityRequest({
         taskId: context.runId, missionId: context.missionId, actor: context.actor, agentId: context.actor,
         toolId: proposal.capability, permission: permission as Permission, input: structuredClone(proposal.arguments),
@@ -866,7 +893,7 @@ export class DefaultExecutionHarness implements ExecutionHarness {
   private async executeWithTimeout(
     providerId: string,
     request: ActionRequestV1,
-    context: ExecutionContextV1,
+    context: MissionExecutionContext,
     timeoutMs: number,
     controller: AbortController,
     actionDescriptor?: ActionDescriptorV1,
@@ -879,6 +906,7 @@ export class DefaultExecutionHarness implements ExecutionHarness {
       const effectiveDeadline = new Date(Math.min(Date.now() + timeoutMs, context.deadline ? Date.parse(context.deadline) : Infinity)).toISOString();
       const result = await this.config.executeTool(request.actionId, request.input, {
         taskId: context.taskId, actor: context.actor, agentId: context.actor, missionId: context.missionId,
+        mode: context.mode, approvedPermissions: context.approvedPermissions,
         signal: context.signal, deadline: effectiveDeadline,
       });
       return { executionId: context.executionId, providerId, actionId: request.actionId,

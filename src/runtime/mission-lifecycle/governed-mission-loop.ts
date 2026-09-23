@@ -35,6 +35,8 @@ import {
 import { MissionOwnershipGuard, type OwnershipEventPayload } from "../ownership.js";
 import { SqliteConnection } from "../../storage/sqlite.js";
 import { JsonFileApprovalStore, DurableApprovalRunner, approvalRequestKey } from "./approval-store.js";
+import type { MissionMode } from "../mission.js";
+import type { Permission } from "../../security/permissions.js";
 
 /**
  * P11 (ADR 0045): the governed mission execution loop — the first REAL
@@ -316,6 +318,8 @@ export class GovernedMissionLoop {
     readonly missionId: string;
     readonly objective: string;
     readonly constraints?: readonly string[];
+    readonly mode?: MissionMode;
+    readonly approvedPermissions?: readonly Permission[];
     readonly signal?: AbortSignal;
   }): Promise<QuackResult<GovernedMissionLoopResult>> {
     if (!request.missionId || !request.objective) {
@@ -762,7 +766,13 @@ export class GovernedMissionLoop {
   // -----------------------------------------------------------------
   private async executeStep(
     run: LoopRun,
-    request: { readonly missionId: string; readonly objective: string; readonly constraints?: readonly string[] },
+    request: {
+      readonly missionId: string;
+      readonly objective: string;
+      readonly constraints?: readonly string[];
+      readonly mode?: MissionMode;
+      readonly approvedPermissions?: readonly Permission[];
+    },
     stepIndex: number,
     signal: AbortSignal,
     ownership?: MissionOwnershipGuard,
@@ -951,7 +961,16 @@ export class GovernedMissionLoop {
       }
       this.activeSteps += 1;
 
-      const harnessContext: HarnessExecutionContext = { missionId: request.missionId, runId: run.runId, iterationId, actor: this.actor, stepIndex, signal };
+      const harnessContext: HarnessExecutionContext = {
+        missionId: request.missionId,
+        runId: run.runId,
+        iterationId,
+        actor: this.actor,
+        stepIndex,
+        signal,
+        mode: request.mode,
+        approvedPermissions: request.approvedPermissions,
+      };
       let harnessResult;
       let harnessThrew = false;
       // P13 review finding 10: durable-journal settlement outcome for this

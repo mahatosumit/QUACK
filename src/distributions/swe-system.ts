@@ -1253,6 +1253,8 @@ const agentLoop = new AgentLoop({
                 missionId: request.missionId,
                 objective: request.objective,
                 constraints: request.constraints,
+                mode: request.mode,
+                approvedPermissions: request.permissions,
                 signal: request.signal,
               });
               if (!result.ok) return result;

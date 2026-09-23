@@ -1,6 +1,7 @@
 import type { LoopBudget } from "../agent-loop/contract.js";
 import type { QuackError, QuackResult } from "../core/types.js";
 import type { TaskGraph } from "../engine/types.js";
+import type { Permission } from "../security/permissions.js";
 import type { MissionOrigin, Task } from "./task.js";
 
 /** Product modes are policy inputs; they never select a separate runtime. */
@@ -62,7 +63,7 @@ export interface ResolvedMissionRequest extends MissionRequest {
   readonly engine: MissionEngine;
   readonly mode: MissionMode;
   readonly constraints: readonly string[];
-  readonly permissions: readonly string[];
+  readonly permissions: readonly Permission[];
   readonly verificationCriteria: readonly string[];
 }
 
@@ -92,4 +93,27 @@ export const MISSION_MODES: readonly MissionMode[] = ["build", "plan", "review",
 
 export function isMissionMode(value: unknown): value is MissionMode {
   return typeof value === "string" && (MISSION_MODES as readonly string[]).includes(value);
+}
+
+const READ_ONLY_MODE_PERMISSIONS: ReadonlySet<Permission> = new Set([
+  "workspace.read",
+  "filesystem.read.external",
+  "git.read",
+  "memory.read",
+  "provider.invoke",
+]);
+
+/**
+ * Mode policy is a ceiling in front of the capability broker, never a grant.
+ * PLAN may use an explicitly approved permission; REVIEW cannot mutate even
+ * when a broad standing grant exists. BUILD and MISSION remain broker-governed.
+ */
+export function missionModeAllowsPermission(
+  mode: MissionMode,
+  permission: Permission,
+  explicitlyApproved: readonly Permission[] = [],
+): boolean {
+  if (mode === "build" || mode === "mission") return true;
+  if (READ_ONLY_MODE_PERMISSIONS.has(permission)) return true;
+  return mode === "plan" && explicitlyApproved.includes(permission);
 }
