@@ -212,7 +212,7 @@
     "node": ">=22.5.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/client": "2.2.0",
     "playwright-core": "1.62.1"
   }
 }
