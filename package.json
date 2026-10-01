@@ -204,7 +204,7 @@
   "devDependencies": {
     "@axe-core/playwright": "4.13.0",
     "@modelcontextprotocol/node": "2.0.0",
-    "@modelcontextprotocol/server": "2.0.0",
+    "@modelcontextprotocol/server": "2.2.0",
     "@types/node": "^20.11.0",
     "typescript": "^5.4.0"
   },
