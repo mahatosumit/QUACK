@@ -202,7 +202,7 @@
     "stress": "npm run build && node --max-old-space-size=4096 dist/stress-test.js"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.13.0",
+    "@axe-core/playwright": "4.14.0",
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "@types/node": "^20.11.0",
